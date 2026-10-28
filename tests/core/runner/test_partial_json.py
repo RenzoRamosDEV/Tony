@@ -156,3 +156,56 @@ def test_golden_emissions_of_the_recorded_stream() -> None:
     assert [tuple(item) for item in json.loads(GOLDEN.read_text(encoding="utf-8"))] == emitted
     assert joined(emitted) == final
     assert not extractor.broken
+
+
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [
+        (["{}", " \n"], []),
+        (['{"speech\\u005ftext": "hola", "dis\\"play": "no"}'], [("speech_text", "hola")]),
+        (['{"x": {"": "\\\\", "y": ["]", "\\""]}, "speech_text": "z"}'], [("speech_text", "z")]),
+        (
+            ['{"n": -1.5e3, "ok": true, "no": false, "nada": null, "speech_text": "z"}'],
+            [("speech_text", "z")],
+        ),
+    ],
+)
+def test_edge_shapes_are_followed_without_breaking(
+    chunks: list[str], expected: list[tuple[str, str]]
+) -> None:
+    emitted, extractor = run(chunks)
+
+    assert emitted == expected
+    assert not extractor.broken
+
+
+def test_a_non_hex_unicode_escape_breaks_at_its_first_digit() -> None:
+    extractor = PartialJsonFieldExtractor()
+
+    extractor.feed('{"speech_text": "\\uG000"}')
+
+    assert extractor.broken
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        ['{}"speech_text": "a"}'],
+        ['{"n": 1} , "speech_text": "a"}'],
+        ['{X"speech_text": "a"}'],
+        ['{"a": X}'],
+        ['{"speech_text": nut'],
+    ],
+)
+def test_text_after_the_object_or_invalid_tokens_break_it(chunks: list[str]) -> None:
+    emitted, extractor = run(chunks)
+
+    assert emitted == []
+    assert extractor.broken
+
+
+def test_an_escape_inside_a_key_belongs_to_the_key() -> None:
+    emitted, extractor = run(['{"speech_text\\n": "x"}'])
+
+    assert emitted == []
+    assert not extractor.broken

@@ -152,3 +152,26 @@ def test_piper_catalog_is_the_spanish_index() -> None:
         "es_MX-ald-x_low",
         "es_MX-claude-high",
     )
+
+
+@pytest.mark.parametrize(
+    ("alias", "reason"),
+    [
+        ("kokoro/em_alex*0.6+em_santa*0.6", "los pesos de la mezcla deben sumar 1"),
+        ("piper/es_MX-ald-medium?speed=2", "speed debe estar entre 0,5 y 1,5"),
+        ("piper/es_MX-ald-medium?speed=x", "speed 'x' no es un número"),
+        ("piper/es_MX-ald-medium?speed=1=2", "speed '1=2' no es un número"),
+        ("kokoro/em_alex*x", "peso 'x' no es un número"),
+        ("kokoro/em_alex?lang=fr", "lang debe ser es-419 o es"),
+        ("kokoro/em_alex?pitch=2", "parámetro 'pitch' desconocido; admitidos: speed, lang"),
+        ("kokoro/em_alex?speed", "el parámetro speed necesita un valor (speed=…)"),
+        ("piper/es_MX-ald-medium*1.0", "la mezcla de voces solo se admite en kokoro"),
+        ("piper/es_MX-ald-medium+es_MX-claude-high", "la mezcla de voces solo se admite en kokoro"),
+        ("kokoro/em_alex/x", "valores válidos de kokoro: ef_dora, em_alex, em_santa"),
+    ],
+)
+def test_invalid_alias_messages_are_exact(alias: str, reason: str) -> None:
+    with pytest.raises(VoiceConfigError) as info:
+        parse_alias(alias)
+
+    assert str(info.value) == f"alias de voz '{alias}' inválido; {reason}"

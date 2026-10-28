@@ -422,3 +422,83 @@ async def test_with_barge_in_disabled_frames_during_playback_are_dropped(executo
 
     assert vad.thresholds == []
     assert listener.barge_ins == [] and listener.finals == [] and listener.errors == []
+
+
+async def test_a_session_without_playback_hears_moderate_speech(executor) -> None:
+    listener = Listener()
+    session = AudioSession(
+        FakeVad(),
+        lambda: FakeStt("hola"),
+        executor,
+        "es",
+        listener.on_final,
+        listener.on_error,
+        ListEventSink(),
+    )
+    session.open()
+    try:
+        await feed_all(session, windows(0.6, 12) + windows(0.0, 16))
+    finally:
+        await session.aclose()
+
+    assert listener.finals == [("hola", False)]
+
+
+async def test_the_configured_end_silence_closes_the_utterance(executor) -> None:
+    listener = Listener()
+    session = AudioSession(
+        FakeVad(),
+        lambda: FakeStt("hola"),
+        executor,
+        "es",
+        listener.on_final,
+        listener.on_error,
+        ListEventSink(),
+        end_silence_ms=700,
+    )
+    session.open()
+    try:
+        await feed_all(session, windows(0.9, 12) + windows(0.0, 19))
+        assert listener.finals == []
+        await feed_all(session, windows(0.0, 3))
+    finally:
+        await session.aclose()
+
+    assert listener.finals == [("hola", False)]
+
+
+async def test_a_discarded_burst_rearms_the_barge_in(executor) -> None:
+    session, listener = listening(executor, FakePlayback())
+    session.open()
+    try:
+        await feed_all(session, windows(0.9, 9) + windows(0.0, 16))
+        await feed_all(session, windows(0.9, 12) + windows(0.0, 16))
+    finally:
+        await session.aclose()
+
+    assert listener.barge_ins == [9 * WINDOW_MS, 9 * WINDOW_MS]
+    assert listener.finals == [("para, ¿qué tiempo hace?", True)]
+
+
+@pytest.mark.parametrize(("minimum", "fired"), [(9 * WINDOW_MS, True), (9 * WINDOW_MS + 1, False)])
+async def test_the_minimum_speech_is_inclusive(executor, minimum: int, fired: bool) -> None:
+    listener = Listener()
+    session = AudioSession(
+        FakeVad(),
+        lambda: FakeStt("x"),
+        executor,
+        "es",
+        listener.on_final,
+        listener.on_error,
+        ListEventSink(),
+        barge_in_min_speech_ms=minimum,
+        speaking=FakePlayback().speaking,
+        on_barge_in=listener.on_barge_in,
+    )
+    session.open()
+    try:
+        await feed_all(session, windows(0.9, 9) + windows(0.0, 16))
+    finally:
+        await session.aclose()
+
+    assert bool(listener.barge_ins) is fired

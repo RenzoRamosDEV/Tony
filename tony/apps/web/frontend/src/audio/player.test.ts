@@ -176,6 +176,50 @@ describe("PcmPlayer", () => {
     expect(stopped).toEqual(["m-2"]);
   });
 
+  it("ignores the end and the stop of a message that is not the one playing", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    const stopped: string[] = [];
+    player.onStopped = (messageId) => stopped.push(messageId);
+    player.begin("m-1");
+    player.enqueue(0, pcm(100), "m-1");
+
+    player.end("m-0");
+    ctx.sources[0]!.finish();
+    expect(stopped).toEqual([]);
+    player.enqueue(1, pcm(100), "m-1");
+    player.stop("m-0");
+    expect(stopped).toEqual([]);
+    expect(player.enqueue(5, pcm(100), "m-0")).toBe(false);
+    expect(player.enqueue(2, pcm(100), "m-1")).toBe(true);
+
+    player.stop();
+    expect(stopped).toEqual(["m-1"]);
+  });
+
+  it("stops without anyone listening for the report", () => {
+    const player = new PcmPlayer(() => new FakeContext() as unknown as AudioContext);
+    player.begin("m-1");
+    player.enqueue(0, pcm(100), "m-1");
+
+    expect(() => player.stop()).not.toThrow();
+  });
+
+  it("a reply begun without an id is never reported", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    const stopped: string[] = [];
+    player.onStopped = (messageId) => stopped.push(messageId);
+    player.begin();
+    player.enqueue(0, pcm(100));
+
+    player.stop();
+    player.stop(null);
+
+    expect(stopped).toEqual([]);
+    expect(player.enqueue(1, pcm(100))).toBe(true);
+  });
+
   it("an end with the queue already empty reports at once", () => {
     const ctx = new FakeContext();
     const player = new PcmPlayer(() => ctx as unknown as AudioContext);

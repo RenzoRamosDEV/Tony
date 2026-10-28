@@ -294,3 +294,36 @@ async def test_review05_finding_7_a_stopped_pipeline_pulls_no_chunk_at_all(execu
     chunks = await executor.run(speech._synthesize, tts, "Una frase.")
 
     assert chunks == [] and tts.pulled == 0
+
+
+def test_with_pause_extends_only_the_last_chunk_at_its_own_rate() -> None:
+    from tony.core.voice.pipeline import with_pause
+
+    chunks = [
+        AudioChunk(b"\x01\x00", 16_000),
+        AudioChunk(b"\x02\x00", 16_000),
+        AudioChunk(b"\x03\x00", 16_000),
+    ]
+
+    paused = with_pause(chunks, "clause")
+
+    assert paused[:2] == chunks[:2]
+    assert paused[2] == AudioChunk(b"\x03\x00" + b"\0" * (16_000 * 80 // 1_000 * 2), 16_000)
+    assert with_pause(chunks, "final") == chunks
+    assert with_pause([], "sentence") == []
+
+
+class SilentTts(FakeTts):
+    def synthesize(self, text: str, voice: str) -> Iterator[AudioChunk]:
+        self.sentences.append(text)
+        return iter(())
+
+
+async def test_pieces_without_audio_get_no_pause_and_end_cleanly(executor) -> None:
+    speech, sink, events = pipeline(executor, SilentTts())
+
+    speech.feed(TWO_SENTENCES)
+    await speech.finish()
+
+    assert sink.types() == ["start", "end"]
+    assert events.payloads(TTS_EVENT) == [{"sentences": 2, "duration_ms": 0, "cancelled": False}]

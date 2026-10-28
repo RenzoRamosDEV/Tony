@@ -86,6 +86,13 @@ describe("MicCapture", () => {
     expect("muted" in capture).toBe(false);
   });
 
+  it("frames without listeners are dropped quietly", async () => {
+    const { capture, node } = harness();
+    await capture.start();
+
+    expect(() => node.port.emit(new Float32Array(480).fill(0.5))).not.toThrow();
+  });
+
   it("stop releases the tracks and closes the context", async () => {
     const { capture, tracks, context, node } = harness();
     const frames: Float32Array[] = [];

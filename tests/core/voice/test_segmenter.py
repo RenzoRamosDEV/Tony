@@ -144,3 +144,19 @@ def test_without_first_clause_pieces_are_sentences_then_final() -> None:
 
 def test_a_paragraph_break_is_a_sentence_cut() -> None:
     assert pieces_of("Hola\n\nAdiós", False) == [("Hola", "sentence"), ("Adiós", "final")]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Hora; las diez.", [("Hora;", "sentence"), ("las diez.", "final")]),
+        (
+            "Uno dos tres cuatro cinco seis\n\nSiete.",
+            [("Uno dos tres cuatro cinco seis", "sentence"), ("Siete.", "final")],
+        ),
+    ],
+)
+def test_a_sentence_cut_at_the_same_place_as_the_clause_wins(
+    text: str, expected: list[tuple[str, str]]
+) -> None:
+    assert pieces_of(text) == expected
