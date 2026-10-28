@@ -15,8 +15,8 @@ from tests.fakes.conversation import FakeConversationRunner
 from tests.fakes.fake_watch import ScriptedWatch
 from tests.fakes.scripted_runner import ScriptedRunner
 from tests.fakes.stdin import FakeStdin
-from tony.apps.cli import chat as chat_app
 from tony.apps.cli import main
+from tony.core.channels import bootstrap
 from tony.core.memory.conversations import ConversationStore
 from tony.core.runner import TaskRequest, TaskResult
 
@@ -346,13 +346,13 @@ def test_worker_secrets_from_the_environment_are_redacted_everywhere(
         encoding="utf-8",
     )
     sinks: list[Any] = []
-    real_sink = chat_app.JsonlEventSink
+    real_sink = bootstrap.JsonlEventSink
 
     def recording_sink(logs_dir, task_id, secrets):
         sinks.append(list(secrets))
         return real_sink(logs_dir, task_id, secrets)
 
-    monkeypatch.setattr(chat_app, "JsonlEventSink", recording_sink)
+    monkeypatch.setattr(bootstrap, "JsonlEventSink", recording_sink)
     cli["turns"] = [delegating]
     cli["script"] = [("result", TaskResult(status="ok", resumen="vale env-token-secret-123"))]
     cli["stdin"] = ["lista\n", TYPING_PAUSE, "/salir\n"]

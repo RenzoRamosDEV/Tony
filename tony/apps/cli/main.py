@@ -16,6 +16,9 @@ from tony.apps.cli.chat import ChatError, ChatOptions
 from tony.apps.cli.render import exit_code_for, render_json, render_text
 from tony.apps.cli.run_task import RunTaskError
 from tony.apps.cli.stdin_reader import StdinReader
+from tony.apps.web.options import WebOptions, is_loopback
+from tony.core.channels.bootstrap import RuntimeOptions
+from tony.core.config import ConfigError, load_settings
 from tony.core.orchestrator.worker import default_manager_factory, default_worker_runner_factory
 
 app = typer.Typer(
@@ -39,6 +42,7 @@ worker_runner_factory = default_worker_runner_factory
 conversation_factory = chat_app.default_conversation_factory
 lines_factory = StdinReader
 watch_factory = None
+web_serve = None
 
 
 DEFAULT_AGENTS_DIR = Path("agents")
@@ -106,6 +110,74 @@ def chat(
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from None
     raise typer.Exit(code)
+
+
+def load_web_serve():
+    from tony.apps.web.server import serve
+
+    return serve
+
+
+REMOTE_REFUSED = (
+    "El host {host} no es loopback; usa --allow-remote para escuchar fuera de la máquina "
+    "(sin autenticación ni HTTPS)."
+)
+REMOTE_WARNING = (
+    "Aviso: el servidor escucha en {host}:{port}, fuera de loopback, sin autenticación ni HTTPS."
+)
+WEB_EXTRA_MISSING = "El chat web necesita el extra tony[web]: instala con `uv sync --extra web`."
+
+
+@app.command(help="Arranca el chat web local (servidor HTTP y WebSocket) con Jarvis.")
+def web(
+    port: Annotated[
+        int | None, typer.Option("--port", help="Puerto de escucha (por defecto web.port, 8787).")
+    ] = None,
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="Dirección de escucha (por defecto web.host, 127.0.0.1)."),
+    ] = None,
+    open_browser: Annotated[
+        bool, typer.Option("--open", help="Abre el navegador en la página del chat al arrancar.")
+    ] = False,
+    allow_remote: Annotated[
+        bool,
+        typer.Option(
+            "--allow-remote", help="Permite escuchar fuera de loopback (sin autenticación)."
+        ),
+    ] = False,
+    config: Annotated[
+        Path, typer.Option("--config", help="Ruta del fichero de configuración de Tony.")
+    ] = DEFAULT_CONFIG,
+    agents_dir: Annotated[
+        Path, typer.Option("--agents-dir", help="Directorio que contiene las carpetas de agentes.")
+    ] = DEFAULT_AGENTS_DIR,
+) -> None:
+    try:
+        settings = load_settings(config)
+    except ConfigError as exc:
+        typer.echo(f"Configuración inválida en {config}: {exc}", err=True)
+        raise typer.Exit(2) from None
+    host = host or settings.web.host
+    port = port or settings.web.port
+    if not is_loopback(host):
+        if not allow_remote:
+            typer.echo(REMOTE_REFUSED.format(host=host), err=True)
+            raise typer.Exit(2)
+        typer.echo(REMOTE_WARNING.format(host=host, port=port), err=True)
+    try:
+        serve = web_serve or load_web_serve()
+    except ImportError:
+        typer.echo(WEB_EXTRA_MISSING, err=True)
+        raise typer.Exit(2) from None
+    options = WebOptions(
+        host, port, RuntimeOptions(config_path=config, agents_dir=agents_dir), open_browser
+    )
+    try:
+        asyncio.run(serve(options))
+    except ChatError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from None
 
 
 @app.command(help="Muestra la versión de Tony.")

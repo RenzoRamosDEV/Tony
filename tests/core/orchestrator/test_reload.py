@@ -33,6 +33,7 @@ class Harness:
         self.managers: list[FakeManager] = []
         self.events = ListEventSink()
         self.notices: list[str] = []
+        self.notified_events: list[tuple] = []
         self.factory = SdkWorkerFactory(
             self.settings,
             load_agent(self.agents / "viernes", self.settings, self.env),
@@ -50,8 +51,9 @@ class Harness:
         self.managers.append(manager)
         return manager
 
-    async def notify(self, text: str) -> None:
+    async def notify(self, text: str, event_type: str | None = None, payload=None) -> None:
         self.notices.append(text)
+        self.notified_events.append((event_type, payload))
 
     def write_tool_json(self, data: dict | str) -> None:
         tool = self.agents / "viernes" / "tool"

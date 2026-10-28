@@ -6,6 +6,7 @@ import ast
 import pkgutil
 from pathlib import Path
 
+import tony.apps
 import tony.core
 
 FORBIDDEN_IN_CORE = ("tony.apps", "typer", "fastapi")
@@ -28,6 +29,9 @@ FORBIDDEN_IN_FRAMEWORK_FREE = ("tony.core.channels", "pytest", "typer")
 SQLITE_ALLOWED_IN = {"tony.core.memory.conversations"}
 WORKER_PATH_PACKAGES = ("tony.core.runner.", "tony.core.orchestrator.", "tony.core.memory.")
 CHANNELS_PACKAGE = "tony.core.channels"
+WEB_FRAMEWORKS = ("fastapi", "starlette", "uvicorn")
+WEB_PACKAGE = "tony.apps.web."
+CLI_PACKAGE = "tony.apps.cli"
 
 
 def imported_modules(path: Path) -> set[str]:
@@ -44,6 +48,15 @@ def imported_modules(path: Path) -> set[str]:
 def core_modules() -> dict[str, set[str]]:
     result = {}
     for info in pkgutil.walk_packages(tony.core.__path__, prefix="tony.core."):
+        path = Path(info.module_finder.path) / (info.name.rsplit(".", 1)[-1] + ".py")
+        if path.is_file():
+            result[info.name] = imported_modules(path)
+    return result
+
+
+def apps_modules() -> dict[str, set[str]]:
+    result = {}
+    for info in pkgutil.walk_packages(tony.apps.__path__, prefix="tony.apps."):
         path = Path(info.module_finder.path) / (info.name.rsplit(".", 1)[-1] + ".py")
         if path.is_file():
             result[info.name] = imported_modules(path)
@@ -70,6 +83,16 @@ def worker_path_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
 def framework_free_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
     scoped = {m: i for m, i in modules.items() if m.startswith(FRAMEWORK_FREE_PACKAGES)}
     return offenders(scoped, FORBIDDEN_IN_FRAMEWORK_FREE)
+
+
+def web_framework_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
+    outside_web = {m: i for m, i in modules.items() if not m.startswith(WEB_PACKAGE)}
+    return offenders(outside_web, WEB_FRAMEWORKS)
+
+
+def web_to_cli_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
+    web = {m: i for m, i in modules.items() if m.startswith(WEB_PACKAGE)}
+    return offenders(web, (CLI_PACKAGE,))
 
 
 def test_core_never_imports_apps_or_frameworks() -> None:
@@ -129,3 +152,26 @@ def test_a_simulated_forbidden_import_is_reported() -> None:
         "tony.core.evals.replay": ["tony.core.channels.session"],
     }
     assert users_of({"tony.core.x": {"watchfiles"}}, "watchfiles") == {"tony.core.x"}
+
+
+def test_web_frameworks_are_imported_only_by_the_web_app() -> None:
+    assert web_framework_offenders({**core_modules(), **apps_modules()}) == {}
+
+
+def test_the_web_app_never_imports_the_cli_app() -> None:
+    assert web_to_cli_offenders(apps_modules()) == {}
+
+
+def test_a_simulated_web_framework_leak_is_reported() -> None:
+    simulated = {
+        "tony.apps.web.server": {"fastapi", "starlette.staticfiles", "uvicorn"},
+        "tony.apps.cli.main": {"typer", "uvicorn"},
+        "tony.core.channels.bootstrap": {"starlette.requests"},
+        "tony.apps.web.api": {"tony.apps.cli.render", "tony.core.memory"},
+    }
+
+    assert web_framework_offenders(simulated) == {
+        "tony.apps.cli.main": ["uvicorn"],
+        "tony.core.channels.bootstrap": ["starlette.requests"],
+    }
+    assert web_to_cli_offenders(simulated) == {"tony.apps.web.api": ["tony.apps.cli.render"]}

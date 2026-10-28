@@ -167,6 +167,18 @@ tests/apps/web/        helpers.py (build_test_app), test_*.py
 - Despliegue local: `uv sync --extra web` → `cd tony/apps/web/frontend && npm install && npm run build` → `uv run tony web --open` → sesión de cierre (chat, delegación con confirmación por botón, cambio de modo por botón, panel con tools y tokens).
 - Rollback: revertir el commit; `tony chat` no depende de nada nuevo salvo `bootstrap.py`, que se revierte con el resto; borrar `tony/apps/web/frontend/node_modules` y `dist` si se desea.
 
+## Desviaciones de implementación
+
+- D2: `gate_factory(settings, front)` recibe la `AgentSpec` del front en lugar de `secrets` (la puerta de la CLI necesita el nombre del agente; ninguna puerta usa los secretos). `build_chat_runtime` acepta `clock` (inyectado en orquestador y sesión) y `err`; `ChatRuntime.close_session()` cierra la sesión con `ChatSession.close(close_orchestrator=False)` para que el hub cambie de conversación sin cerrar el orquestador; `ChatSession.close()` sin argumentos sigue cerrándolo (CLI).
+- D3/D8: `AgentReloader.notify(text, event_type, payload)` entrega además el evento de recarga y `ChatSession.notify_reload(text, event_type=None, payload=None)` lo reenvía como `TaskEvent(task_id="config")`; `ChatSession` envía `TaskEvent` antes de `TaskProgress`/`NeedsConfirmation` y el adaptador web ignora los `task.needs_confirmation` del flujo (usa `NeedsConfirmation`, que ya lleva el `task_id` del hijo).
+- D4/D5: `hello.ok` y los `error` de petición (`hello_required`, `bad_envelope`, `unknown_type`, `turn_in_progress`, `empty_text`, `invalid_reply_mode`, `invalid_confirmation`, `unknown_task`, `conversation_busy`) viajan fuera de banda con `seq: 0` y no se reenvían en la reconexión; el cliente acepta `seq: 0` siempre y descarta `seq ≤ último visto` para el resto. `ConversationStream.publish` es `async` (backpressure de `OutboundQueue`); el `hello.ok` sale antes de adjuntar la cola y el reenvío se precarga con `OutboundQueue.prefill`.
+- D7: la puerta del front (`WebConfirmGate`) publica además `task.confirmed`/`task.cancelled {reason: "not_confirmed"}` con `task_id: "front"` para que la tarjeta desaparezca; `stream` es un atributo que el hub reasigna al abrir cada conversación.
+- D8: `usage {task_id: null}` del turno lleva `cumulative_tokens` (entrada + salida del turno) por simetría; el `mcp.status` del worker se reenvía como cualquier otro evento.
+- D9: `OriginPolicy.allows` acepta `http://[::1]:<port>` solo cuando `host` es `::1`; las respuestas `405` usan `error: "method_not_allowed"`. El rechazo del WS con `Origin` ajeno se hace con `close(1008)` antes de `accept()` (Starlette responde 403 al handshake).
+- D10: `WebOptions` vive en `tony/apps/web/options.py` (sin FastAPI) para que `tony web` valide host y puerto antes de importar el servidor; `serve(options)` construye el runtime en el bucle actual y después arranca uvicorn, así `front: nadie` termina con código 2 sin abrir el puerto.
+- D11: `marked` 18 + `dompurify` 3 con `img`/`svg` también prohibidos (ninguna imagen remota); `typescript` 5.9 (la 7.x es la variante nativa, no la de referencia); el cliente trata `assistant.final` sin deltas previos como mensaje nuevo.
+- D12: `tests/apps/web/helpers.py` construye el runtime de dobles dentro del `startup` del `TestClient` y expone `advance`/`settle` sobre su portal; `test_api_tasks.py` y los tres ficheros de flujo comparten `open_chat`/`drain_until`/`send`.
+
 ## Open Questions
 
 - Si `uvicorn`+`websockets` en la versión resuelta devuelve el 403 del handshake con `WebSocketDenialResponse` o solo cierra la conexión; en ambos casos el `hello` nunca se acepta y la prueba comprueba el rechazo antes de cualquier mensaje. No afecta a specs ni tareas.

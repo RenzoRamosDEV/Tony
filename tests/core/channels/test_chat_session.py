@@ -16,11 +16,14 @@ from tests.fakes.clock import FakeClock
 from tests.fakes.conversation import FakeConversationRunner
 from tests.fakes.worker_factory import FakeWorkerFactory
 from tony.core.channels.ports import (
+    AssistantDelta,
     AssistantReply,
     AssistantWait,
     NeedsConfirmation,
     Notice,
+    TaskEvent,
     TaskProgress,
+    UserAccepted,
 )
 from tony.core.channels.session import ChatSession, Memory
 from tony.core.config import Limits, load_settings
@@ -120,15 +123,29 @@ def tmp_memory(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def spoken(reply: AssistantReply | None) -> tuple[str, str | None, str]:
+    assert reply is not None
+    return (reply.display_text, reply.speech_text, reply.mode)
+
+
+def cli_visible(messages: list) -> list:
+    """What the terminal renders: the web-only messages are ignored by CliChannel."""
+    return [m for m in messages if not isinstance(m, (UserAccepted, AssistantDelta, TaskEvent))]
+
+
 async def test_time_question_is_answered_without_delegating(tmp_memory: Path) -> None:
     h = Harness(tmp_memory, [time_answer])
     await h.start()
 
     reply = await h.session.handle("¿Qué hora es?")
 
-    assert reply == AssistantReply("Son las 09:05, señor.", None, "text")
+    assert (reply.display_text, reply.speech_text, reply.mode) == (
+        "Son las 09:05, señor.",
+        None,
+        "text",
+    )
     assert h.queued_events() == []
-    assert h.channel.messages == [reply]
+    assert h.channel.messages[-1] == reply and h.channel.of_type(AssistantReply) == [reply]
     assert h.runner.prompts[0].endswith("¿Qué hora es?")
     assert "2026-10-28T09:05:00+02:00" in h.runner.prompts[0]
 
@@ -172,7 +189,7 @@ async def test_wait_phrase_is_sent_once_after_three_seconds(tmp_memory: Path) ->
     await h.clock.advance(7)
     await asyncio.wait_for(turn, 1)
     assert h.channel.of_type(AssistantWait) == [AssistantWait("Dame un momento.")]
-    kinds = [type(m).__name__ for m in h.channel.messages]
+    kinds = [type(m).__name__ for m in cli_visible(h.channel.messages)]
     assert kinds == ["AssistantWait", "TaskProgress", "AssistantReply"]
 
 
@@ -226,9 +243,10 @@ async def test_raw_task_result_never_reaches_the_channel(tmp_memory: Path) -> No
 
     await h.session.handle("lista los .md")
 
-    texts = [json.dumps(m.__dict__) for m in h.channel.messages]
+    visible = cli_visible(h.channel.messages)
+    texts = [json.dumps(m.__dict__) for m in visible]
     assert all('"status"' not in text and "pasos" not in text for text in texts)
-    assert [type(m).__name__ for m in h.channel.messages] == ["TaskProgress", "AssistantReply"]
+    assert [type(m).__name__ for m in visible] == ["TaskProgress", "AssistantReply"]
 
 
 async def test_set_reply_mode_during_a_turn_applies_to_the_next_message(tmp_memory: Path) -> None:
@@ -243,8 +261,8 @@ async def test_set_reply_mode_during_a_turn_applies_to_the_next_message(tmp_memo
     first = await h.session.handle("pasa a voz")
     second = await h.session.handle("hola")
 
-    assert first == AssistantReply("Cambiado", None, "text")
-    assert second == AssistantReply("Hola", "Hola", "voice")
+    assert spoken(first) == ("Cambiado", None, "text")
+    assert spoken(second) == ("Hola", "Hola", "voice")
     assert h.memory.settings.load().reply_mode == "voice"
 
 
@@ -263,9 +281,9 @@ async def test_prefix_applies_to_one_message_and_never_touches_settings(tmp_memo
     first = await h.session.handle("/v ¿qué tiempo hace?")
     second = await h.session.handle("¿seguro?")
 
-    assert first == AssistantReply("Nublado", "Nublado", "voice")
+    assert spoken(first) == ("Nublado", "Nublado", "voice")
     assert h.runner.prompts[0].endswith("¿qué tiempo hace?")
-    assert second == AssistantReply("Sí", None, "text")
+    assert spoken(second) == ("Sí", None, "text")
     assert h.memory.settings.path.read_text(encoding="utf-8") == before
 
 
@@ -739,3 +757,114 @@ async def test_triggered_front_skill_is_logged_in_the_session_events(tmp_memory:
     await h.session.handle("¿qué hora es?")
 
     assert events.payloads("skill.activated") == [{"skill": "protocolo-mañana"}]
+
+
+# --- web-facing channel messages (change 04) ---------------------------------------------------
+
+from tony.core.runner.conversation import FrontTurn  # noqa: E402
+
+
+async def test_user_message_is_accepted_before_the_turn_with_its_persisted_id(
+    tmp_memory: Path,
+) -> None:
+    accepted_before_turn: list[list] = []
+
+    async def recording_turn(prompt: str, handlers: Any) -> str:
+        accepted_before_turn.append(list(h.channel.of_type(UserAccepted)))
+        return "Hola."
+
+    h = Harness(tmp_memory, [recording_turn])
+    conversation = await h.start()
+
+    await h.session.handle("hola")
+
+    user_message = h.memory.conversations.messages(conversation)[0]
+    assert accepted_before_turn == [[UserAccepted(user_message.id, "text")]]
+    assert h.channel.messages[0] == UserAccepted(user_message.id, "text")
+
+
+async def test_chunks_become_deltas_sharing_the_reply_message_id(tmp_memory: Path) -> None:
+    usage = {"input_tokens": 1200, "output_tokens": 80, "total_cost_usd": 0.01, "num_turns": 1}
+    turn = FrontTurn(
+        text="",
+        structured={
+            "display_text": "Hola, Renzo",
+            "speech_text": None,
+            "chunks": ["Hola", ", Renzo"],
+        },
+        usage=usage,
+    )
+    h = Harness(tmp_memory, [turn])
+    conversation = await h.start()
+
+    reply = await h.session.handle("hola")
+
+    assert reply is not None and reply.message_id is not None
+    assert h.channel.of_type(AssistantDelta) == [
+        AssistantDelta(reply.message_id, "Hola"),
+        AssistantDelta(reply.message_id, ", Renzo"),
+    ]
+    assert reply.usage == usage and reply.error is None
+    assert reply.display_text == "Hola, Renzo"
+    assistant_message = h.memory.conversations.messages(conversation)[1]
+    assert (assistant_message.id, assistant_message.role) == (reply.message_id, "assistant")
+    assert h.channel.messages[-1] == reply
+
+
+async def test_failed_turn_exposes_the_error_in_the_reply(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [FrontTurn(text="No pude completar el turno.", error="boom")])
+    await h.start()
+
+    reply = await h.session.handle("hola")
+
+    assert reply is not None
+    assert reply.error == "boom"
+    assert reply.display_text == "No pude completar el turno."
+
+
+async def test_every_task_event_is_forwarded_redacted_with_seq_and_ts(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [delegating("lista supersecreto")], secrets=["supersecreto"])
+    h.factory.scripts["lista supersecreto"] = [("tool", "fs.read", {"path": "/supersecreto/a"})]
+    await h.start()
+
+    await h.session.handle("lista")
+
+    events = h.channel.of_type(TaskEvent)
+    task_id = next(iter(h.orchestrator.tasks))
+    assert [e.type for e in events] == [
+        "task.queued",
+        "task.running",
+        "task.started",
+        "tool.call",
+        "task.progress",
+        "tool.result",
+        "task.finished",
+        "task.result",
+    ]
+    assert [e.seq for e in events] == list(range(1, 9))
+    assert all(e.task_id == task_id and e.parent_id is None and e.ts for e in events)
+    assert events[3].payload == {"tool": "fs.read", "args": {"path": "/***/a"}}
+    assert "supersecreto" not in json.dumps([e.payload for e in events])
+    kinds = [type(m).__name__ for m in h.channel.messages]
+    assert kinds.index("TaskEvent") < kinds.index("TaskProgress")
+
+
+async def test_notify_reload_sends_a_notice_and_a_config_event(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [])
+    await h.start()
+
+    await h.session.notify_reload(
+        "recargada", "config.reloaded", {"agent": "viernes", "servers": ["fs"]}
+    )
+    await h.session.notify_reload("reinicio")
+
+    assert h.channel.of_type(Notice) == [Notice("recargada"), Notice("reinicio")]
+    events = h.channel.of_type(TaskEvent)
+    assert len(events) == 1
+    assert (events[0].task_id, events[0].type, events[0].parent_id) == (
+        "config",
+        "config.reloaded",
+        None,
+    )
+    assert events[0].payload == {"agent": "viernes", "servers": ["fs"]}
+    assert events[0].seq == 0 and events[0].ts

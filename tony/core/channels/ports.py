@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
+
+
+@dataclass(frozen=True)
+class UserAccepted:
+    message_id: str
+    effective_mode: str
+
+
+@dataclass(frozen=True)
+class AssistantDelta:
+    message_id: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -11,6 +23,9 @@ class AssistantReply:
     display_text: str
     speech_text: str | None
     mode: str
+    message_id: str | None = None
+    usage: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -38,7 +53,28 @@ class Notice:
     text: str
 
 
-ChannelMessage = AssistantReply | AssistantWait | TaskProgress | NeedsConfirmation | Notice
+@dataclass(frozen=True)
+class TaskEvent:
+    """One orchestrator (or configuration) event, secrets already redacted."""
+
+    task_id: str
+    parent_id: str | None
+    type: str
+    payload: dict[str, Any]
+    seq: int
+    ts: str
+
+
+ChannelMessage = (
+    UserAccepted
+    | AssistantDelta
+    | AssistantReply
+    | AssistantWait
+    | TaskProgress
+    | NeedsConfirmation
+    | Notice
+    | TaskEvent
+)
 
 
 @runtime_checkable

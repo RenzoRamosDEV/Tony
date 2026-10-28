@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,16 +12,19 @@ from typing import Any
 from pydantic import BaseModel
 
 from tony.core.channels.ports import (
+    AssistantDelta,
     AssistantReply,
     AssistantWait,
     Channel,
     NeedsConfirmation,
     Notice,
+    TaskEvent,
     TaskProgress,
+    UserAccepted,
 )
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
-from tony.core.logging import redact
+from tony.core.logging import redact, utc_timestamp
 from tony.core.mcp import ToolCatalog
 from tony.core.memory.conversations import ConversationStore
 from tony.core.memory.preferences import PreferencesStore
@@ -36,6 +40,7 @@ from tony.core.orchestrator.task import (
     TASK_NEEDS_CONFIRMATION,
     TASK_PROGRESS,
     TASK_RESULT,
+    Event,
 )
 from tony.core.runner import EventSink, TaskRequest, TaskResult
 from tony.core.runner.cancel import USER_REASON
@@ -44,6 +49,7 @@ from tony.core.runner.conversation import ConversationRunner
 from tony.core.runner.front_prompt import PREAMBLE_END, PREAMBLE_START, build_turn_preamble
 from tony.core.runner.reply_mode import (
     PREFIX_FOR_MODE,
+    EffectiveMode,
     InputModality,
     parse_front_reply,
     resolve_reply_mode,
@@ -59,6 +65,7 @@ MISSING_TEXT_NOTICE = "Falta el mensaje después del prefijo {prefix}."
 RESUME_FAILED_NOTICE = "No se pudo reanudar la sesión anterior del front; se empieza de cero."
 TAGGED_PREFERENCE = "La preferencia no puede contener etiquetas de contexto."
 CHANNEL_NAME = "cli"
+CONFIG_TASK_ID = "config"
 
 
 @dataclass
@@ -127,6 +134,29 @@ class ChatSession:
             await self._runner.open(self._front, self._catalog, self, self._events)
 
     async def handle(self, text: str, modality: InputModality = "text") -> AssistantReply | None:
+        accepted = await self._accept(text, modality)
+        if accepted is None:
+            return None
+        mode, message = accepted
+        reply_id = uuid.uuid4().hex
+        turn = await self._runner.turn(
+            self._prompt_for(message, mode), on_text=self._delta_sender(reply_id)
+        )
+        self._persist_sdk_session()
+        front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
+        reply = AssistantReply(
+            front_reply.display_text,
+            front_reply.speech_text,
+            mode.mode,
+            message_id=reply_id,
+            usage=dict(turn.usage),
+            error=turn.error,
+        )
+        self._store_message("assistant", reply.display_text, mode.mode, reply_id)
+        await self._channel.send(reply)
+        return reply
+
+    async def _accept(self, text: str, modality: InputModality) -> tuple[EffectiveMode, str] | None:
         prefix, message = strip_prefix(text)
         if prefix is not None and not message:
             notice = MISSING_TEXT_NOTICE.format(prefix=PREFIX_FOR_MODE[prefix])
@@ -135,21 +165,23 @@ class ChatSession:
         mode = resolve_reply_mode(
             prefix, self._memory.settings.load().reply_mode, self._settings.reply_mode, modality
         )
-        self._store_message("user", message, None)
+        user_id = self._store_message("user", message, None)
+        await self._channel.send(UserAccepted(user_id, mode.mode))
+        return mode, message
+
+    def _prompt_for(self, message: str, mode: EffectiveMode) -> str:
         preamble = build_turn_preamble(
             self._now(), mode, self._front.style, self._memory.preferences.injection_block()
         )
         for skill in matched_skills(message, self._front.skills):
             self._events.emit(SKILL_ACTIVATED, {"skill": skill.name})
-        turn = await self._runner.turn(
-            preamble + skill_blocks(message, self._front.skills) + message
-        )
-        self._persist_sdk_session()
-        front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
-        reply = AssistantReply(front_reply.display_text, front_reply.speech_text, mode.mode)
-        self._store_message("assistant", reply.display_text, mode.mode)
-        await self._channel.send(reply)
-        return reply
+        return preamble + skill_blocks(message, self._front.skills) + message
+
+    def _delta_sender(self, reply_id: str) -> Callable[[str], Awaitable[None]]:
+        async def on_text(text: str) -> None:
+            await self._channel.send(AssistantDelta(reply_id, text))
+
+        return on_text
 
     async def cancel_active(self) -> None:
         if not self.active_task_ids:
@@ -158,14 +190,15 @@ class ChatSession:
             await self._orchestrator.cancel(task_id, USER_REASON)
         await self._runner.interrupt()
 
-    async def close(self) -> None:
+    async def close(self, close_orchestrator: bool = True) -> None:
         if self._closed:
             return
         self._closed = True
         try:
             await self._runner.close()
         finally:
-            await self._orchestrator.close()
+            if close_orchestrator:
+                await self._orchestrator.close()
             await asyncio.gather(*self._supervisors, return_exceptions=True)
 
     async def delegate(self, request: TaskRequest) -> TaskResult:
@@ -209,8 +242,14 @@ class ChatSession:
     async def read_skill(self, name: str) -> str:
         return find_skill(self._front.skills, name).body
 
-    async def notify_reload(self, text: str) -> None:
+    async def notify_reload(
+        self, text: str, event_type: str | None = None, payload: dict[str, Any] | None = None
+    ) -> None:
         await self._channel.send(Notice(text))
+        if event_type is not None:
+            await self._channel.send(
+                TaskEvent(CONFIG_TASK_ID, None, event_type, dict(payload or {}), 0, utc_timestamp())
+            )
 
     async def _settle_interrupted(
         self, task_id: str, request: TaskRequest, usage: dict[str, Any], forwarder: asyncio.Task
@@ -229,6 +268,7 @@ class ChatSession:
         asking = _PendingAsk()
         try:
             async for event in self._orchestrator.events(task_id):
+                await self._channel.send(self._task_event(event))
                 payload = event.payload
                 if event.type == TASK_PROGRESS:
                     await self._channel.send(
@@ -253,6 +293,16 @@ class ChatSession:
         await self._clock.sleep(WAIT_PHRASE_DELAY_S)
         await self._channel.send(AssistantWait(self._front.wait_phrase))
 
+    def _task_event(self, event: Event) -> TaskEvent:
+        return TaskEvent(
+            event.task_id,
+            event.parent_id,
+            event.type,
+            redact(event.payload, self._secrets),
+            event.seq,
+            event.ts,
+        )
+
     def _redacted[M: BaseModel](self, model: M) -> M:
         return model.model_validate(redact(model.model_dump(), self._secrets))
 
@@ -264,10 +314,12 @@ class ChatSession:
         ):
             self._memory.conversations.set_sdk_session(self.conversation_id, session_id)
 
-    def _store_message(self, role: str, content: str, reply_mode: str | None) -> None:
+    def _store_message(
+        self, role: str, content: str, reply_mode: str | None, message_id: str | None = None
+    ) -> str:
         assert self.conversation_id is not None, "start() must run before handle()"
-        self._memory.conversations.add_message(
-            self.conversation_id, role, redact(content, self._secrets), reply_mode
+        return self._memory.conversations.add_message(
+            self.conversation_id, role, redact(content, self._secrets), reply_mode, message_id
         )
 
     def _record_task(

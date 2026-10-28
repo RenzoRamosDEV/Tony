@@ -58,6 +58,8 @@ class CliChannel:
             self._err(f"{message.text}\n")
         elif isinstance(message, NeedsConfirmation):
             await self._ask(message)
+        else:
+            return
 
     def _print_reply(self, reply: AssistantReply) -> None:
         stdout = self._stdout or sys.stdout

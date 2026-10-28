@@ -40,13 +40,23 @@ CREATE TABLE IF NOT EXISTS tasks (
 """
 MIGRATIONS = {"conversations": {"sdk_session_id": "TEXT"}}
 DEFAULT_RECENT = 40
+DEFAULT_LISTED = 20
+MESSAGE_COLUMNS = "id, role, content, reply_mode, created_at"
 
 
 @dataclass(frozen=True)
 class Message:
+    id: str
     role: str
     content: str
     reply_mode: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
+class ConversationSummary:
+    id: str
+    channel: str
     created_at: str
 
 
@@ -77,14 +87,21 @@ class ConversationStore:
         return conversation_id
 
     def add_message(
-        self, conversation_id: str, role: str, content: str, reply_mode: str | None
-    ) -> None:
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        reply_mode: str | None,
+        message_id: str | None = None,
+    ) -> str:
+        message_id = message_id or uuid.uuid4().hex
         with self._connection:
             self._connection.execute(
                 "INSERT INTO messages (id, conversation_id, role, content, reply_mode, created_at)"
                 " VALUES (?, ?, ?, ?, ?, ?)",
-                (uuid.uuid4().hex, conversation_id, role, content, reply_mode, utc_timestamp()),
+                (message_id, conversation_id, role, content, reply_mode, utc_timestamp()),
             )
+        return message_id
 
     def record_task(
         self,
@@ -119,11 +136,33 @@ class ConversationStore:
 
     def recent_messages(self, conversation_id: str, limit: int = DEFAULT_RECENT) -> list[Message]:
         rows = self._connection.execute(
-            "SELECT role, content, reply_mode, created_at FROM messages WHERE conversation_id = ?"
+            f"SELECT {MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ?"
             " ORDER BY created_at DESC, rowid DESC LIMIT ?",
             (conversation_id, limit),
         ).fetchall()
-        return [Message(*row) for row in reversed(rows)]
+        return [_message(row) for row in reversed(rows)]
+
+    def messages(self, conversation_id: str) -> list[Message]:
+        rows = self._connection.execute(
+            f"SELECT {MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ?"
+            " ORDER BY created_at ASC, rowid ASC",
+            (conversation_id,),
+        ).fetchall()
+        return [_message(row) for row in rows]
+
+    def list_conversations(self, limit: int = DEFAULT_LISTED) -> list[ConversationSummary]:
+        rows = self._connection.execute(
+            "SELECT id, channel, created_at FROM conversations"
+            " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [ConversationSummary(*row) for row in rows]
+
+    def has_conversation(self, conversation_id: str) -> bool:
+        row = self._connection.execute(
+            "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        return row is not None
 
     def sdk_session(self, conversation_id: str) -> str | None:
         row = self._connection.execute(
@@ -148,3 +187,7 @@ class ConversationStore:
 
     def close(self) -> None:
         self._connection.close()
+
+
+def _message(row: tuple[str, str, str, str | None, str]) -> Message:
+    return Message(*row)

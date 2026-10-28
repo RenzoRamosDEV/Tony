@@ -25,3 +25,4 @@ tony/apps/web/frontend/dist/
 evals/runs/
 # Lock file of tony mcp add/remove
 tool.json.lock
+tony/apps/web/frontend/tsconfig.tsbuildinfo

@@ -20,7 +20,8 @@ RELOADED_NOTICE = "Configuración de '{agent}' recargada; servidores MCP: {serve
 FAILED_NOTICE = "No se pudo recargar '{agent}'; se conserva la configuración anterior: {error}"
 CANCELLED_ERROR = "recarga cancelada antes de arrancar los servidores nuevos"
 
-Notify = Callable[[str], Awaitable[None]]
+Notify = Callable[..., Awaitable[None]]
+"""`notify(text)` for plain notices; `notify(text, event_type, payload)` when an event backs it."""
 logger = logging.getLogger(__name__)
 
 
@@ -71,11 +72,14 @@ class AgentReloader:
             await self._failed(agent, str(exc) or exc.__class__.__name__)
             return
         servers = list(spec.tools.mcpServers)
-        self._events.emit(CONFIG_RELOADED, {"agent": agent, "servers": servers})
-        await self._notify(
-            RELOADED_NOTICE.format(agent=agent, servers=", ".join(servers) or "ninguno")
-        )
+        payload = {"agent": agent, "servers": servers}
+        self._events.emit(CONFIG_RELOADED, payload)
+        text = RELOADED_NOTICE.format(agent=agent, servers=", ".join(servers) or "ninguno")
+        await self._notify(text, CONFIG_RELOADED, payload)
 
     async def _failed(self, agent: str, error: str) -> None:
-        self._events.emit(CONFIG_RELOAD_FAILED, {"agent": agent, "error": error})
-        await self._notify(FAILED_NOTICE.format(agent=agent, error=error))
+        payload = {"agent": agent, "error": error}
+        self._events.emit(CONFIG_RELOAD_FAILED, payload)
+        await self._notify(
+            FAILED_NOTICE.format(agent=agent, error=error), CONFIG_RELOAD_FAILED, payload
+        )

@@ -158,3 +158,57 @@ def test_database_created_before_the_sdk_session_column_is_migrated(tmp_path: Pa
     assert s.sdk_session("old") == "sdk-1"
     assert s.last_conversation("cli") == "old"
     s.close()
+
+
+# --- ids, full history and listing (specs/user-memory, change 04) ------------------------------
+
+
+def test_add_message_returns_the_id_that_messages_exposes(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    conversation = s.start_conversation("web")
+
+    generated = s.add_message(conversation, "user", "hola", None)
+    explicit = s.add_message(conversation, "assistant", "Hola.", "text", message_id="m1")
+
+    messages = s.messages(conversation)
+    assert [(m.id, m.role, m.content, m.reply_mode) for m in messages] == [
+        (generated, "user", "hola", None),
+        ("m1", "assistant", "Hola.", "text"),
+    ]
+    assert explicit == "m1"
+    assert len(generated) == 32
+    assert all(m.created_at for m in messages)
+    assert s.recent_messages(conversation)[0].id == generated
+    s.close()
+
+
+def test_messages_of_an_empty_or_unknown_conversation_is_an_empty_list(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    conversation = s.start_conversation("web")
+
+    assert s.messages(conversation) == []
+    assert s.messages("nope") == []
+    s.close()
+
+
+def test_list_conversations_returns_the_twenty_most_recent_first(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    created = [s.start_conversation("cli" if i % 5 == 0 else "web") for i in range(25)]
+
+    listed = s.list_conversations()
+
+    assert len(listed) == 20
+    assert [c.id for c in listed] == list(reversed(created))[:20]
+    assert listed[0].channel == "web" and listed[4].channel == "cli"
+    assert all(c.created_at for c in listed)
+    assert [c.id for c in s.list_conversations(limit=2)] == [created[24], created[23]]
+    s.close()
+
+
+def test_has_conversation(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    conversation = s.start_conversation("cli")
+
+    assert s.has_conversation(conversation) is True
+    assert s.has_conversation("nope") is False
+    s.close()

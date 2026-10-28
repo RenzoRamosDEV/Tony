@@ -10,11 +10,14 @@ from tests.fakes.stdin import FakeStdin
 from tony.apps.cli.chat_channel import CliChannel
 from tony.apps.cli.confirm_gate import CliConfirmGate
 from tony.core.channels.ports import (
+    AssistantDelta,
     AssistantReply,
     AssistantWait,
     NeedsConfirmation,
     Notice,
+    TaskEvent,
     TaskProgress,
+    UserAccepted,
 )
 from tony.core.mcp import ConfirmRequest
 from tony.core.orchestrator.errors import OrchestratorError
@@ -125,3 +128,16 @@ async def test_front_gate_and_worker_channel_never_show_two_prompts_at_once() ->
     await asyncio.wait_for(worker, 1)
 
     assert confirm.calls == [("c1", False, "filesystem.move_file", REQUEST.args)]
+
+
+async def test_web_only_messages_are_ignored_by_the_terminal() -> None:
+    cli, confirm, err, out = channel([])
+
+    await cli.send(UserAccepted("m1", "text"))
+    await cli.send(AssistantDelta("m2", "Hola"))
+    await cli.send(
+        TaskEvent("t1", None, "task.queued", {"objetivo": "x"}, 1, "2026-01-01T00:00:00Z")
+    )
+
+    assert out.getvalue() == "" and err.getvalue() == ""
+    assert confirm.calls == []

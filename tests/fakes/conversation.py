@@ -8,7 +8,7 @@ from typing import Any
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
 from tony.core.runner import EventSink
-from tony.core.runner.conversation import FrontTurn
+from tony.core.runner.conversation import FrontTurn, TextCallback
 from tony.core.runner.native_tools import NativeToolHandlers
 
 ScriptedTurn = str | dict[str, Any] | FrontTurn | Callable[[str, Any], Awaitable[Any]]
@@ -49,12 +49,16 @@ class FakeConversationRunner:
         self.handlers = handlers
         self.opened.append(spec)
 
-    async def turn(self, prompt: str) -> FrontTurn:
+    async def turn(self, prompt: str, on_text: TextCallback | None = None) -> FrontTurn:
         self.prompts.append(prompt)
         item: Any = self.turns.pop(0) if self.turns else DEFAULT_TEXT
         if callable(item):
             item = await item(prompt, self.handlers)
-        return to_front_turn(item)
+        turn = to_front_turn(item)
+        if on_text is not None:
+            for chunk in (turn.structured or {}).get("chunks", []):
+                await on_text(chunk)
+        return turn
 
     async def interrupt(self) -> None:
         self.interrupts += 1

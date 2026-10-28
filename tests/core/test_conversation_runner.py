@@ -318,3 +318,18 @@ async def test_failed_turn_diagnostic_falls_back_to_errors_then_a_placeholder(
     turn = await conversation.turn("x")
 
     assert turn.error == expected
+
+
+async def test_turn_accepts_a_text_callback_that_v1_never_invokes() -> None:
+    client = FakeSessionClient([turn_messages("Hola, señor.")])
+    conversation, _ = make_conversation([client])
+    seen: list[str] = []
+
+    async def on_text(text: str) -> None:
+        seen.append(text)
+
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), ListEventSink())
+    turn = await conversation.turn("hola", on_text=on_text)
+
+    assert turn.text == "Hola, señor."
+    assert seen == []

@@ -356,3 +356,22 @@ async def test_fake_worker_factory_records_host_logs_with_parent_and_releases() 
     assert factory.host is host
     assert factory.logs["s1"] is log and factory.parents == {"s1": "t1"}
     assert factory.released == ["s1"]
+
+
+async def test_fake_conversation_runner_streams_scripted_chunks_before_the_turn() -> None:
+    runner = FakeConversationRunner(
+        [{"display_text": "Hola, Renzo", "chunks": ["Hola", ", Renzo"]}, "Sin trozos"]
+    )
+    seen: list[str] = []
+
+    async def on_text(text: str) -> None:
+        seen.append(text)
+
+    first = await runner.turn("p1", on_text=on_text)
+    assert seen == ["Hola", ", Renzo"]
+    assert first.structured == {"display_text": "Hola, Renzo", "chunks": ["Hola", ", Renzo"]}
+
+    second = await runner.turn("p2", on_text=on_text)
+    third = await runner.turn("p3")
+    assert seen == ["Hola", ", Renzo"]
+    assert (second.text, third.text) == ("Sin trozos", "Sin guion.")

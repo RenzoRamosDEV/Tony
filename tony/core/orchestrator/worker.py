@@ -103,6 +103,11 @@ class SdkWorkerFactory:
     def attach_host(self, host: SubtaskHost) -> None:
         self._host = host
 
+    def status(self) -> dict[str, McpServerStatus]:
+        """MCP servers of the generation in use; empty until the first root task starts one."""
+        generation = self.pool.current
+        return generation.manager.status() if generation is not None else {}
+
     def open_log(self, task_id: str, parent_id: str | None = None) -> JsonlEventSink:
         return JsonlEventSink(self._logs_dir, task_id, self._secrets, parent_id)
 

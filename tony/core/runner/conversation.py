@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -26,6 +26,7 @@ from tony.core.runner.proxy import TaskState, ToolCaller, ToolProxyFactory
 from tony.core.runner.reply_mode import FrontReply
 
 FRONT_OWNER_ID = "front"
+TextCallback = Callable[[str], Awaitable[None]]
 TURN_ERROR = "turn.error"
 TURN_LOST = (
     "No pude completar el turno: se perdió la conexión con el modelo y el resultado de "
@@ -58,7 +59,7 @@ class ConversationRunner(Protocol):
         resume: str | None = None,
     ) -> None: ...
 
-    async def turn(self, prompt: str) -> FrontTurn: ...
+    async def turn(self, prompt: str, on_text: TextCallback | None = None) -> FrontTurn: ...
 
     async def interrupt(self) -> None: ...
 
@@ -152,7 +153,9 @@ class ClaudeSdkConversation:
         self._events = events
         await self._connect(self._options)
 
-    async def turn(self, prompt: str) -> FrontTurn:
+    async def turn(self, prompt: str, on_text: TextCallback | None = None) -> FrontTurn:
+        # The structured JSON output has no readable partial text, so `on_text` stays unused
+        # until partial messages are enabled.
         client = await self._live_client()
         self._turn_state = TaskState(FRONT_OWNER_ID, interrupt=self.interrupt)
         try:

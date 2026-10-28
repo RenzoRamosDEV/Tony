@@ -3,8 +3,8 @@
 Asistente personal local con dos agentes: **Jarvis** (`front`, habla contigo) y
 **Viernes** (`worker`, ejecuta tareas con MCPs). Incluye el núcleo (carga de agentes
 desde ficheros, gestor de MCPs, ejecución sobre Claude Agent SDK con resultado
-estructurado y log JSONL por tarea), el orquestador de tareas, la memoria de usuario y
-la conversación por terminal con `tony chat`.
+estructurado y log JSONL por tarea), el orquestador de tareas, la memoria de usuario,
+la conversación por terminal con `tony chat` y el chat web con panel de debug con `tony web`.
 
 ## Requisitos
 
@@ -87,6 +87,63 @@ falta de confirmación y la sesión sigue.
 
 `Ctrl+C` durante una tarea delegada la cancela y vuelve al prompt; un segundo `Ctrl+C`
 (o `Ctrl+C` sin tarea en curso) cierra la sesión ordenadamente.
+
+## Chat web: `tony web`
+
+La misma sesión de chat de la terminal, servida en el navegador con streaming de eventos, botones
+para confirmar tools, selector del modo de respuesta y un panel de debug (RF-20).
+
+```bash
+uv sync --extra web                                   # fastapi, uvicorn y websockets
+cd tony/apps/web/frontend && npm install && npm run build && cd -
+uv run tony web --open                                # http://127.0.0.1:8787/
+uv run tony web --help
+```
+
+Opciones: `--port` y `--host` (por defecto `web.port` 8787 y `web.host` 127.0.0.1 de
+`config/tony.yaml`), `--open` (abre el navegador al arrancar), `--allow-remote` (obligatorio para un
+`--host` fuera de loopback; el servidor avisa de que no hay autenticación ni HTTPS), `--config` y
+`--agents-dir` como en `tony chat`. Sin el extra, `tony web` termina con código 2 indicando
+`uv sync --extra web`; sin el frontend compilado, `GET /` muestra una página con el comando de
+`build`. `Ctrl+C` cierra los sockets (código 1001), cancela las tareas activas y para el servidor.
+
+Política de `Origin`: toda petición mutante (`POST`, `PATCH`, `PUT`, `DELETE`) y toda conexión al
+WebSocket deben llevar `Origin: http://<host>:<port>` (`localhost` y `127.0.0.1` se consideran
+equivalentes); si no, `403 {"error": "forbidden_origin"}`. Los `GET` sin `Origin` (por ejemplo
+`curl`) se aceptan. Para desarrollar el frontend, `npm run dev` levanta Vite en `:5173` con un
+proxy a `127.0.0.1:8787` que reescribe el `Origin` solo en ese caso.
+
+Streaming en v1: el motor del `front` devuelve la respuesta estructurada completa al final del turno
+(sin fragmentos parciales), así que el navegador recibe `user.accepted` al instante, la burbuja de
+espera y los eventos de tools, y un único `assistant.final`; el tipo `assistant.delta` forma parte del
+protocolo y la UI lo soporta para cuando el motor entregue fragmentos.
+
+Panel de debug (plegable, estado recordado en el navegador): árbol de la tarea raíz y sus
+subagentes con estado, tool calls con argumentos redactados, duración y error, tokens y coste por
+tarea y acumulados de la conversación, alerta "Tarea > 50 k tokens" cuando una tarea supera
+`limits.token_alert`, ruta del JSONL de la tarea con botón de copia, eventos
+`config.reloaded`/`config.reload_failed` y "Copiar JSON" con el árbol completo.
+
+API HTTP (JSON; errores siempre `{"error", "detail"}`):
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/health` | `{status, version, front, worker, mcp: [{name, state, tool_count}]}` |
+| `GET /api/settings` | `{reply_mode, reply_mode_source: "settings" \| "yaml"}` |
+| `PATCH /api/settings` `{reply_mode}` | persiste en `memory/settings.json`; `422` si no es válido |
+| `POST /api/tasks/{id}/confirm` `{confirmation_id, approved}` | `{ok: true}` o `409 invalid_confirmation` |
+| `POST /api/tasks/{id}/cancel` | `{ok: true}`; `404 unknown_task` |
+| `GET /api/conversations` | las 20 más recientes `{id, channel, created_at}` |
+| `GET /api/conversations/{id}/messages` | `{id, role, content, reply_mode, created_at}`; `404 unknown_conversation` |
+| `GET /api/memory` | `{content, lines}` de `memory/preferences.md` |
+
+WebSocket `/ws/chat` (protocolo `v: 1`, sobre `{v, type, seq, conversation_id, message_id?,
+task_id?, payload}`): el cliente envía `hello`, `user.text`, `confirm`, `cancel` y `set_mode`; el
+servidor responde `hello.ok`, `user.accepted`, `assistant.delta`, `assistant.wait`,
+`assistant.final`, `usage`, los eventos `task.*`/`tool.*`/`subtask.*`, `config.*` y `error`.
+Cada conversación numera sus mensajes con `seq`; al reconectar, `hello {conversation_id,
+last_seq}` reenvía solo los posteriores (o `resync: true` si son demasiado antiguos). Mensajes de
+más de 32 KiB se rechazan con cierre `1009`; los tipos `audio.*` quedan reservados para la voz.
 
 ## Memoria
 
@@ -275,8 +332,9 @@ Antes de escribir, Tony redacta con `***` los valores de las claves `authorizati
 ## Desarrollo
 
 ```bash
-uv run pytest -q        # suite sin red ni modelo real (< 60 s)
+uv run pytest -q        # suite sin red ni modelo real (< 60 s); tests/apps/web/ requiere el extra web
 uv run ruff check .
+cd tony/apps/web/frontend && npm test && npm run lint && npm run build   # frontend (Vitest + tsc)
 ```
 
 ### Evals

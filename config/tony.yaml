@@ -12,9 +12,9 @@
 #   tts: kokoro/ef_dora
 #   vad: silero
 # channels: [cli, web]
-# web:
+# web:                        # tony web; --port y --host de la línea de comandos tienen prioridad
 #   port: 8787
-#   host: 127.0.0.1
+#   host: 127.0.0.1           # fuera de loopback solo con --allow-remote
 # limits:
 #   tool_timeout_s: 20
 #   task_timeout_s: 300
