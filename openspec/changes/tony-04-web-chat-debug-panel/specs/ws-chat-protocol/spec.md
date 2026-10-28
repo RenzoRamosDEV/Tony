@@ -97,7 +97,12 @@ El socket propietario de una conversación SHALL poder enviar `hello {conversati
 - **THEN** B recibe `hello.ok`
 
 ### Requirement: Mensaje de usuario y aceptación
-`user.text {text, client_id?}` SHALL crear el mensaje de usuario (respetando los prefijos `/v`, `/t`, `/b`), responder `user.accepted {message_id, effective_mode, client_id}` antes de iniciar el turno (con el `client_id` recibido o `null`) y terminar el turno con `assistant.final {display_text, speech_text, message_id}`. Un `text` vacío SHALL responder `error {code: "empty_text"}`; un `user.text` mientras hay un turno en curso SHALL responder `error {code: "turn_in_progress"}` sin encolarlo. El cliente SHALL bloquear nuevos envíos desde que envía `user.text` hasta recibir el `user.accepted` con su `client_id` o un `error`, y SHALL conservar el borrador si no pudo transmitirlo.
+`user.text {text, client_id?}` SHALL crear el mensaje de usuario (respetando los prefijos `/v`, `/t`, `/b`), responder `user.accepted {message_id, effective_mode, client_id}` antes de iniciar el turno y terminar el turno con `assistant.final {display_text, speech_text, message_id}`. Un `text` vacío o un turno ya en curso SHALL responder `error` (`empty_text` / `turn_in_progress`) sin encolar nada.
+
+#### Scenario: Bloqueo de envíos en el cliente
+- GIVEN el cliente envía `user.text` con `client_id`
+- WHEN aún no ha recibido el `user.accepted` con ese `client_id` ni un `error`
+- THEN no permite otro envío y conserva el borrador si la transmisión falló.
 
 #### Scenario: Acuse correlacionado
 - **WHEN** el cliente envía `user.text {text: "hola", client_id: "r-1"}`
@@ -209,7 +214,17 @@ Al terminar cada tarea o subtarea el servidor SHALL enviar `usage {task_id, inpu
 - **THEN** el cliente recibe `usage {task_id: null, input_tokens: 1200, output_tokens: 80, alert: false}` antes de `assistant.final`
 
 ### Requirement: `seq` monótono y reenvío en la reconexión
-El servidor SHALL numerar cada mensaje enviado con un `seq` creciente por conversación y conservar al menos los últimos 500 mensajes; la asignación de `seq`, la inserción en el búfer y el encolado SHALL ser atómicos, de modo que el socket reciba los `seq` en orden incluso con productores concurrentes bajo backpressure. Un `hello {conversation_id, last_seq}` SHALL reenviar, tras `hello.ok`, solo los mensajes con `seq > last_seq`; si `last_seq` es anterior al primero conservado, `hello.ok` SHALL incluir `resync: true` y no reenviar nada. El cliente SHALL descartar todo mensaje con `seq` menor o igual al último visto, SHALL tratar un `hello.ok.last_seq` menor que el suyo o un `stream_id` distinto como invalidación (reinicia el cursor y vuelve a cargar el historial) y SHALL reconstruir el estado activo (raíz activa y confirmación) exclusivamente desde `hello.ok.state`; los mensajes reenviados con `seq ≤ hello.ok.last_seq` no alteran ese estado activo ni el plazo de la confirmación.
+El servidor SHALL numerar cada mensaje con un `seq` creciente por conversación y conservar al menos los últimos 500; asignación, inserción en el búfer y encolado SHALL ser atómicos para que el socket reciba los `seq` en orden bajo backpressure. `hello {conversation_id, last_seq}` SHALL reenviar tras `hello.ok` solo los mensajes con `seq > last_seq`; si `last_seq` es anterior al primero conservado, `hello.ok` SHALL incluir `resync: true` sin reenviar nada.
+
+#### Scenario: Invalidación del cursor en el cliente
+- GIVEN un cliente con cursor `seq` y `stream_id` conocidos
+- WHEN recibe `hello.ok` con `last_seq` menor que su cursor o con un `stream_id` distinto
+- THEN reinicia el cursor, vuelve a cargar el historial y descarta todo mensaje con `seq` menor o igual al último visto.
+
+#### Scenario: Estado activo solo desde el snapshot
+- GIVEN `hello.ok.state` con la raíz activa y la confirmación pendiente
+- WHEN llegan mensajes reenviados con `seq ≤ hello.ok.last_seq`
+- THEN el estado activo y el plazo de la confirmación se reconstruyen solo desde `hello.ok.state`, sin que el reenvío los altere.
 
 #### Scenario: Reconexión sin texto duplicado
 - **GIVEN** una respuesta en streaming con `seq` 10..25 enviada y el cliente desconectado tras recibir hasta 18
