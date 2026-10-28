@@ -79,6 +79,7 @@ class SdkWorkerFactory:
         secrets: list[str],
         manager_factory: ManagerFactory = default_manager_factory,
         runner_factory: WorkerRunnerFactory = default_worker_runner_factory,
+        close_budget_s: float = CLEANUP_BUDGET_S,
     ) -> None:
         self._settings = settings
         self._spec = spec
@@ -86,6 +87,7 @@ class SdkWorkerFactory:
         self._secrets = [*secrets, *spec.secrets]
         self._manager_factory = manager_factory
         self._runner_factory = runner_factory
+        self._close_budget_s = close_budget_s
         self._owner: _ManagerOwner | None = None
         self.warnings = [w for w in [role_mismatch_warning(spec, "worker")] if w]
 
@@ -107,7 +109,9 @@ class SdkWorkerFactory:
 
     async def _started_manager(self) -> ToolManager:
         if self._owner is None:
-            self._owner = _ManagerOwner(self._manager_factory, self._settings, self._spec.tools)
+            self._owner = _ManagerOwner(
+                self._manager_factory, self._settings, self._spec.tools, self._close_budget_s
+            )
         try:
             return await self._owner.manager()
         except BaseException:
@@ -120,8 +124,13 @@ class _ManagerOwner:
     to the task that opened them, so closing from another task raises inside anyio."""
 
     def __init__(
-        self, manager_factory: ManagerFactory, settings: TonySettings, tools: ToolConfig
+        self,
+        manager_factory: ManagerFactory,
+        settings: TonySettings,
+        tools: ToolConfig,
+        close_budget_s: float,
     ) -> None:
+        self._close_budget_s = close_budget_s
         self._ready: asyncio.Future[ToolManager] = asyncio.get_running_loop().create_future()
         self._stop = asyncio.Event()
         self._task = asyncio.create_task(self._own(manager_factory(settings), tools))
@@ -132,7 +141,7 @@ class _ManagerOwner:
     async def stop(self) -> None:
         self._stop.set()
         with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._task, CLEANUP_BUDGET_S)
+            await asyncio.wait_for(self._task, self._close_budget_s)
 
     async def _own(self, manager: ToolManager, tools: ToolConfig) -> None:
         try:

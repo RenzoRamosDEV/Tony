@@ -143,12 +143,19 @@ class TaskRecordingManager(FakeManager):
 
 async def test_manager_is_started_and_stopped_by_the_same_task(tmp_path: Path) -> None:
     manager = TaskRecordingManager()
+    settings = load_settings(None)
+    factory_settings: list = []
+
+    def manager_factory(received):
+        factory_settings.append(received)
+        return manager
+
     factory = SdkWorkerFactory(
-        load_settings(None),
+        settings,
         spec(),
         logs_dir=tmp_path,
         secrets=[],
-        manager_factory=lambda settings: manager,
+        manager_factory=manager_factory,
         runner_factory=Recorder().runner_factory,
     )
 
@@ -167,6 +174,28 @@ async def test_manager_is_started_and_stopped_by_the_same_task(tmp_path: Path) -
     assert manager.started_in is not None
     assert manager.started_in is manager.stopped_in
     assert manager.started_in is not asyncio.current_task()
+    assert factory_settings == [settings]
+
+
+async def test_close_gives_up_on_a_manager_that_never_stops(tmp_path: Path) -> None:
+    class HangingManager(FakeManager):
+        async def stop(self) -> None:
+            await asyncio.Event().wait()
+
+    factory = SdkWorkerFactory(
+        load_settings(None),
+        spec(),
+        logs_dir=tmp_path,
+        secrets=[],
+        manager_factory=lambda settings: HangingManager(),
+        runner_factory=Recorder().runner_factory,
+        close_budget_s=0.05,
+    )
+    await factory.build_worker(
+        Task("t1", TaskRequest(objetivo="a")), ListEventSink(), CancelToken(), AutoConfirmGate(True)
+    )
+
+    await asyncio.wait_for(factory.close(), 1)
 
 
 async def test_manager_start_failure_fails_the_build_and_leaves_nothing_to_close(

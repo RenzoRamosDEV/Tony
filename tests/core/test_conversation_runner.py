@@ -76,7 +76,7 @@ class FakeSessionClient:
 def turn_messages(text: str, session_id: str = "s1", structured: dict | None = STRUCTURED):
     return [
         AssistantMessage(content=[TextBlock(text=text)], model="m"),
-        result_message(session_id=session_id, structured_output=structured, result=text),
+        result_message(session_id=session_id, structured_output=structured, result="(resultado)"),
     ]
 
 
@@ -186,7 +186,7 @@ async def test_failure_before_any_session_id_propagates() -> None:
 async def test_turn_before_open_is_an_error() -> None:
     conversation, _ = make_conversation([])
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="^la sesión del front no está abierta$"):
         await conversation.turn("a")
 
 
@@ -276,6 +276,7 @@ async def test_each_turn_gets_a_fresh_cancel_state_wired_to_interrupt() -> None:
     await conversation.turn("b")
 
     assert seen[0].cancelled is True
+    assert seen[0].task_id == "front"
     assert client.interrupts == 1
     assert conversation.turn_state is not seen[0]
     assert conversation.turn_state.cancelled is False
@@ -289,3 +290,31 @@ async def test_open_with_resume_passes_it_to_the_client_options() -> None:
 
     assert captured[0].resume == "s9"
     assert client.connects == 1
+
+
+@pytest.mark.parametrize(
+    ("result", "errors", "expected"),
+    [
+        (None, ["rate limit", "retry later"], "error_during_execution: rate limit; retry later"),
+        (None, None, "error_during_execution: sin detalle"),
+        ("", [], "error_during_execution: sin detalle"),
+    ],
+)
+async def test_failed_turn_diagnostic_falls_back_to_errors_then_a_placeholder(
+    result, errors, expected
+) -> None:
+    client = FakeSessionClient(
+        [
+            [
+                result_message(
+                    is_error=True, subtype="error_during_execution", result=result, errors=errors
+                )
+            ]
+        ]
+    )
+    conversation, _ = make_conversation([client])
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), ListEventSink())
+
+    turn = await conversation.turn("x")
+
+    assert turn.error == expected
