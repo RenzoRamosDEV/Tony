@@ -108,3 +108,19 @@ async def test_review05_finding_7_a_lane_stays_busy_until_its_cancelled_work_rea
     assert other_lane == "stt"
     assert waiting == []
     assert order == ["first ended", "second started"]
+
+
+async def test_review05_finding_7_close_drops_work_still_queued_behind_busy_threads() -> None:
+    executor = VoiceExecutor()
+    release = threading.Event()
+    ran: list[str] = []
+    busy = [asyncio.ensure_future(executor.run(release.wait, 2)) for _ in range(2)]
+    queued = asyncio.ensure_future(executor.run(lambda: ran.append("queued")))
+    await asyncio.sleep(0.05)
+
+    executor.close()
+    release.set()
+    await asyncio.gather(*busy, queued, return_exceptions=True)
+    await asyncio.sleep(0.05)
+
+    assert ran == []

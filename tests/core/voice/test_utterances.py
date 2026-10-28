@@ -272,3 +272,30 @@ def test_review05_finding_14_reset_forgets_the_partial_utterance_and_resets_the_
 
     assert vad.calls[:4] == ["classify"] * 3 + ["reset"]
     assert after == []
+
+
+def test_review05_finding_14_reset_drops_the_remainder_of_a_partial_window() -> None:
+    windows: list[bytes] = []
+
+    class Recording(SpyVad):
+        def classify(self, window: bytes) -> bool:
+            windows.append(window)
+            return True
+
+    segmenter = VadSegmenter(Recording())
+    segmenter.feed(SILENCE[:100])
+    segmenter.reset()
+    segmenter.feed(SPEECH)
+
+    assert windows == [SPEECH]
+
+
+@pytest.mark.parametrize(("speech_windows", "count"), [(9, 0), (10, 1)])
+def test_review05_finding_13_minimum_speech_boundary_on_a_fresh_assembler(
+    speech_windows: int, count: int
+) -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS)
+    for _ in range(speech_windows):
+        assembler.push(SPEECH, True)
+
+    assert len(assembler.flush()) == count

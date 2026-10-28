@@ -145,7 +145,9 @@ class StuckTts(FakeTts):
         return super().synthesize(text, voice)
 
 
-async def first_audio(tts, text: str = "Son las diez.", timeout_s: float = 2.0):
+async def first_audio(
+    tts, text: str = "Son las diez.", timeout_s: float = 2.0, started_ago_s: float = 0.0
+):
     import time
 
     from tests.fakes.sinks import ListEventSink
@@ -159,7 +161,7 @@ async def first_audio(tts, text: str = "Son las diez.", timeout_s: float = 2.0):
             "ef_dora",
             text,
             ListEventSink(),
-            time.perf_counter(),
+            time.perf_counter() - started_ago_s,
             timeout_s,
         )
     finally:
@@ -167,22 +169,40 @@ async def first_audio(tts, text: str = "Son las diez.", timeout_s: float = 2.0):
 
 
 async def test_review05_finding_15_a_real_first_chunk_gives_its_latency() -> None:
-    elapsed = await first_audio(FakeTts())
+    tts = FakeTts()
 
-    assert isinstance(elapsed, int) and elapsed >= 0
+    elapsed = await first_audio(tts, started_ago_s=100.0)
+
+    assert 100_000 <= elapsed < 100_090
+    assert tts.voices == ["ef_dora"]
+
+
+class SlowSecondTts(FakeTts):
+    def synthesize(self, text, voice):
+        if self.sentences:
+            import time
+
+            time.sleep(0.3)
+        return super().synthesize(text, voice)
+
+
+async def test_review05_finding_15_the_latency_stops_at_the_first_chunk_not_the_end() -> None:
+    elapsed = await first_audio(SlowSecondTts(), "Son las diez. Tiene una reunión.")
+
+    assert elapsed is not None and elapsed < 200
 
 
 @pytest.mark.parametrize(
-    ("tts", "text"),
+    ("make_tts", "text"),
     [
-        (FakeTts(fail_at_sentence=1), "Son las diez."),
-        (SilentTts(), "Son las diez."),
-        (FakeTts(), ""),
+        (lambda: FakeTts(fail_at_sentence=1), "Son las diez."),
+        (SilentTts, "Son las diez."),
+        (FakeTts, ""),
     ],
     ids=["tts_fails", "no_chunks", "empty_text"],
 )
-async def test_review05_finding_15_no_audio_is_a_failed_run_not_a_latency(tts, text) -> None:
-    assert await first_audio(tts, text) is None
+async def test_review05_finding_15_no_audio_is_a_failed_run_not_a_latency(make_tts, text) -> None:
+    assert await first_audio(make_tts(), text) is None
 
 
 async def test_review05_finding_15_a_stuck_synthesis_times_out() -> None:
@@ -219,3 +239,15 @@ def test_review05_finding_15_all_failed_roundtrips_print_no_percentiles(
     assert result.exit_code == 0, result.output
     row = next(line for line in result.stdout.splitlines() if line.startswith("roundtrip"))
     assert "p50" not in row and "5/5 fallidas" in row
+
+
+def test_review05_finding_15_a_clean_row_has_no_failure_note_nor_flag(
+    cli: Registries, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TONY_EVALS", "1")
+    monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: 1_500)
+
+    result = runner.invoke(main.app, ["voice", "bench"])
+
+    row = next(line for line in result.stdout.splitlines() if line.startswith("roundtrip"))
+    assert row.endswith(f"p95 {1_500:>6} ms")
