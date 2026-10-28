@@ -6,7 +6,7 @@ Define el panel lateral de debug de la web: árbol de tareas con subagentes, too
 ## Requirements
 
 ### Requirement: Panel lateral plegable
-La UI SHALL mostrar un panel lateral plegable con un botón de alternancia (con `aria-label` y `aria-expanded`); el estado plegado/desplegado SHALL conservarse en el navegador entre recargas y el panel SHALL mostrar la tarea raíz actual o, si no hay ninguna activa, la última terminada de la conversación.
+La UI SHALL mostrar el panel de debug como un cajón lateral superpuesto al orbe desde el borde derecho, sin redimensionar el orbe, con un botón de alternancia (con `aria-label` y `aria-expanded`); el estado plegado/desplegado SHALL conservarse en el navegador entre recargas y el panel SHALL mostrar la tarea raíz actual o, si no hay ninguna activa, la última terminada de la conversación.
 
 #### Scenario: Plegado persistente
 - **GIVEN** el panel plegado por el usuario
@@ -17,6 +17,11 @@ La UI SHALL mostrar un panel lateral plegable con un botón de alternancia (con 
 - **GIVEN** la tarea `t-9` terminada y ninguna activa
 - **WHEN** se abre el panel
 - **THEN** muestra `t-9` con su estado final
+
+#### Scenario: Cajón superpuesto
+- **GIVEN** el panel plegado
+- **WHEN** el usuario lo despliega
+- **THEN** el cajón aparece sobre el lado derecho con fondo translúcido y el lienzo del orbe conserva su tamaño
 
 ### Requirement: Árbol de tareas con estado
 El panel SHALL mostrar la tarea raíz y, anidadas, sus subtareas (`subtask.started {task_id, agent}` y eventos con `parent_id`), cada una con `task_id`, agente y estado derivado de los eventos (`queued`, `running`, `waiting_confirmation`, `done`, `failed`, `cancelled`, `timeout`).
