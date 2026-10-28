@@ -54,8 +54,8 @@ Todas las rutas son relativas a `tony/apps/web/frontend`. Cada módulo sigue Roj
 
 ## 8. Verificación final
 
-- [ ] 8.1 Ejecutar `npm test`, `npm run lint` y `npm run build` en `tony/apps/web/frontend`; verificar que los tres terminan sin errores
-- [ ] 8.2 Ejecutar `uv run pytest -q` en la raíz; verificar que la suite Python pasa sin haber tocado código Python (`git diff --stat` sin ficheros `.py`)
+- [x] 8.1 Ejecutar `npm test`, `npm run lint` y `npm run build` en `tony/apps/web/frontend`; verificar que los tres terminan sin errores
+- [x] 8.2 Ejecutar `uv run pytest -q` en la raíz; verificar que la suite Python pasa sin haber tocado código Python (`git diff --stat` sin ficheros `.py`)
 - [x] 8.3 Con `uv run tony web` sirviendo en `127.0.0.1:8787` (reutilizar si ya está activo; recargar tras el build), ejecutar un script Playwright desde el scratchpad (Chromium headless, `--use-angle=swiftshader`, medios falsos) que capture `idle`, `listening`, `thinking` y `speaking` forzados con `routeWebSocket`/`route` según D8; guardar `openspec/changes/tony-06-jarvis-orb-ui/screenshots/{idle,listening,thinking,speaking}.png`, verificar que cada PNG pesa < 1 MB y que `data-orb-state` coincide en cada captura
 - [x] 8.4 Verificación manual en la GPU AMD integrada a 1080p: fps ≈ 60 en `idle` y `speaking` (DevTools → Rendering → FPS meter), rotación por arrastre, zoom acotado, autorrotación a los 4 s y movimiento reducido activado en el sistema
 - [x] 8.5 Crear la rama `feat/jarvis-orb-ui` y commit con `feat(web-ui): add jarvis holographic orb and hud layout`, sin trailer `Co-Authored-By` ni atribución a IA; verificar con `git log -1 --format=%B`
