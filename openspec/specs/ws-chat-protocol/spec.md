@@ -17,20 +17,28 @@ Todo mensaje en `/ws/chat` SHALL ser un objeto JSON `{v: 1, type, seq, conversat
 - **THEN** recibe `error {code: "bad_envelope"}` y la conexión sigue abierta
 
 ### Requirement: Tipos de mensaje del cliente
-El servidor SHALL aceptar exactamente los tipos `hello`, `user.text`, `confirm`, `cancel` y `set_mode`; los tipos reservados `audio.start`, `audio.chunk` y `audio.end` SHALL responder `error {code: "not_implemented"}`; cualquier otro tipo SHALL responder `error {code: "unknown_type"}`. Cualquier mensaje distinto de `hello` antes de un `hello` aceptado SHALL responder `error {code: "hello_required"}`.
+El servidor SHALL aceptar exactamente los tipos de texto `hello`, `user.text`, `confirm`, `cancel`, `set_mode`, `audio.start` y `audio.end`, y los frames binarios como fragmentos de audio de la intervención abierta; cualquier otro tipo SHALL responder `error {code: "unknown_type"}`. Cualquier mensaje distinto de `hello` antes de un `hello` aceptado SHALL responder `error {code: "hello_required"}`; un frame binario antes del `hello` SHALL descartarse con `error {code: "hello_required"}`.
 
-#### Scenario: Tipo reservado de audio
-- **GIVEN** un `hello` aceptado
-- **WHEN** el cliente envía `audio.start`
-- **THEN** recibe `error {code: "not_implemented"}` y la conexión sigue abierta
+#### Scenario: Apertura de audio aceptada
+- **GIVEN** un `hello` aceptado y la voz disponible
+- **WHEN** el cliente envía `audio.start {sample_rate: 16000, channels: 1, format: "f32"}`
+- **THEN** no recibe `error` y los frames binarios siguientes se aceptan como audio
 
 #### Scenario: Mensaje antes del hello
 - **WHEN** el cliente envía `user.text` como primer mensaje
 - **THEN** recibe `error {code: "hello_required"}` y no se crea ningún mensaje
 
+#### Scenario: Frame binario antes del hello
+- **WHEN** el cliente envía un frame binario como primer mensaje
+- **THEN** recibe `error {code: "hello_required"}` y el frame se descarta
+
 #### Scenario: Tipo desconocido
 - **WHEN** el cliente envía `type: "ping"`
 - **THEN** recibe `error {code: "unknown_type"}`
+
+#### Scenario: Tipo reservado de audio
+- **WHEN** el cliente envía un sobre de texto con `type: "audio.chunk"`
+- **THEN** recibe `error {code: "unknown_type"}`: el audio solo viaja como frames binarios tras `audio.start`, y `audio.start`/`audio.end` ya no responden `not_implemented`
 
 ### Requirement: Validación estricta del payload
 El servidor SHALL validar el `payload` de cada tipo antes de procesarlo y responder `error {code: "bad_payload", detail}` sin cerrar la conexión cuando no cumpla su forma. Booleanos y enteros SHALL ser estrictos (`"false"`, `1` o `1.5` no se convierten); los campos desconocidos se ignoran.
@@ -269,3 +277,40 @@ El servidor SHALL reenviar `config.reloaded {agent, servers}` y `config.reload_f
 - **GIVEN** un motor del `front` que devuelve un turno con `error`
 - **WHEN** se procesa el turno
 - **THEN** el cliente recibe `error {code: "turn_failed", detail}` y `assistant.final` con el texto de error en español, y la conexión sigue abierta
+
+### Requirement: Tipos de mensaje de voz del servidor
+Además de los tipos existentes, el servidor SHALL emitir `stt.final {text, message_id}`, `tts.start {message_id}`, `tts.chunk.meta {message_id, seq, sentence_index}` seguido de un frame binario, `tts.end {message_id}` y `tts.cancelled {message_id}`, todos con el sobre versionado y `seq` de conversación; los frames binarios SHALL NOT consumir `seq` ni entrar en el búfer de reenvío.
+
+#### Scenario: Reenvío sin audio
+- **GIVEN** una respuesta hablada enviada con `tts.chunk.meta` de `seq` 30..33 y el cliente desconectado tras el 31
+- **WHEN** el cliente reconecta con `last_seq: 31`
+- **THEN** recibe los sobres `seq` 32.. y ningún frame binario reenviado; el audio perdido no se recupera
+
+#### Scenario: Sobre de tts.chunk.meta
+- **WHEN** se emite el primer fragmento de la respuesta `m-2` de la conversación `c-1`
+- **THEN** el cliente recibe `{"v":1,"type":"tts.chunk.meta","seq":N,"conversation_id":"c-1","message_id":"m-2","payload":{"seq":0,"sentence_index":0}}` seguido inmediatamente de un frame binario
+
+### Requirement: Cancelación de una respuesta hablada
+`cancel {message_id}` SHALL interrumpir la síntesis de la respuesta indicada y responder `tts.cancelled {message_id}`; `cancel {task_id}` SHALL seguir cancelando tareas como hasta ahora. Un `cancel` sin `task_id` ni `message_id`, o con un `message_id` sin síntesis en curso, SHALL responder `error {code: "unknown_task"}`.
+
+#### Scenario: Cancelar la voz
+- **GIVEN** `tts.start {message_id: "m-2"}` recibido
+- **WHEN** el cliente envía `cancel {message_id: "m-2"}`
+- **THEN** recibe `tts.cancelled {message_id: "m-2"}`
+
+#### Scenario: Cancelar un mensaje sin síntesis
+- **WHEN** el cliente envía `cancel {message_id: "nope"}`
+- **THEN** recibe `error {code: "unknown_task"}`
+
+### Requirement: Audio de entrada ligado a la conexión
+La sesión de audio de entrada SHALL descartarse en cada `hello` y al cerrarse el socket. El cliente SHALL detener su captura al desconectarse, al recibir un `hello.ok` o un `error` `voice_unavailable`/`unsupported_audio`, y enviar un nuevo `audio.start` para volver a capturar. `error {code: "audio_backpressure"}` SHALL indicar audio descartado por exceso de audio pendiente.
+
+#### Scenario: Reconexión con el micrófono activo
+- **GIVEN** el micrófono activo y una intervención abierta
+- **WHEN** el socket se cierra y el cliente reconecta
+- **THEN** la captura está detenida, el micrófono aparece desactivado y no se envía ningún frame sin un nuevo `audio.start`
+
+#### Scenario: Contrapresión
+- **GIVEN** audio pendiente por encima del presupuesto
+- **WHEN** llega otro frame binario
+- **THEN** el cliente recibe `error {code: "audio_backpressure"}` y la conexión sigue abierta
