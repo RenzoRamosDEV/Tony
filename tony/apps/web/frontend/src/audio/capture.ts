@@ -30,6 +30,8 @@ export class MicCapture {
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
+  private starting: Promise<void> | null = null;
+  private generation = 0;
 
   constructor(private readonly deps: MicCaptureDeps) {}
 
@@ -37,29 +39,57 @@ export class MicCapture {
     return this.stream !== null;
   }
 
-  async start(): Promise<void> {
-    const stream = await this.deps.getUserMedia(MIC_CONSTRAINTS);
-    const context = this.deps.createContext();
-    await context.audioWorklet.addModule(this.deps.workletUrl);
-    const node = this.deps.createNode(context);
-    node.port.onmessage = (event: MessageEvent<Float32Array>) => this.handle(event.data);
-    context.createMediaStreamSource(stream).connect(node);
-    this.stream = stream;
-    this.context = context;
-    this.node = node;
+  /** Idempotent: a call while active or starting shares the same acquisition. */
+  start(): Promise<void> {
+    if (this.active) {
+      return Promise.resolve();
+    }
+    if (this.starting === null) {
+      const starting = this.acquire(this.generation).finally(() => {
+        if (this.starting === starting) {
+          this.starting = null;
+        }
+      });
+      this.starting = starting;
+    }
+    return this.starting;
   }
 
+  /** Releases the microphone and abandons any start still waiting for permission or the worklet. */
   stop(): void {
+    this.generation += 1;
+    this.starting = null;
     const { stream, context, node } = this;
     this.stream = null;
     this.context = null;
     this.node = null;
-    if (node) {
-      node.port.onmessage = null;
-      node.disconnect();
+    release(stream, context, node);
+  }
+
+  private async acquire(generation: number): Promise<void> {
+    let stream: MediaStream | null = null;
+    let context: AudioContext | null = null;
+    let node: AudioWorkletNode | null = null;
+    try {
+      stream = await this.deps.getUserMedia(MIC_CONSTRAINTS);
+      context = this.deps.createContext();
+      if (generation === this.generation) {
+        await context.audioWorklet.addModule(this.deps.workletUrl);
+      }
+      if (generation !== this.generation) {
+        release(stream, context, node);
+        return;
+      }
+      node = this.deps.createNode(context);
+      node.port.onmessage = (event: MessageEvent<Float32Array>) => this.handle(event.data);
+      context.createMediaStreamSource(stream).connect(node);
+    } catch (error) {
+      release(stream, context, node);
+      throw error;
     }
-    stream?.getTracks().forEach((track) => track.stop());
-    void context?.close();
+    this.stream = stream;
+    this.context = context;
+    this.node = node;
   }
 
   private handle(frame: Float32Array): void {
@@ -71,4 +101,13 @@ export class MicCapture {
       this.onFrame?.(frame);
     }
   }
+}
+
+function release(stream: MediaStream | null, context: AudioContext | null, node: AudioWorkletNode | null): void {
+  if (node) {
+    node.port.onmessage = null;
+    node.disconnect();
+  }
+  stream?.getTracks().forEach((track) => track.stop());
+  void context?.close();
 }

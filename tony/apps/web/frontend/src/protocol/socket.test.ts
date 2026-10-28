@@ -204,7 +204,7 @@ describe("ChatSocket binary frames", () => {
       factory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
       onEnvelope: () => undefined,
       onStatus: () => undefined,
-      onBinary: (buffer) => binaries.push(buffer),
+      onAudio: (_meta, buffer) => binaries.push(buffer),
       conversationId: () => "c-1",
       lastSeq: () => 0,
     });
@@ -219,8 +219,44 @@ describe("ChatSocket binary frames", () => {
     expect(ws.sentBinary).toEqual([frame]);
 
     const incoming = new Int16Array([1, 2, 3]).buffer;
+    ws.receive({ v: 1, type: "tts.chunk.meta", seq: 1, conversation_id: "c-1", message_id: "a-1", payload: { seq: 0, sentence_index: 0 } });
     ws.onmessage?.({ data: incoming } as unknown as { data: string });
     expect(binaries).toEqual([incoming]);
+    socket.close();
+  });
+});
+
+describe("ChatSocket (review of change 05)", () => {
+  it("finding 8: pairs each tts.chunk.meta with the next binary frame synchronously", () => {
+    FakeWebSocket.instances = [];
+    const audio: [string, number, number][] = [];
+    const socket = new ChatSocket({
+      url: "ws://test/ws/chat",
+      factory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+      onEnvelope: () => undefined,
+      onStatus: () => undefined,
+      onAudio: (meta, buffer) => audio.push([meta.messageId, meta.seq, buffer.byteLength]),
+      conversationId: () => "c-1",
+      lastSeq: () => 0,
+    });
+    socket.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.open();
+    const binary = (bytes: number) => ws.onmessage?.({ data: new ArrayBuffer(bytes) } as unknown as { data: string });
+    const meta = (seq: number) =>
+      ws.receive({ v: 1, type: "tts.chunk.meta", seq: seq + 1, conversation_id: "c-1", message_id: "a-1", payload: { seq, sentence_index: 0 } });
+
+    binary(2);
+    meta(0);
+    binary(4);
+    binary(6);
+    meta(1);
+    binary(8);
+
+    expect(audio).toEqual([
+      ["a-1", 0, 4],
+      ["a-1", 1, 8],
+    ]);
     socket.close();
   });
 });

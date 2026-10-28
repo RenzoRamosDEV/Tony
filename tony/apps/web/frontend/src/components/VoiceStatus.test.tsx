@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { VoiceState } from "../protocol/types";
 import { VoiceStatus } from "./VoiceStatus";
 
-const on: VoiceState = { available: true, reason: null, mic: "on", phase: "listening", speakingMessageId: null, pendingMeta: null };
+const on: VoiceState = { available: true, reason: null, mic: "on", phase: "listening", speakingMessageId: null };
 
 describe("VoiceStatus", () => {
   it.each([

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { VoiceState } from "../protocol/types";
 import { MicButton } from "./MicButton";
 
-const base: VoiceState = { available: true, reason: null, mic: "off", phase: "idle", speakingMessageId: null, pendingMeta: null };
+const base: VoiceState = { available: true, reason: null, mic: "off", phase: "idle", speakingMessageId: null };
 
 describe("MicButton", () => {
   it("is a toggle with Spanish labels and aria-pressed", async () => {

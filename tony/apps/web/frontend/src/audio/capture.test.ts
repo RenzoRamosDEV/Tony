@@ -137,3 +137,40 @@ describe("level", () => {
     expect(detector.update(0, 5000)).toBe(false);
   });
 });
+
+describe("MicCapture (review of change 05)", () => {
+  it("finding 9: a second start while the first is pending acquires the microphone once", async () => {
+    const { capture, requests } = harness();
+
+    await Promise.all([capture.start(), capture.start()]);
+    await capture.start();
+
+    expect(requests).toHaveLength(1);
+    expect(capture.active).toBe(true);
+  });
+
+  it("finding 9: a worklet that fails to load releases the tracks and the context", async () => {
+    const { capture, tracks, context } = harness();
+    context.audioWorklet.addModule = async () => {
+      throw new Error("no worklet");
+    };
+
+    await expect(capture.start()).rejects.toThrow("no worklet");
+
+    expect(tracks[0]!.stopped).toBe(true);
+    expect(context.closed).toBe(true);
+    expect(capture.active).toBe(false);
+  });
+
+  it("finding 9: stop during a pending start leaves nothing acquired", async () => {
+    const { capture, tracks, context } = harness();
+
+    const starting = capture.start();
+    capture.stop();
+    await starting.catch(() => undefined);
+
+    expect(capture.active).toBe(false);
+    expect(tracks[0]!.stopped).toBe(true);
+    expect(context.closed).toBe(true);
+  });
+});

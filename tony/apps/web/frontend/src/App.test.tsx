@@ -522,3 +522,100 @@ describe("App (voice)", () => {
     expect(screen.getByRole("button", { name: "Activar micrófono" })).toHaveAttribute("aria-pressed", "false");
   });
 });
+
+describe("App (review of change 05)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    seq = 0;
+    window.localStorage.clear();
+    storage = window.localStorage;
+  });
+
+  async function listening(audio: FakeAudio) {
+    const mounted = mount({ "/api/conversations/c-1/messages": [], "/api/conversations/c-2/messages": [] }, audio);
+    act(() => mounted.ws.open());
+    act(() => mounted.ws.receive(helloOk()));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Activar micrófono" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Activar micrófono" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Desactivar micrófono" })).toBeInTheDocument());
+    return mounted;
+  }
+
+  it("finding 8: meta and binary delivered before any render are enqueued with their sequence", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    act(() => {
+      ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" }));
+      ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" }));
+      ws.receiveBinary(pcm(500));
+      ws.receive(env("tts.chunk.meta", { seq: 1, sentence_index: 0 }, { message_id: "a-1" }));
+      ws.receiveBinary(pcm(250));
+    });
+
+    expect(audio.output.sources.map((s) => s.started)).toEqual([0, 0.5]);
+  });
+
+  it("finding 9: a server rejection of audio.start really stops the capture", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    act(() => ws.receive({ v: 1, type: "error", seq: 0, conversation_id: "c-1", payload: { code: "unsupported_audio", detail: "formato" } }));
+
+    expect(audio.tracks[0]!.stopped).toBe(true);
+    expect(screen.getByRole("button", { name: "Activar micrófono" })).toHaveAttribute("aria-pressed", "false");
+    act(() => audio.speak());
+    expect(ws.sentBinary).toHaveLength(0);
+  });
+
+  it("finding 10: a disconnect stops the capture and requires enabling the microphone again", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    act(() => {
+      ws.readyState = 3;
+      ws.onclose?.();
+    });
+
+    expect(audio.tracks[0]!.stopped).toBe(true);
+    expect(screen.getByRole("button", { name: "Activar micrófono" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("finding 10: a new conversation stops the capture", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    act(() => ws.receive(helloOk("c-2")));
+
+    expect(audio.tracks[0]!.stopped).toBe(true);
+    act(() => audio.speak());
+    expect(ws.sentBinary).toHaveLength(0);
+  });
+
+  it("finding 11: an accepted new turn stops audio still playing after tts.end", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => ws.receive(env("tts.end", { message_id: "a-1" }, { message_id: "a-1" })));
+
+    act(() => ws.receive(env("user.accepted", { message_id: "m-2", effective_mode: "voice", client_id: null }, { message_id: "m-2" })));
+
+    expect(audio.output.sources[0]!.stopped).toBe(true);
+  });
+
+  it("finding 11: stopping audio after tts.end stops locally without a stale cancel", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => ws.receive(env("tts.end", { message_id: "a-1" }, { message_id: "a-1" })));
+
+    await userEvent.click(screen.getByRole("button", { name: "Detener audio" }));
+
+    expect(audio.output.sources[0]!.stopped).toBe(true);
+    expect(ws.sent.some((m) => m.type === "cancel")).toBe(false);
+  });
+});

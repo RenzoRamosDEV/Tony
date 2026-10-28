@@ -7,7 +7,6 @@ import type {
   SttFinalPayload,
   TaskStatus,
   ToolResultPayload,
-  TtsChunkMetaPayload,
   UsagePayload,
   VoiceState,
 } from "./types";
@@ -108,7 +107,7 @@ export type Action =
   | { type: "voice_health"; available: boolean; reason: string | null }
   | { type: "mic"; on: boolean }
   | { type: "silence_after_speech" }
-  | { type: "binary_consumed" }
+  | { type: "playback_drained" }
   | { type: "stop_audio" }
   | { type: "notice"; text: string };
 
@@ -149,7 +148,6 @@ export const initialState: ChatState = {
     mic: "off",
     phase: "idle",
     speakingMessageId: null,
-    pendingMeta: null,
   },
 };
 
@@ -167,7 +165,7 @@ export function reduce(state: ChatState, action: Action): ChatState {
       }
       return state;
     case "connection":
-      return { ...state, connected: action.connected };
+      return action.connected ? { ...state, connected: true } : withVoice({ ...state, connected: false }, micOff(state.voice));
     case "dismiss_notice":
       return { ...state, notice: null };
     case "notice":
@@ -180,15 +178,20 @@ export function reduce(state: ChatState, action: Action): ChatState {
       return withVoice(state, { mic: action.on ? "on" : "off", phase: action.on ? "listening" : "idle" });
     case "silence_after_speech":
       return state.voice.phase === "listening" ? withVoice(state, { phase: "transcribing" }) : state;
-    case "binary_consumed":
-      return withVoice(state, { pendingMeta: null });
+    case "playback_drained":
+      return state.voice.phase === "speaking" ? state : withVoice(state, { speakingMessageId: null });
     case "stop_audio":
-      return withVoice(state, { phase: restingPhase(state.voice), speakingMessageId: null, pendingMeta: null });
+      return withVoice(state, { phase: restingPhase(state.voice), speakingMessageId: null });
   }
 }
 
 function withVoice(state: ChatState, patch: Partial<VoiceState>): ChatState {
   return { ...state, voice: { ...state.voice, ...patch } };
+}
+
+/** The server drops the audio session on every hello and disconnect, so capture must restart. */
+function micOff(voice: VoiceState): Partial<VoiceState> {
+  return { mic: "off", phase: voice.phase === "speaking" ? "speaking" : "idle" };
 }
 
 /** The phase to return to when nothing is being spoken or transcribed. */
@@ -239,16 +242,11 @@ function onEnvelope(state: ChatState, envelope: Envelope, now: number): ChatStat
     case "stt.final":
       return onSttFinal(next, envelope);
     case "tts.start":
-      return withVoice(next, { phase: "speaking", speakingMessageId: String(envelope.message_id), pendingMeta: null });
-    case "tts.chunk.meta": {
-      const meta = payload as unknown as TtsChunkMetaPayload;
-      return withVoice(next, {
-        pendingMeta: { messageId: String(envelope.message_id), seq: meta.seq, sentenceIndex: meta.sentence_index },
-      });
-    }
+      return withVoice(next, { phase: "speaking", speakingMessageId: String(envelope.message_id) });
     case "tts.end":
+      return withVoice(next, { phase: restingPhase(next.voice) });
     case "tts.cancelled":
-      return withVoice(next, { phase: restingPhase(next.voice), speakingMessageId: null, pendingMeta: null });
+      return withVoice(next, { phase: restingPhase(next.voice), speakingMessageId: null });
     default:
       return envelope.task_id ? onTaskEvent(next, envelope, envelope.task_id, now) : next;
   }
@@ -281,6 +279,7 @@ function onHello(state: ChatState, hello: HelloOkPayload, now: number): ChatStat
     activeRootId,
     confirmation: pending ? toConfirmation(pending, "front", now) : null,
     resyncRequested: resync,
+    voice: { ...base.voice, ...micOff(base.voice) },
   };
 }
 
@@ -316,6 +315,9 @@ function onError(state: ChatState, envelope: Envelope): ChatState {
   };
   if (payload.code === "voice_unavailable") {
     return withVoice(base, { available: false, reason: base.notice, mic: "off", phase: "idle" });
+  }
+  if (payload.code === "unsupported_audio") {
+    return withVoice(base, micOff(state.voice));
   }
   if (state.voice.phase === "transcribing") {
     return withVoice(base, { phase: "listening" });

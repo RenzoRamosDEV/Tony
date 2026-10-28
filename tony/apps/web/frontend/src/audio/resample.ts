@@ -2,24 +2,44 @@
 export const FRAME_SAMPLES = 480;
 export const TARGET_RATE = 16000;
 
-/** Block-averaging resampler: enough for speech, no dependencies, runs in the audio thread. */
-export function resample(input: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (fromRate === toRate) {
-    return Float32Array.from(input);
+/**
+ * Block-averaging resampler for a continuous stream (enough for speech, runs in the audio
+ * thread): the fractional read position and the unconsumed input carry over between blocks,
+ * so 128-sample worklet blocks neither drift in length nor jump at their edges.
+ */
+export class Resampler {
+  private readonly ratio: number;
+  private residual = new Float32Array(0);
+  private position = 0;
+
+  constructor(fromRate: number, toRate: number) {
+    this.ratio = fromRate / toRate;
   }
-  const ratio = fromRate / toRate;
-  const length = Math.round((input.length * toRate) / fromRate);
-  const output = new Float32Array(length);
-  for (let i = 0; i < length; i += 1) {
-    const start = Math.floor(i * ratio);
-    const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
-    let sum = 0;
-    for (let j = start; j < end; j += 1) {
-      sum += input[j] ?? 0;
+
+  process(input: Float32Array): Float32Array {
+    if (this.ratio === 1) {
+      return Float32Array.from(input);
     }
-    output[i] = sum / (end - start);
+    const data = new Float32Array(this.residual.length + input.length);
+    data.set(this.residual);
+    data.set(input, this.residual.length);
+    const output: number[] = [];
+    let start = this.position;
+    while (start + this.ratio <= data.length) {
+      const first = Math.floor(start);
+      const end = Math.max(first + 1, Math.floor(start + this.ratio));
+      let sum = 0;
+      for (let j = first; j < end; j += 1) {
+        sum += data[j]!;
+      }
+      output.push(sum / (end - first));
+      start += this.ratio;
+    }
+    const kept = Math.floor(start);
+    this.residual = data.slice(kept);
+    this.position = start - kept;
+    return Float32Array.from(output);
   }
-  return output;
 }
 
 /** Groups a stream of samples into fixed frames, keeping the remainder for the next push. */

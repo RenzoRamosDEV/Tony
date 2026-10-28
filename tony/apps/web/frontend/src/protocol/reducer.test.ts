@@ -502,7 +502,6 @@ describe("voice", () => {
       mic: "off",
       phase: "idle",
       speakingMessageId: null,
-      pendingMeta: null,
     });
 
     const state = reduce(fresh(), { type: "voice_health", available: false, reason: "sin extra" });
@@ -548,20 +547,15 @@ describe("voice", () => {
     expect(idle.voice.phase).toBe("idle");
   });
 
-  it("tts.start speaks, chunk.meta is kept pending, tts.end returns to listening", () => {
+  it("tts.start speaks and tts.end returns to listening while the playback goes on", () => {
     let state = listening();
     state = apply(state, env("tts.start", { message_id: "a-2" }, { message_id: "a-2" }));
     expect(state.voice).toMatchObject({ phase: "speaking", speakingMessageId: "a-2" });
 
     state = apply(state, env("tts.chunk.meta", { seq: 3, sentence_index: 1 }, { message_id: "a-2" }));
-    expect(state.voice.pendingMeta).toEqual({ messageId: "a-2", seq: 3, sentenceIndex: 1 });
-
-    state = reduce(state, { type: "binary_consumed" });
-    expect(state.voice.pendingMeta).toBeNull();
-
     state = apply(state, env("tts.end", { message_id: "a-2" }, { message_id: "a-2" }));
 
-    expect(state.voice).toMatchObject({ phase: "listening", speakingMessageId: null, pendingMeta: null });
+    expect(state.voice).toMatchObject({ phase: "listening", speakingMessageId: "a-2" });
   });
 
   it("tts.cancelled returns to idle when the microphone is off", () => {
@@ -571,7 +565,7 @@ describe("voice", () => {
 
     state = apply(state, env("tts.cancelled", { message_id: "a-2" }, { message_id: "a-2" }));
 
-    expect(state.voice).toMatchObject({ phase: "idle", speakingMessageId: null, pendingMeta: null });
+    expect(state.voice).toMatchObject({ phase: "idle", speakingMessageId: null });
   });
 
   it("a local stop ends the speaking phase at once", () => {
@@ -600,5 +594,48 @@ describe("local notices", () => {
     state = reduce(state, { type: "dismiss_notice" });
 
     expect(state.notice).toBeNull();
+  });
+});
+
+describe("voice (review of change 05)", () => {
+  function listeningAgain(): ChatState {
+    const state = reduce(fresh(), { type: "voice_health", available: true, reason: null });
+    return reduce(state, { type: "mic", on: true });
+  }
+
+  it("finding 11: the spoken message is kept until the playback drains after tts.end", () => {
+    let state = apply(listeningAgain(), env("tts.start", { message_id: "a-3" }, { message_id: "a-3" }));
+    state = reduce(state, { type: "playback_drained" });
+    expect(state.voice.speakingMessageId).toBe("a-3");
+
+    state = apply(state, env("tts.end", { message_id: "a-3" }, { message_id: "a-3" }));
+    expect(state.voice.speakingMessageId).toBe("a-3");
+    state = reduce(state, { type: "playback_drained" });
+
+    expect(state.voice).toMatchObject({ phase: "listening", speakingMessageId: null });
+  });
+
+  it("finding 10: losing the connection turns the microphone off", () => {
+    const state = reduce(listeningAgain(), { type: "connection", connected: false });
+
+    expect(state.voice).toMatchObject({ mic: "off", phase: "idle" });
+  });
+
+  it("finding 10: every hello.ok starts with the microphone off", () => {
+    const state = apply(listeningAgain(), {
+      v: 1,
+      type: "hello.ok",
+      seq: 0,
+      conversation_id: "c-2",
+      payload: { conversation_id: "c-2", reply_mode: "auto", last_seq: 0, state: { turn_in_progress: false, active_tasks: [], pending_confirmation: null } },
+    });
+
+    expect(state.voice).toMatchObject({ mic: "off", phase: "idle" });
+  });
+
+  it("finding 9: an unsupported_audio error turns the microphone off", () => {
+    const state = apply(listeningAgain(), oob("error", { code: "unsupported_audio", detail: "formato" }));
+
+    expect(state.voice).toMatchObject({ mic: "off", phase: "idle", available: true });
   });
 });

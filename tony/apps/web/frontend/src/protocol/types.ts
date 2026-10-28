@@ -91,18 +91,12 @@ export interface TtsChunkMetaPayload {
 
 export type VoicePhase = "idle" | "listening" | "transcribing" | "speaking";
 
-export interface PendingMeta {
-  messageId: string;
-  seq: number;
-  sentenceIndex: number;
-}
-
 export interface VoiceState {
   /** null until /api/health answers. */
   available: boolean | null;
   reason: string | null;
   mic: "off" | "on";
   phase: VoicePhase;
+  /** The reply being heard: from tts.start until its playback drains (or a stop/cancel). */
   speakingMessageId: string | null;
-  pendingMeta: PendingMeta | null;
 }

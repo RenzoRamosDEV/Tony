@@ -34,6 +34,12 @@ interface Props {
   audioContextFactory?: () => AudioContext;
 }
 
+/** The server refused the capture: the microphone must really stop, not only look off. */
+function isCaptureRejection(envelope: Envelope): boolean {
+  const code = envelope.type === "error" ? envelope.payload.code : null;
+  return code === "voice_unavailable" || code === "unsupported_audio";
+}
+
 function readStorage(storage: Storage | undefined, key: string): string | null {
   try {
     return storage?.getItem(key) ?? null;
@@ -65,6 +71,7 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
     onFrame: (frame) => void socketRef.current?.sendBinary(frame.buffer as ArrayBuffer),
     onSilenceAfterSpeech: () => dispatch({ type: "silence_after_speech" }),
   });
+  const stopMic = mic.stop;
 
   useEffect(() => {
     const socket = new ChatSocket({
@@ -72,20 +79,20 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
       onEnvelope: (envelope: Envelope) => {
         if (envelope.type === "tts.start") {
           playerRef.current.begin();
-        } else if (envelope.type === "tts.cancelled") {
+        } else if (envelope.type === "tts.cancelled" || envelope.type === "user.accepted") {
           playerRef.current.stop();
+        } else if (envelope.type === "hello.ok" || isCaptureRejection(envelope)) {
+          stopMic();
         }
         dispatch({ type: "envelope", envelope, now: Date.now() });
       },
-      onBinary: (buffer) => {
-        const meta = stateRef.current.voice.pendingMeta;
-        if (meta === null) {
-          return;
+      onAudio: (meta, buffer) => playerRef.current.enqueue(meta.seq, buffer),
+      onStatus: (connected) => {
+        if (!connected) {
+          stopMic();
         }
-        playerRef.current.enqueue(meta.seq, buffer);
-        dispatch({ type: "binary_consumed" });
+        dispatch({ type: "connection", connected });
       },
-      onStatus: (connected) => dispatch({ type: "connection", connected }),
       conversationId: () => stateRef.current.conversationId ?? readStorage(store, CONVERSATION_KEY),
       lastSeq: () => stateRef.current.lastSeq,
       ...(socketFactory ? { factory: socketFactory } : {}),
@@ -146,7 +153,14 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
       .catch(() => undefined);
   }, [api]);
 
-  const speaking = state.voice.phase === "speaking" || player.playing;
+  const synthesizing = state.voice.phase === "speaking";
+  const speaking = synthesizing || player.playing;
+  const heardMessageId = state.voice.speakingMessageId;
+  useEffect(() => {
+    if (!speaking && heardMessageId !== null) {
+      dispatch({ type: "playback_drained" });
+    }
+  }, [speaking, heardMessageId]);
   const setMuted = mic.setMuted;
   useEffect(() => {
     setMuted(speaking);
@@ -190,14 +204,13 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
     dispatch({ type: "mic", on: true });
   }, [mic, micOn]);
 
-  const speakingMessageId = state.voice.speakingMessageId;
   const stopAudio = useCallback(() => {
     player.stop();
-    if (speakingMessageId !== null) {
-      socketRef.current?.send({ type: "cancel", payload: { message_id: speakingMessageId } });
+    if (synthesizing && heardMessageId !== null) {
+      socketRef.current?.send({ type: "cancel", payload: { message_id: heardMessageId } });
     }
     dispatch({ type: "stop_audio" });
-  }, [player, speakingMessageId]);
+  }, [player, synthesizing, heardMessageId]);
 
   const onModeChanged = useCallback((mode: ReplyMode) => dispatch({ type: "set_reply_mode", mode }), []);
   const dismiss = useCallback(() => dispatch({ type: "dismiss_notice" }), []);
