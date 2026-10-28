@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from tony.apps.web.audio_ws import AudioSession
+from tony.apps.web.audio_ws import AUDIO_BACKPRESSURE, AudioSession
 from tony.apps.web.confirmations import ConfirmationRouter, InvalidConfirmation, WebConfirmGate
 from tony.apps.web.protocol import (
     AUDIO_END,
@@ -53,6 +53,7 @@ DRAIN_BUDGET_S = 1.0
 AUDIO_IN_PROGRESS = "ya hay una intervención de audio abierta"
 AUDIO_NOT_STARTED = "envía audio.start antes de los frames de audio"
 FRAME_TOO_LARGE = "frame de audio de {size} bytes; el máximo es {limit}"
+AUDIO_OVER_BUDGET = "demasiado audio pendiente de procesar; se descartó el frame"
 NO_SPEECH = "no hay síntesis en curso para el mensaje {}"
 NO_TARGET = "cancel necesita task_id o message_id"
 HelloDecision = Literal["open", "attach", "switch", "busy_same", "busy_other", "unknown"]
@@ -108,6 +109,7 @@ class ConversationHub:
         self._runtime: ChatRuntime | None = None
         self._voice: VoiceRuntime | None = None
         self._transition = asyncio.Lock()
+        self._admission = asyncio.Lock()
 
     def gate_factory(self, settings: TonySettings, front: AgentSpec) -> WebConfirmGate:
         limits = settings.limits
@@ -209,15 +211,20 @@ class ConversationHub:
         message_id: str | None = None,
     ) -> None:
         assert self.socket is not None and self.channel is not None
-        if self.turn_in_progress:
-            await self._error(self.socket, "turn_in_progress", "espera a que termine la respuesta")
-            return
-        if not text.strip():
-            await self._error(self.socket, "empty_text", "el mensaje está vacío")
-            return
-        await self._cancel_speech()
-        self.channel.client_id = client_id
-        self.turn = asyncio.create_task(self._run_turn(text, modality, message_id))
+        async with self._admission:
+            if self.turn_in_progress:
+                await self._error(
+                    self.socket, "turn_in_progress", "espera a que termine la respuesta"
+                )
+                return
+            if not text.strip():
+                await self._error(self.socket, "empty_text", "el mensaje está vacío")
+                return
+            await self._cancel_speech()
+            if self.channel is None:
+                return
+            self.channel.client_id = client_id
+            self.turn = asyncio.create_task(self._run_turn(text, modality, message_id))
 
     # --- audio input ------------------------------------------------------------------------
 
@@ -227,10 +234,13 @@ class ConversationHub:
         if not voice.available or voice.registry is None:
             await self._error(self.socket, "voice_unavailable", voice.availability.reason or "")
             return
-        if self.audio is not None:
+        if self.audio is not None and self.audio.capturing:
             await self._error(self.socket, "audio_in_progress", AUDIO_IN_PROGRESS)
             return
         await self._cancel_speech()
+        if self.audio is not None:
+            self.audio.open()
+            return
         registry = voice.registry
         try:
             vad = await voice.executor.run(registry.get_vad)
@@ -238,15 +248,19 @@ class ConversationHub:
             detail = f"{exc.__class__.__name__}: {exc}"
             await self._error(self.socket, "voice_unavailable", detail)
             return
-        self.audio = AudioSession(
+        if self.audio is not None or self.socket is None:
+            return
+        session = AudioSession(
             vad,
             lambda: registry.get_stt(registry.stt_alias),
             voice.executor,
             self.runtime.front.persona.language,
-            self._on_transcript,
-            self._on_audio_error,
+            lambda transcript: self._on_transcript(session, transcript),
+            lambda code, detail: self._on_audio_error(session, code, detail),
             self.runtime,
         )
+        self.audio = session
+        session.open()
 
     async def audio_frame(self, socket: SocketLike, data: bytes) -> None:
         if socket is not self.socket:
@@ -256,36 +270,40 @@ class ConversationHub:
             detail = FRAME_TOO_LARGE.format(size=len(data), limit=AUDIO_FRAME_MAX_BYTES)
             await self._error(socket, "audio_frame_too_large", detail)
             return
-        if self.audio is None:
+        if self.audio is None or not self.audio.capturing:
             await self._error(socket, "audio_not_started", AUDIO_NOT_STARTED)
             return
-        self.audio.feed(data)
+        if not self.audio.feed(data):
+            await self._error(socket, AUDIO_BACKPRESSURE, AUDIO_OVER_BUDGET)
 
     async def audio_end(self) -> None:
         assert self.socket is not None
-        audio, self.audio = self.audio, None
-        if audio is None:
+        if self.audio is None or not self.audio.capturing:
             await self._error(self.socket, "audio_not_started", AUDIO_NOT_STARTED)
             return
-        audio.end()
+        self.audio.end()
 
-    async def _on_transcript(self, transcript: Transcript) -> None:
-        if self.socket is None or self.stream is None:
+    async def _on_transcript(self, session: AudioSession, transcript: Transcript) -> None:
+        """A transcript only counts while its session is still the conversation's current one."""
+        stream = self.stream
+        if self.audio is not session or self.socket is None or stream is None:
             return
         message_id = uuid.uuid4().hex
-        await self.stream.publish(
+        await stream.publish(
             STT_FINAL, {"text": transcript.text, "message_id": message_id}, message_id=message_id
         )
-        await self.user_text(transcript.text, modality="audio", message_id=message_id)
+        if self.audio is session and self.socket is not None:
+            await self.user_text(transcript.text, modality="audio", message_id=message_id)
 
-    async def _on_audio_error(self, code: str, detail: str) -> None:
-        if self.socket is not None:
+    async def _on_audio_error(self, session: AudioSession, code: str, detail: str) -> None:
+        if self.audio is session and self.socket is not None:
             await self._error(self.socket, code, detail)
 
-    def _discard_audio(self) -> None:
+    def _discard_audio(self) -> AudioSession | None:
         audio, self.audio = self.audio, None
         if audio is not None:
             audio.discard()
+        return audio
 
     async def _cancel_speech(self) -> None:
         if self.channel is not None and self.channel.speech is not None:
@@ -336,8 +354,8 @@ class ConversationHub:
 
     async def aclose(self) -> None:
         try:
-            await self._cancel_speech()
-            await self._drain_outbound()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._silence_outbound(), DRAIN_BUDGET_S)
             socket = self.socket
             if socket is not None:
                 self.detach(socket)
@@ -353,13 +371,11 @@ class ConversationHub:
             finally:
                 self.voice.close()
 
-    async def _drain_outbound(self) -> None:
-        """Give the pump a moment to deliver what is queued (the `tts.cancelled` of a close)."""
-        queue = self._queue
-        if queue is None:
-            return
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(queue.drained(), DRAIN_BUDGET_S)
+    async def _silence_outbound(self) -> None:
+        """Cancel the speech and let the pump deliver what is queued (its `tts.cancelled`)."""
+        await self._cancel_speech()
+        if self._queue is not None:
+            await self._queue.drained()
 
     async def _settle_turn(self) -> None:
         turn = self.turn
@@ -404,7 +420,9 @@ class ConversationHub:
         )
 
     async def _close_conversation(self) -> None:
-        self._discard_audio()
+        audio = self._discard_audio()
+        if audio is not None:
+            await audio.aclose()
         channel, self.channel = self.channel, None
         self.conversation_id = None
         self.stream = None

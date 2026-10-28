@@ -480,3 +480,35 @@ async def test_drained_waits_until_the_consumer_has_finished_with_every_item() -
     await closed.put(task(3))
     closed.close()
     await asyncio.wait_for(closed.drained(), 1)
+
+
+async def test_review05_finding_5_purge_wakes_a_blocked_publish_so_cancelled_gets_through() -> None:
+    from tony.apps.web.tts_stream import ReplySink
+
+    queue = OutboundQueue(3)
+    stream = ConversationStream("c1")
+    stream.attach(queue)
+    for _ in range(3):
+        await stream.publish_binary(b"\0\0", "m1")
+    blocked = asyncio.ensure_future(stream.publish("assistant.delta", {"text": "hola"}))
+    await asyncio.sleep(0.01)
+    assert not blocked.done()
+
+    await asyncio.wait_for(ReplySink(stream, "m1").cancelled(), 1)
+    await asyncio.wait_for(blocked, 1)
+
+    kinds = [item.type for item in queue._items]
+    assert kinds == ["assistant.delta", "tts.cancelled"]
+
+
+async def test_review05_finding_5_purging_everything_marks_the_queue_drained() -> None:
+    queue = OutboundQueue(10)
+    stream = ConversationStream("c1")
+    stream.attach(queue)
+    await stream.publish_binary(b"\0\0", "m1")
+    waiting = asyncio.ensure_future(queue.drained())
+    await asyncio.sleep(0.01)
+
+    queue.purge("m1")
+
+    await asyncio.wait_for(waiting, 0.5)

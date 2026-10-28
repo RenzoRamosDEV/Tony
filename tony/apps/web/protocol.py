@@ -284,6 +284,10 @@ class OutboundQueue:
         kept = deque(item for item in self._items if not _is_audio_of(item, message_id))
         removed = len(self._items) - len(kept)
         self._items = kept
+        if len(self._items) < self._capacity:
+            self._not_full.set()
+        if not self._items and not self._in_flight:
+            self._empty.set()
         return removed
 
     async def put(self, envelope: QueueItem) -> None:
@@ -342,6 +346,9 @@ class ConversationStream:
 
     def redact(self, payload: dict[str, Any]) -> dict[str, Any]:
         return redact(payload, self._secrets)
+
+    def redact_text(self, text: str) -> str:
+        return redact(text, self._secrets)
 
     async def publish(
         self,

@@ -15,7 +15,7 @@ from tony.apps.web.protocol import (
 )
 from tony.core.channels.ports import AssistantReply
 from tony.core.runner import EventSink
-from tony.core.voice.cleanup import speech_text_for
+from tony.core.voice.cleanup import speech_text_for, spoken_mask
 from tony.core.voice.executor import VoiceExecutor
 from tony.core.voice.pipeline import SpeechPipeline
 from tony.core.voice.ports import AudioChunk, Tts
@@ -90,7 +90,9 @@ class SpeechStreamer:
         streamed = reply.message_id in self._pipelines
         pipeline = self._pipeline_for(reply.message_id)
         if not streamed:
-            pipeline.feed(speech_text_for(reply.display_text, reply.speech_text).text)
+            redact = self._stream.redact_text
+            speech = None if reply.speech_text is None else redact(reply.speech_text)
+            pipeline.feed(speech_text_for(redact(reply.display_text), speech).text)
         finisher = asyncio.create_task(self._finish(reply.message_id, pipeline))
         self._finishers.add(finisher)
         finisher.add_done_callback(self._finishers.discard)
@@ -125,8 +127,13 @@ class SpeechStreamer:
                 self._voice,
                 ReplySink(self._stream, message_id),
                 self._events,
+                sanitize=self._speakable,
             )
         return self._pipelines[message_id]
+
+    def _speakable(self, sentence: str) -> str:
+        """Secrets are masked per whole sentence, so one split across deltas is caught too."""
+        return spoken_mask(self._stream.redact_text(sentence))
 
     async def _finish(self, message_id: str, pipeline: SpeechPipeline) -> None:
         try:

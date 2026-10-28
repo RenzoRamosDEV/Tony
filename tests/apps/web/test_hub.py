@@ -643,3 +643,168 @@ async def test_finding_14_user_accepted_echoes_the_client_id(h: HubHarness) -> N
     await h.send(socket, "user.text", {"text": "hola", "client_id": "req-7"})
 
     assert socket.last("user.accepted")["payload"]["client_id"] == "req-7"
+
+
+# --- review 05 -----------------------------------------------------------------------------
+
+
+class VoiceHarness(HubHarness):
+    def __init__(self, tmp_path: Path, stt, turns: list | None = None) -> None:
+        super().__init__(tmp_path, turns)
+        from tests.apps.web.helpers import FakeVoice
+        from tests.fakes.voice import FakeTts, FakeVad
+
+        self.voice = FakeVoice(FakeVad(), stt, FakeTts())
+
+    async def start(self) -> ConversationHub:
+        from tony.apps.web.voice import VoiceRuntime
+
+        runtime = await self.d.build(self.hub.gate_factory)
+        self.hub.bind(runtime, VoiceRuntime(self.voice.availability, self.voice.registry))
+        return self.hub
+
+
+async def eventually(condition, timeout: float = 3.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        assert loop.time() < deadline, "condition not met in time"
+        await asyncio.sleep(0.01)
+
+
+def speech_then_silence() -> bytes:
+    from array import array
+
+    return array("f", [0.5] * 8_192 + [0.0] * 12_800).tobytes()
+
+
+async def test_review05_finding_2_a_late_transcript_never_lands_in_another_conversation(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    from tests.fakes.voice import FakeStt
+
+    class GatedStt(FakeStt):
+        def __init__(self) -> None:
+            super().__init__("¿qué hora es?")
+            self.entered, self.gate = threading.Event(), threading.Event()
+
+        def transcribe(self, utterance, language):
+            self.entered.set()
+            self.gate.wait(timeout=5)
+            return super().transcribe(utterance, language)
+
+    stt = GatedStt()
+    h = VoiceHarness(tmp_path, stt, [{"display_text": "Hola.", "speech_text": None}])
+    hub = await h.start()
+    socket = FakeSocket()
+    try:
+        first = await h.hello(socket)
+        await h.send(socket, "audio.start", {})
+        pcm = speech_then_silence()
+        for start in range(0, len(pcm), 16_384):
+            await hub.audio_frame(socket, pcm[start : start + 16_384])
+        await h.send(socket, "audio.end", {})
+        await eventually(stt.entered.is_set)
+        second = await h.hello(socket)
+        stt.gate.set()
+        await eventually(lambda: len(stt.calls) == 1)
+        await asyncio.sleep(0.05)
+        await h.clock.settle()
+    finally:
+        stt.gate.set()
+        await hub.aclose()
+        await hub.runtime.aclose()
+
+    assert first != second
+    assert socket.of_type("stt.final") == []
+    assert h.d.runner.prompts == []
+
+
+async def test_review05_finding_3_repeated_audio_start_reuses_the_session(tmp_path: Path) -> None:
+    from tests.fakes.voice import FakeStt
+
+    h = VoiceHarness(tmp_path, FakeStt("hola"))
+    hub = await h.start()
+    socket = FakeSocket()
+    try:
+        await h.hello(socket)
+        await h.send(socket, "audio.start", {})
+        first = hub.audio
+        await h.send(socket, "audio.end", {})
+        await h.send(socket, "audio.start", {})
+        second = hub.audio
+        await h.send(socket, "audio.start", {})
+    finally:
+        await hub.aclose()
+        await hub.runtime.aclose()
+
+    assert first is not None and second is first
+    assert [m["payload"]["code"] for m in socket.of_type("error")] == ["audio_in_progress"]
+
+
+async def test_review05_finding_3_frames_beyond_the_budget_get_audio_backpressure(
+    tmp_path: Path,
+) -> None:
+    from tests.fakes.voice import FakeStt
+
+    h = VoiceHarness(tmp_path, FakeStt("hola"))
+    hub = await h.start()
+    socket = FakeSocket()
+    try:
+        await h.hello(socket)
+        await h.send(socket, "audio.start", {})
+        assert hub.audio is not None
+        hub.audio._max_pending_samples = 0
+        await hub.audio_frame(socket, b"\0" * 2_560)
+    finally:
+        await hub.aclose()
+        await hub.runtime.aclose()
+
+    assert socket.last("error")["payload"]["code"] == "audio_backpressure"
+
+
+async def test_review05_finding_5_aclose_budget_covers_a_hung_speech_cancel(h: HubHarness) -> None:
+    socket = FakeSocket()
+    await h.hello(socket)
+    never = asyncio.Event()
+
+    async def hung() -> None:
+        await never.wait()
+
+    h.hub._cancel_speech = hung  # type: ignore[method-assign]
+
+    try:
+        await asyncio.wait_for(h.hub.aclose(), 3)
+    finally:
+        never.set()
+
+    assert socket.closed == [1001]
+
+
+async def test_review05_finding_6_text_and_transcript_never_start_two_turns(h: HubHarness) -> None:
+    socket = FakeSocket()
+    await h.hello(socket)
+    release, finish = asyncio.Event(), asyncio.Event()
+    started: list[str] = []
+
+    async def held() -> None:
+        await release.wait()
+
+    async def turn(text, modality="text", message_id=None) -> None:
+        started.append(text)
+        await finish.wait()
+
+    h.hub._cancel_speech = held  # type: ignore[method-assign]
+    h.hub._run_turn = turn  # type: ignore[method-assign]
+    typed = asyncio.ensure_future(h.hub.user_text("hola"))
+    spoken = asyncio.ensure_future(h.hub.user_text("qué hora es", modality="audio"))
+    await asyncio.sleep(0.01)
+    release.set()
+    await asyncio.gather(typed, spoken)
+    await h.clock.settle()
+    finish.set()
+
+    assert started == ["hola"]
+    assert [m["payload"]["code"] for m in socket.of_type("error")] == ["turn_in_progress"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from collections.abc import Iterator
@@ -295,3 +296,37 @@ def test_reconnection_replays_envelopes_but_never_binary_frames(tmp_path: Path) 
     assert [m["seq"] for m in replayed] == list(range(last_seq + 1, ok["payload"]["last_seq"] + 1))
     assert "bin" not in types(replayed)
     assert types(replayed).count("tts.chunk.meta") >= 2
+
+
+SECRET = "sk-test-0123456789abcdef"
+
+
+async def test_review05_finding_1_a_secret_in_the_reply_never_reaches_the_tts() -> None:
+    from tests.fakes.sinks import ListEventSink
+    from tony.apps.web.protocol import ConversationStream
+    from tony.apps.web.tts_stream import SpeechStreamer
+    from tony.core.channels.ports import AssistantReply
+    from tony.core.voice.cleanup import SPOKEN_MASK
+    from tony.core.voice.executor import VoiceExecutor
+
+    tts, executor = FakeTts(), VoiceExecutor()
+    stream = ConversationStream("c1", secrets=[SECRET])
+    streamer = SpeechStreamer(stream, lambda: tts, executor, "ef_dora", ListEventSink())
+    try:
+        streamer.start(AssistantReply(f"Tu clave es {SECRET}.", None, "voice", "m1"))
+        streamer.on_delta("m2", f"La clave es {SECRET[:9]}")
+        streamer.on_delta("m2", f"{SECRET[9:]}. Guárdala.")
+        streamer.start(AssistantReply("ignorado", None, "voice", "m2"))
+        streamer.start(AssistantReply("Hola.", f"Dice {SECRET} ahora.", "voice", "m3"))
+        for _ in range(100):
+            if not streamer.speaking:
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        await streamer.aclose()
+        executor.close()
+
+    spoken = " ".join(tts.sentences)
+    assert SECRET not in spoken and SECRET[:9] not in spoken
+    assert "***" not in spoken
+    assert spoken.count(SPOKEN_MASK) == 3
