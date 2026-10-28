@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
+import time
 from typing import Protocol, TextIO
 
 
@@ -17,38 +18,32 @@ class LineSource(Protocol):
 class StdinReader:
     """One daemon thread does the blocking reads; asyncio consumers wait on a queue.
 
-    When a read is abandoned (a prompt timed out), the answer that arrives late belongs
-    to that stale prompt: it is discarded before the next read. A daemon thread never
-    keeps the interpreter alive after a timeout or a Ctrl+C.
+    Every line is stamped when the thread read it. A read only accepts lines typed after it
+    began: an answer to an abandoned prompt, or text typed while nobody was asking, can never
+    answer a later question. A daemon thread never keeps the interpreter alive after a
+    timeout or a Ctrl+C.
     """
 
     def __init__(self, stream: TextIO | None = None) -> None:
         self._stream = stream
-        self._queue: asyncio.Queue[str | None] | None = None
+        self._queue: asyncio.Queue[tuple[float, str] | None] | None = None
         self._eof = False
-        self._abandoned = False
 
     async def readline(self) -> str | None:
         if self._eof:
             return None
+        started = time.monotonic()
         queue = self._start_pump()
-        if self._abandoned:
-            self._abandoned = False
-            while not queue.empty():
-                if queue.get_nowait() is None:
-                    return self._end()
-        try:
-            line = await queue.get()
-        except asyncio.CancelledError:
-            self._abandoned = True
-            raise
-        return self._end() if line is None else line
+        while True:
+            item = await queue.get()
+            if item is None:
+                self._eof = True
+                return None
+            read_at, line = item
+            if read_at >= started:
+                return line
 
-    def _end(self) -> None:
-        self._eof = True
-        return None
-
-    def _start_pump(self) -> asyncio.Queue[str | None]:
+    def _start_pump(self) -> asyncio.Queue[tuple[float, str] | None]:
         if self._queue is None:
             self._queue = asyncio.Queue()
             stream = self._stream or sys.stdin
@@ -62,7 +57,7 @@ class StdinReader:
 def _pump(stream: TextIO, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> None:
     try:
         for line in iter(stream.readline, ""):
-            loop.call_soon_threadsafe(queue.put_nowait, line)
+            loop.call_soon_threadsafe(queue.put_nowait, (time.monotonic(), line))
         loop.call_soon_threadsafe(queue.put_nowait, None)
     except (RuntimeError, ValueError):
         # The loop or the stream was closed while the thread was blocked on stdin.

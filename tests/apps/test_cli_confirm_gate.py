@@ -100,12 +100,22 @@ async def test_concurrent_confirmations_are_serialized_prompt_by_prompt() -> Non
 
 
 async def test_stdin_lines_reads_one_line_per_call_and_signals_eof() -> None:
-    lines = StdinLines(io.StringIO("s\nn\n"))
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "r")
+    lines = StdinLines(stream)
 
-    assert await lines.readline() == "s\n"
-    assert await lines.readline() == "n\n"
+    first = asyncio.ensure_future(lines.readline())
+    await asyncio.sleep(0.05)
+    os.write(write_fd, b"s\n")
+    assert await asyncio.wait_for(first, 1) == "s\n"
+    second = asyncio.ensure_future(lines.readline())
+    await asyncio.sleep(0.05)
+    os.write(write_fd, b"n\n")
+    assert await asyncio.wait_for(second, 1) == "n\n"
+    os.close(write_fd)
+    assert await asyncio.wait_for(lines.readline(), 1) is None
     assert await lines.readline() is None
-    assert await lines.readline() is None
+    stream.close()
 
 
 async def test_answer_typed_after_a_timeout_does_not_approve_the_next_prompt() -> None:
@@ -154,42 +164,4 @@ async def test_stdin_is_pumped_by_a_named_daemon_thread() -> None:
         assert pump[0].daemon is True
     finally:
         os.close(write_fd)
-        stream.close()
-
-
-async def test_type_ahead_is_kept_once_the_stale_answer_was_discarded() -> None:
-    read_fd, write_fd = os.pipe()
-    stream = os.fdopen(read_fd, "r")
-    lines = StdinLines(stream)
-    try:
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(lines.readline(), 0.05)
-        os.write(write_fd, b"stale\n")
-        await asyncio.sleep(0.1)
-        pending = asyncio.ensure_future(lines.readline())
-        await asyncio.sleep(0.1)
-        os.write(write_fd, b"fresh\n")
-        assert await asyncio.wait_for(pending, 1) == "fresh\n"
-        os.write(write_fd, b"a\nb\n")
-        await asyncio.sleep(0.1)
-
-        assert await asyncio.wait_for(lines.readline(), 1) == "a\n"
-        assert await asyncio.wait_for(lines.readline(), 1) == "b\n"
-    finally:
-        os.close(write_fd)
-        stream.close()
-
-
-async def test_eof_after_an_abandoned_read_is_reported_promptly() -> None:
-    read_fd, write_fd = os.pipe()
-    stream = os.fdopen(read_fd, "r")
-    lines = StdinLines(stream)
-    try:
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(lines.readline(), 0.05)
-        os.close(write_fd)
-        await asyncio.sleep(0.1)
-
-        assert await asyncio.wait_for(lines.readline(), 1) is None
-    finally:
         stream.close()
