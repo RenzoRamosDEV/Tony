@@ -38,3 +38,26 @@ def test_plain_files_in_agents_dir_are_ignored(tmp_repo: Path) -> None:
     (tmp_repo / "agents" / "README.md").write_text("x", encoding="utf-8")
 
     assert load_all(tmp_repo / "agents", load_settings(None), {}) == {}
+
+
+def test_malformed_agents_are_reported_without_breaking_the_rest(tmp_repo: Path) -> None:
+    agents_dir = tmp_repo / "agents"
+    write_agent(agents_dir, "viernes", "worker")
+    write_agent(agents_dir, "lista", "worker")
+    (agents_dir / "lista" / "tool").mkdir()
+    (agents_dir / "lista" / "tool" / "tool.json").write_text("[]", encoding="utf-8")
+    (agents_dir / "yaml").mkdir()
+    (agents_dir / "yaml" / "agent.md").write_text("---\nname: [\n---\nHola\n", encoding="utf-8")
+    (agents_dir / "reservado").mkdir()
+    (agents_dir / "reservado" / "agent.md").write_text(
+        "---\nname: r\nrole: worker\nmodel: claude-sonnet\npath: /x\n---\nHola\n", encoding="utf-8"
+    )
+
+    result = load_all(agents_dir, load_settings(None), {})
+
+    assert isinstance(result["viernes"], AgentSpec)
+    assert {name for name, item in result.items() if isinstance(item, AgentLoadError)} == {
+        "lista",
+        "yaml",
+        "reservado",
+    }

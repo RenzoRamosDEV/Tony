@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "claude-agent-sdk==0.2.174",
-    "mcp>=1.23,<3",
+    "mcp>=2.3,<3",
     "pydantic>=2,<3",
     "pydantic-settings>=2,<3",
     "typer>=0.12,<1",

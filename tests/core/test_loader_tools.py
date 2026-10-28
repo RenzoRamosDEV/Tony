@@ -222,3 +222,42 @@ def test_command_is_not_substituted(tmp_repo: Path, settings) -> None:
 
     assert tools.mcpServers["s"].command == "${CMD}"
     assert tools.mcpServers["s"].args == ["x"]
+
+
+@pytest.mark.parametrize("tool_json", [[], {"mcpServers": []}, {"mcpServers": {"x": "cmd"}}])
+def test_malformed_tool_json_root_is_a_load_error(tmp_repo: Path, settings, tool_json) -> None:
+    folder = make_agent(tmp_repo, tool_json)
+
+    with pytest.raises(AgentLoadError, match="tool.json"):
+        load_agent(folder, settings, {})
+
+
+def test_substituted_env_values_are_exposed_as_secrets(tmp_repo: Path, settings) -> None:
+    folder = make_agent(
+        tmp_repo,
+        {
+            "mcpServers": {
+                "notion": {
+                    "url": "https://x/${WORKSPACE}",
+                    "headers": {"Authorization": "Bearer ${NOTION_TOKEN}"},
+                },
+                "fs": {"command": "x", "args": ["${HOME}/notas", "${HOME}/docs"]},
+            }
+        },
+    )
+    env = {
+        "NOTION_TOKEN": "tok-from-env-1234",
+        "WORKSPACE": "ws-1",
+        "HOME": "/home/renzo",
+        "UNUSED": "never-substituted",
+    }
+
+    spec = load_agent(folder, settings, env)
+
+    assert spec.secrets == ["ws-1", "tok-from-env-1234", "/home/renzo"]
+
+
+def test_agent_without_substitutions_has_no_secrets(tmp_repo: Path, settings) -> None:
+    folder = make_agent(tmp_repo, {"mcpServers": {"fs": {"command": "x"}}})
+
+    assert load_agent(folder, settings, {"HOME": "/home/renzo"}).secrets == []

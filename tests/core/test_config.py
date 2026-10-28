@@ -151,3 +151,20 @@ def test_dotenv_secrets_are_only_file_values(
 
 def test_dotenv_secrets_of_missing_file_is_empty(tmp_repo: Path) -> None:
     assert dotenv_secrets(tmp_repo / "config" / ".env") == []
+
+
+@pytest.mark.parametrize(
+    ("body", "fragment"),
+    [
+        ("- 1\n- 2\n", "mapa"),
+        ("models: null\n", "models"),
+        ("limits: [\n", "YAML"),
+    ],
+)
+def test_malformed_root_or_section_becomes_config_error(
+    tmp_repo: Path, body: str, fragment: str
+) -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(write_yaml(tmp_repo, body))
+
+    assert fragment in str(exc_info.value)

@@ -162,3 +162,15 @@ def test_every_failure_carries_agent_name_and_message(tmp_repo, settings, agent_
     assert fragment in exc_info.value.message
     assert str(exc_info.value).startswith("x: ")
     assert "Value error" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("key", ["path", "system_prompt", "tools", "secrets"])
+def test_reserved_frontmatter_keys_are_rejected(tmp_repo: Path, settings, key: str) -> None:
+    folder = make_agent(
+        tmp_repo / "agents",
+        "x",
+        f"---\nname: x\nrole: worker\nmodel: claude-sonnet\n{key}: 1\n---\n",
+    )
+
+    with pytest.raises(AgentLoadError, match=key):
+        load_agent(folder, settings, {})

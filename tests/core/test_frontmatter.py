@@ -33,3 +33,8 @@ def test_missing_closing_delimiter() -> None:
 def test_non_mapping_header_is_rejected() -> None:
     with pytest.raises(FrontmatterError, match="mapa YAML"):
         split_frontmatter("---\n- a\n- b\n---\ncuerpo")
+
+
+def test_invalid_yaml_header_is_rejected() -> None:
+    with pytest.raises(FrontmatterError, match="YAML"):
+        split_frontmatter("---\nname: [\n---\ncuerpo")

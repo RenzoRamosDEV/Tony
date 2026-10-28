@@ -22,7 +22,10 @@ def split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         end = next(i for i in range(1, len(lines)) if lines[i].strip() == DELIMITER)
     except StopIteration:
         raise FrontmatterError("el frontmatter no tiene delimitador '---' de cierre") from None
-    header = yaml.safe_load("\n".join(lines[1:end])) or {}
+    try:
+        header = yaml.safe_load("\n".join(lines[1:end])) or {}
+    except yaml.YAMLError as exc:
+        raise FrontmatterError(f"frontmatter YAML inválido: {exc}") from None
     if not isinstance(header, dict):
         raise FrontmatterError("el frontmatter debe ser un mapa YAML")
     body = "\n".join(lines[end + 1 :]).strip()

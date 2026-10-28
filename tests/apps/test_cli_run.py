@@ -233,3 +233,35 @@ def test_dotenv_values_are_redacted_in_the_log(cli, tmp_repo: Path) -> None:
     raw = Path(result.output.strip().splitlines()[-1].split("log: ", 1)[1]).read_text()
     assert "supersecreto123" not in raw
     assert '"q": "***"' in raw
+
+
+def test_env_values_substituted_into_tool_config_are_redacted(
+    cli, tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_repo / "config" / ".env").write_text("NOTION_TOKEN=oldsecret123\n", encoding="utf-8")
+    monkeypatch.setenv("NOTION_TOKEN", "newsecret456")
+    tool_dir = tmp_repo / "agents" / "viernes" / "tool"
+    tool_dir.mkdir()
+    (tool_dir / "tool.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "notion": {
+                        "url": "https://mcp.notion.com/mcp",
+                        "headers": {"Authorization": "Bearer ${NOTION_TOKEN}"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cli["runner"] = FakeAgentRunner(
+        OK_RESULT, events=[("assistant.text", {"text": "uso newsecret456 y oldsecret123"})]
+    )
+
+    result = invoke("run", "viernes", "x")
+
+    raw = Path(result.output.strip().splitlines()[-1].split("log: ", 1)[1]).read_text()
+    assert "newsecret456" not in raw
+    assert "oldsecret123" not in raw
+    assert '"text": "uso *** y ***"' in raw

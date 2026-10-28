@@ -56,7 +56,9 @@ class TonySettings(StrictModel):
 
     @field_validator("models", mode="before")
     @classmethod
-    def merge_default_models(cls, value: dict[str, str]) -> dict[str, str]:
+    def merge_default_models(cls, value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
+            raise ValueError("debe ser un mapa de alias a identificadores de modelo")
         return {**DEFAULT_MODELS, **value}
 
     @model_validator(mode="after")
@@ -70,7 +72,7 @@ def load_settings(path: Path | None) -> TonySettings:
     """Build settings from a YAML file; a missing file or None yields the defaults."""
     data = _read_yaml(path) if path is not None else {}
     try:
-        return TonySettings(**data)
+        return TonySettings.model_validate(data)
     except ValidationError as exc:
         raise ConfigError(_format_validation_error(exc)) from None
 
@@ -78,8 +80,15 @@ def load_settings(path: Path | None) -> TonySettings:
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return loaded or {}
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"YAML inválido: {exc}") from None
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        raise ConfigError("config: debe ser un mapa YAML")
+    return loaded
 
 
 def _format_validation_error(exc: ValidationError) -> str:

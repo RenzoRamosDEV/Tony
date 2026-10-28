@@ -106,7 +106,7 @@ async def run_task(
     spec = select_worker(agent, agents_dir, settings, load_env(dotenv_path))
 
     task_id = new_task_id()
-    sink = JsonlEventSink(logs_dir, task_id, dotenv_secrets(dotenv_path))
+    sink = JsonlEventSink(logs_dir, task_id, [*dotenv_secrets(dotenv_path), *spec.secrets])
     events = UsageRecorder(sink)
     manager = manager_factory(settings)
     try:

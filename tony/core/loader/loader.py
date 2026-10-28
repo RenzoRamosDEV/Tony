@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from tony.core.loader.models import AgentSpec, ToolConfig
 from tony.core.loader.substitution import substitute_deep
 
 SUBSTITUTED_FIELDS = ("args", "env", "url", "headers")
+RESERVED_HEADER_KEYS = frozenset({"system_prompt", "path", "tools", "secrets"})
 
 
 def load_agent(path: Path, settings: TonySettings, env: EnvMap) -> AgentSpec:
@@ -27,9 +29,14 @@ def load_agent(path: Path, settings: TonySettings, env: EnvMap) -> AgentSpec:
         header, body = split_frontmatter(agent_md.read_text(encoding="utf-8"))
     except FrontmatterError as exc:
         raise AgentLoadError(agent, str(exc)) from None
-    tools = _load_tool_config(path / "tool" / "tool.json", agent, env)
+    reserved = sorted(RESERVED_HEADER_KEYS & header.keys())
+    if reserved:
+        raise AgentLoadError(agent, f"el frontmatter no puede definir {reserved}")
+    tools, secrets = _load_tool_config(path / "tool" / "tool.json", agent, env)
     try:
-        spec = AgentSpec(**header, system_prompt=body, path=path, tools=tools)
+        spec = AgentSpec.model_validate(
+            {**header, "system_prompt": body, "path": path, "tools": tools, "secrets": secrets}
+        )
     except ValidationError as exc:
         raise AgentLoadError(agent, _format_validation_error(exc)) from None
     if spec.model not in settings.models:
@@ -53,23 +60,48 @@ def load_all(
     return result
 
 
-def _load_tool_config(tool_json: Path, agent: str, env: EnvMap) -> ToolConfig:
+class _RecordingEnv(Mapping[str, str]):
+    """Read-through view of the environment that remembers every value handed out."""
+
+    def __init__(self, env: EnvMap) -> None:
+        self._env = env
+        self.used_values: list[str] = []
+
+    def __getitem__(self, key: str) -> str:
+        value = self._env[key]
+        if value not in self.used_values:
+            self.used_values.append(value)
+        return value
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._env)
+
+    def __len__(self) -> int:
+        return len(self._env)
+
+
+def _load_tool_config(tool_json: Path, agent: str, env: EnvMap) -> tuple[ToolConfig, list[str]]:
     if not tool_json.is_file():
-        return ToolConfig()
+        return ToolConfig(), []
     try:
         raw = json.loads(tool_json.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise AgentLoadError(agent, f"tool.json inválido: {exc}") from None
+    if not isinstance(raw, dict):
+        raise AgentLoadError(agent, "tool.json: debe ser un objeto JSON")
+    recording = _RecordingEnv(env)
     try:
-        raw["mcpServers"] = _substitute_servers(raw.get("mcpServers") or {}, env)
-        return ToolConfig(**raw)
+        raw["mcpServers"] = _substitute_servers(raw.get("mcpServers", {}), recording)
+        return ToolConfig.model_validate(raw), recording.used_values
     except MissingEnvVar as exc:
         raise AgentLoadError(agent, str(exc)) from None
     except ValidationError as exc:
         raise AgentLoadError(agent, f"tool.json: {_format_validation_error(exc)}") from None
 
 
-def _substitute_servers(servers: dict[str, Any], env: EnvMap) -> dict[str, Any]:
+def _substitute_servers(servers: Any, env: Mapping[str, str]) -> Any:
+    if not isinstance(servers, dict):
+        return servers
     substituted = {}
     for name, server in servers.items():
         if not isinstance(server, dict):

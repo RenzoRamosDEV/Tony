@@ -51,7 +51,9 @@ class ToolConfig(StrictModel):
 
     @field_validator("mcpServers", mode="before")
     @classmethod
-    def each_server_has_exactly_one_transport(cls, servers: dict[str, Any]) -> dict[str, Any]:
+    def each_server_has_exactly_one_transport(cls, servers: Any) -> dict[str, Any]:
+        if not isinstance(servers, dict):
+            raise ValueError("mcpServers debe ser un objeto")
         for name, server in servers.items():
             if isinstance(server, StdioServer | HttpServer):
                 continue
@@ -87,6 +89,8 @@ class AgentSpec(StrictModel):
     system_prompt: str = ""
     path: Path
     tools: ToolConfig = ToolConfig()
+    secrets: list[str] = []
+    """Values substituted from the environment into tools; redacted from logs."""
 
     @field_validator("max_steps")
     @classmethod
