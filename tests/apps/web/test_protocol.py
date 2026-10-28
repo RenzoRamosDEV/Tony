@@ -340,6 +340,9 @@ async def test_finding_3_concurrent_publishers_keep_seq_order_under_backpressure
         ("set_mode", {"reply_mode": None}),
         ("audio.start", {"sample_rate": "16000"}),
         ("audio.start", {"channels": 1.0}),
+        ("playback.stopped", {}),
+        ("playback.stopped", {"message_id": 5}),
+        ("playback.stopped", {"message_id": None}),
     ],
 )
 def test_finding_7_invalid_payloads_are_rejected_before_dispatch(type_: str, payload) -> None:
@@ -366,6 +369,7 @@ def test_finding_7_invalid_payloads_are_rejected_before_dispatch(type_: str, pay
         ("cancel", {"message_id": "m"}, {"task_id": None, "message_id": "m"}),
         ("cancel", {}, {"task_id": None, "message_id": None}),
         ("set_mode", {"reply_mode": "nope"}, {"reply_mode": "nope"}),
+        ("playback.stopped", {"message_id": "m-2"}, {"message_id": "m-2"}),
     ],
 )
 def test_finding_7_valid_payloads_are_normalised(type_: str, payload, expected) -> None:

@@ -27,7 +27,10 @@ CANCEL = "cancel"
 SET_MODE = "set_mode"
 AUDIO_START = "audio.start"
 AUDIO_END = "audio.end"
-CLIENT_TYPES = frozenset({HELLO, USER_TEXT, CONFIRM, CANCEL, SET_MODE, AUDIO_START, AUDIO_END})
+PLAYBACK_STOPPED = "playback.stopped"
+CLIENT_TYPES = frozenset(
+    {HELLO, USER_TEXT, CONFIRM, CANCEL, SET_MODE, AUDIO_START, AUDIO_END, PLAYBACK_STOPPED}
+)
 AUDIO_FRAME_MAX_BYTES = 16 * 1024
 SUPPORTED_AUDIO = {"sample_rate": 16000, "channels": 1, "format": "f32"}
 
@@ -170,6 +173,10 @@ class _AudioEndPayload(_StrictPayload):
     pass
 
 
+class _PlaybackStoppedPayload(_StrictPayload):
+    message_id: str
+
+
 PAYLOAD_MODELS: dict[str, type[_StrictPayload]] = {
     HELLO: _HelloPayload,
     USER_TEXT: _UserTextPayload,
@@ -178,6 +185,7 @@ PAYLOAD_MODELS: dict[str, type[_StrictPayload]] = {
     SET_MODE: _SetModePayload,
     AUDIO_START: _AudioStartPayload,
     AUDIO_END: _AudioEndPayload,
+    PLAYBACK_STOPPED: _PlaybackStoppedPayload,
 }
 
 

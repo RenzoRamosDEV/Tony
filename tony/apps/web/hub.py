@@ -10,6 +10,8 @@ from typing import Any, Literal, Protocol
 
 from tony.apps.web.audio_ws import AUDIO_BACKPRESSURE, AudioSession
 from tony.apps.web.confirmations import ConfirmationRouter, InvalidConfirmation, WebConfirmGate
+from tony.apps.web.echo import is_echo
+from tony.apps.web.playback_window import PlaybackWindow
 from tony.apps.web.protocol import (
     AUDIO_END,
     AUDIO_FRAME_MAX_BYTES,
@@ -21,6 +23,7 @@ from tony.apps.web.protocol import (
     ERROR,
     HELLO,
     HELLO_OK,
+    PLAYBACK_STOPPED,
     SET_MODE,
     STT_FINAL,
     USER_TEXT,
@@ -56,6 +59,9 @@ FRAME_TOO_LARGE = "frame de audio de {size} bytes; el máximo es {limit}"
 AUDIO_OVER_BUDGET = "demasiado audio pendiente de procesar; se descartó el frame"
 NO_SPEECH = "no hay síntesis en curso para el mensaje {}"
 NO_TARGET = "cancel necesita task_id o message_id"
+BARGE_IN_EVENT = "barge_in"
+ECHO_EVENT = "barge_in.echo"
+INTERRUPTED_TURN_WAIT_S = 3.0
 HelloDecision = Literal["open", "attach", "switch", "busy_same", "busy_other", "unknown"]
 
 
@@ -104,6 +110,9 @@ class ConversationHub:
         self.socket: SocketLike | None = None
         self.turn: asyncio.Task[None] | None = None
         self.audio: AudioSession | None = None
+        self.playback = PlaybackWindow(clock.monotonic)
+        self._echo_reference = ""
+        self._interrupted_turn: asyncio.Task[None] | None = None
         self._emitter: asyncio.Task[None] | None = None
         self._queue: OutboundQueue | None = None
         self._runtime: ChatRuntime | None = None
@@ -167,6 +176,8 @@ class ConversationHub:
             await self.audio_start()
         elif message.type == AUDIO_END:
             await self.audio_end()
+        elif message.type == PLAYBACK_STOPPED:
+            self.playback.stopped(payload["message_id"])
 
     async def hello(self, socket: SocketLike, requested: str | None, last_seq: int) -> None:
         async with self._transition:
@@ -250,14 +261,21 @@ class ConversationHub:
             return
         if self.audio is not None or self.socket is None:
             return
+        settings = self.runtime.settings.voice
         session = AudioSession(
             vad,
             lambda: registry.get_stt(registry.stt_alias),
             voice.executor,
             self.runtime.front.persona.language,
-            lambda transcript: self._on_transcript(session, transcript),
+            lambda transcript, interrupting: self._on_transcript(session, transcript, interrupting),
             lambda code, detail: self._on_audio_error(session, code, detail),
             self.runtime,
+            end_silence_ms=settings.end_silence_ms,
+            barge_in=settings.barge_in,
+            barge_in_threshold=settings.barge_in_threshold,
+            barge_in_min_speech_ms=settings.barge_in_min_speech_ms,
+            speaking=self.playback.speaking,
+            on_barge_in=lambda speech_ms: self._on_barge_in(session, speech_ms),
         )
         self.audio = session
         session.open()
@@ -283,17 +301,49 @@ class ConversationHub:
             return
         self.audio.end()
 
-    async def _on_transcript(self, session: AudioSession, transcript: Transcript) -> None:
+    async def _on_barge_in(self, session: AudioSession, speech_ms: int) -> None:
+        """The user speaks over Tony: silence him now and, if the front is still composing
+        (and not waiting for a delegated task, which interrupting would cancel), stop it."""
+        speech = self.channel.speech if self.channel is not None else None
+        if self.audio is not session or speech is None:
+            return
+        playing = list(dict.fromkeys([*self.playback.playing(), *speech.speaking]))
+        self.runtime.emit(
+            BARGE_IN_EVENT,
+            {"message_id": playing[0] if playing else None, "speech_ms": speech_ms},
+        )
+        self._echo_reference = speech.spoken_text(playing)
+        await speech.stop_playing(playing)
+        chat = self.runtime.session
+        if chat is not None and chat.turn_in_progress and not chat.has_active_task:
+            self._interrupted_turn = self.turn
+            await chat.interrupt_turn()
+
+    async def _on_transcript(
+        self, session: AudioSession, transcript: Transcript, interrupting: bool = False
+    ) -> None:
         """A transcript only counts while its session is still the conversation's current one."""
         stream = self.stream
         if self.audio is not session or self.socket is None or stream is None:
             return
+        if interrupting:
+            spoken, self._echo_reference = self._echo_reference, ""
+            if is_echo(transcript.text, spoken):
+                self.runtime.emit(ECHO_EVENT, {"chars": len(transcript.text)})
+                return
         message_id = uuid.uuid4().hex
         await stream.publish(
             STT_FINAL, {"text": transcript.text, "message_id": message_id}, message_id=message_id
         )
+        await self._settle_interrupted_turn()
         if self.audio is session and self.socket is not None:
             await self.user_text(transcript.text, modality="audio", message_id=message_id)
+
+    async def _settle_interrupted_turn(self) -> None:
+        """Give a turn cut short by the user's voice a moment to close before the next one."""
+        turn, self._interrupted_turn = self._interrupted_turn, None
+        if turn is not None and not turn.done():
+            await asyncio.wait({turn}, timeout=INTERRUPTED_TURN_WAIT_S)
 
     async def _on_audio_error(self, session: AudioSession, code: str, detail: str) -> None:
         if self.audio is session and self.socket is not None:
@@ -393,6 +443,7 @@ class ConversationHub:
         conversation_id = requested or runtime.memory.conversations.start_conversation(WEB_CHANNEL)
         self.stream = ConversationStream(conversation_id, secrets=runtime.secrets)
         self.gate.stream = self.stream
+        self.playback = PlaybackWindow(self._clock.monotonic)
         self.channel = WebChannel(
             self.stream,
             self.router,
@@ -401,12 +452,14 @@ class ConversationHub:
             runtime.options.logs_dir,
             runtime.settings.limits.confirm_timeout_s,
             self._clock,
-            speech=self._speech_streamer(self.stream),
+            speech=self._speech_streamer(self.stream, self.playback),
         )
         self.conversation_id = conversation_id
         await runtime.open_session(conversation_id, self.channel)
 
-    def _speech_streamer(self, stream: ConversationStream) -> SpeechStreamer | None:
+    def _speech_streamer(
+        self, stream: ConversationStream, playback: PlaybackWindow
+    ) -> SpeechStreamer | None:
         voice = self.voice
         if not voice.available or voice.registry is None:
             return None
@@ -417,6 +470,7 @@ class ConversationHub:
             voice.executor,
             registry.tts_voice,
             self.runtime,
+            playback,
         )
 
     async def _close_conversation(self) -> None:

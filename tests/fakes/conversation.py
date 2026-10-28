@@ -15,6 +15,14 @@ from tony.core.runner.native_tools import NativeToolHandlers
 ScriptedTurn = str | dict[str, Any] | FrontTurn | Callable[[str, Any], Awaitable[Any]]
 DEFAULT_TEXT = "Sin guion."
 SPEECH_CHUNK_PAUSE_S = 0.05
+BLOCK_UNTIL_INTERRUPT = "block_until_interrupt"
+INTERRUPTED_ERROR = "error_during_execution: interrupted"
+
+
+def interruptible(*chunks: str) -> dict[str, Any]:
+    """A turn that streams `chunks` as display text, then hangs until `interrupt()`; the
+    SDK then answers with an error result, as the real one does."""
+    return {"display_text": "", "chunks": list(chunks), BLOCK_UNTIL_INTERRUPT: True}
 
 
 def to_front_turn(item: Any) -> FrontTurn:
@@ -36,6 +44,7 @@ class FakeConversationRunner:
         self.prompts: list[str] = []
         self.interrupts = 0
         self.closed = False
+        self._interrupted = asyncio.Event()
 
     async def open(
         self,
@@ -58,6 +67,7 @@ class FakeConversationRunner:
         on_speech: TextCallback | None = None,
     ) -> FrontTurn:
         self.prompts.append(prompt)
+        self._interrupted.clear()
         item: Any = self.turns.pop(0) if self.turns else DEFAULT_TEXT
         if callable(item):
             item = await item(prompt, self.handlers)
@@ -71,10 +81,14 @@ class FakeConversationRunner:
             for chunk in structured.get("speech_chunks", []):
                 await on_speech(chunk)
                 await asyncio.sleep(SPEECH_CHUNK_PAUSE_S)
+        if structured.get(BLOCK_UNTIL_INTERRUPT):
+            await self._interrupted.wait()
+            return FrontTurn(text="", structured=None, error=INTERRUPTED_ERROR)
         return turn
 
     async def interrupt(self) -> None:
         self.interrupts += 1
+        self._interrupted.set()
 
     async def close(self) -> None:
         self.closed = True

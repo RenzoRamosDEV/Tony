@@ -34,6 +34,14 @@ class AssistantReply:
     message_id: str | None = None
     usage: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    interrupted: bool = False
+
+
+@dataclass(frozen=True)
+class DelegationStarted:
+    """The front handed a task to the worker while composing the reply `message_id`."""
+
+    message_id: str
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,7 @@ ChannelMessage = (
     | AssistantDelta
     | AssistantSpeechDelta
     | AssistantReply
+    | DelegationStarted
     | AssistantWait
     | TaskProgress
     | NeedsConfirmation

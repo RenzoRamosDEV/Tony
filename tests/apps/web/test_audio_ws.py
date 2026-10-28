@@ -256,3 +256,169 @@ def test_only_the_transcription_is_persisted_and_logged_without_its_text(tmp_pat
     memory = [p.name for p in (tmp_path / "memory").iterdir()]
     assert not any(name.endswith((".wav", ".pcm", ".raw")) for name in memory)
     assert not list(tmp_path.rglob("*.wav"))
+
+
+# --- listening while Tony speaks: AudioSession with a fake playback window (specs/voice-input) ---
+
+import asyncio  # noqa: E402
+import time  # noqa: E402
+
+import pytest  # noqa: E402
+
+from tests.fakes.sinks import ListEventSink  # noqa: E402
+from tests.fakes.voice import FULL_SCALE_RMS  # noqa: E402
+from tony.apps.web.audio_ws import AudioSession  # noqa: E402
+from tony.core.voice.executor import VoiceExecutor  # noqa: E402
+from tony.core.voice.ports import VAD_WINDOW_SAMPLES  # noqa: E402
+
+WINDOW_MS = 32
+
+
+def windows(probability: float, count: int) -> list[bytes]:
+    window = array("f", [probability * FULL_SCALE_RMS] * VAD_WINDOW_SAMPLES).tobytes()
+    return [window] * count
+
+
+class FakePlayback:
+    def __init__(self, speaking: bool = True) -> None:
+        self.playing = speaking
+
+    def speaking(self) -> bool:
+        return self.playing
+
+
+class CountingVad(FakeVad):
+    def __init__(self) -> None:
+        super().__init__()
+        self.thresholds: list[float] = []
+
+    def classify(self, window: bytes, threshold: float) -> bool:
+        self.thresholds.append(threshold)
+        return super().classify(window, threshold)
+
+
+class Listener:
+    def __init__(self) -> None:
+        self.finals: list[tuple[str, bool]] = []
+        self.barge_ins: list[int] = []
+        self.errors: list[str] = []
+
+    async def on_final(self, transcript, interrupting: bool) -> None:
+        self.finals.append((transcript.text, interrupting))
+
+    async def on_error(self, code: str, detail: str) -> None:
+        self.errors.append(code)
+
+    async def on_barge_in(self, speech_ms: int) -> None:
+        self.barge_ins.append(speech_ms)
+
+
+@pytest.fixture
+def executor():
+    executor = VoiceExecutor()
+    yield executor
+    executor.close()
+
+
+def listening(executor, playback: FakePlayback, vad=None, barge_in: bool = True):
+    listener = Listener()
+    session = AudioSession(
+        vad or FakeVad(),
+        lambda: FakeStt("para, ¿qué tiempo hace?"),
+        executor,
+        "es",
+        listener.on_final,
+        listener.on_error,
+        ListEventSink(),
+        end_silence_ms=500,
+        barge_in=barge_in,
+        barge_in_threshold=0.8,
+        barge_in_min_speech_ms=280,
+        speaking=playback.speaking,
+        on_barge_in=listener.on_barge_in,
+    )
+    return session, listener
+
+
+async def feed_all(session: AudioSession, items: list[bytes]) -> None:
+    for item in items:
+        assert session.feed(item)
+    await settled(session)
+
+
+async def settled(session: AudioSession, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while session.busy:
+        assert time.monotonic() < deadline, "the session did not settle"
+        await asyncio.sleep(0.005)
+    await asyncio.sleep(0.02)
+
+
+async def test_a_moderate_voice_while_tony_speaks_is_silence(executor) -> None:
+    session, listener = listening(executor, FakePlayback())
+    session.open()
+    try:
+        await feed_all(session, windows(0.6, 32) + windows(0.0, 20))
+    finally:
+        await session.aclose()
+
+    assert listener.barge_ins == [] and listener.finals == []
+
+
+async def test_280ms_of_strict_speech_barges_in_once_and_the_utterance_goes_on(executor) -> None:
+    session, listener = listening(executor, FakePlayback())
+    session.open()
+    try:
+        await feed_all(session, windows(0.9, 8))
+        assert listener.barge_ins == []
+        await feed_all(session, windows(0.9, 1))
+        assert listener.barge_ins == [9 * WINDOW_MS]
+        await feed_all(session, windows(0.9, 10) + windows(0.0, 15))
+        assert listener.finals == []
+        await feed_all(session, windows(0.0, 1))
+    finally:
+        await session.aclose()
+
+    assert listener.barge_ins == [9 * WINDOW_MS]
+    assert listener.finals == [("para, ¿qué tiempo hace?", True)]
+
+
+async def test_250ms_of_speech_does_not_barge_in(executor) -> None:
+    session, listener = listening(executor, FakePlayback())
+    session.open()
+    try:
+        await feed_all(session, windows(0.9, 8) + windows(0.0, 20))
+    finally:
+        await session.aclose()
+
+    assert listener.barge_ins == [] and listener.finals == []
+
+
+async def test_after_playback_the_normal_threshold_applies_again(executor) -> None:
+    playback = FakePlayback()
+    vad = CountingVad()
+    session, listener = listening(executor, playback, vad)
+    session.open()
+    try:
+        await feed_all(session, windows(0.6, 2))
+        playback.playing = False
+        await feed_all(session, windows(0.6, 12) + windows(0.0, 16))
+    finally:
+        await session.aclose()
+
+    assert vad.thresholds[:2] == [0.8, 0.8] and set(vad.thresholds[2:]) == {0.5}
+    assert listener.barge_ins == []
+    assert listener.finals == [("para, ¿qué tiempo hace?", False)]
+
+
+async def test_with_barge_in_disabled_frames_during_playback_are_dropped(executor) -> None:
+    vad = CountingVad()
+    session, listener = listening(executor, FakePlayback(), vad, barge_in=False)
+    session.open()
+    try:
+        await feed_all(session, windows(0.9, 32) + windows(0.0, 20))
+    finally:
+        await session.aclose()
+
+    assert vad.thresholds == []
+    assert listener.barge_ins == [] and listener.finals == [] and listener.errors == []

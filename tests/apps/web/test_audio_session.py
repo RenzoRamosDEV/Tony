@@ -53,7 +53,7 @@ class Recorder:
         self.errors: list[str] = []
         self.details: list[str] = []
 
-    async def on_final(self, transcript: Transcript) -> None:
+    async def on_final(self, transcript: Transcript, interrupting: bool = False) -> None:
         self.finals.append(transcript.text)
 
     async def on_error(self, code: str, detail: str) -> None:

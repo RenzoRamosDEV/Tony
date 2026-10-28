@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +17,7 @@ from tony.core.channels.ports import (
     AssistantSpeechDelta,
     AssistantWait,
     Channel,
+    DelegationStarted,
     NeedsConfirmation,
     Notice,
     TaskEvent,
@@ -65,6 +66,8 @@ SESSION_STARTED = "session.started"
 MISSING_TEXT_NOTICE = "Falta el mensaje después del prefijo {prefix}."
 RESUME_FAILED_NOTICE = "No se pudo reanudar la sesión anterior del front; se empieza de cero."
 TAGGED_PREFERENCE = "La preferencia no puede contener etiquetas de contexto."
+INTERRUPTED_SUFFIX = " …"
+INTERRUPTED_PLACEHOLDER = "(interrumpido)"
 CHANNEL_NAME = "cli"
 CONFIG_TASK_ID = "config"
 
@@ -115,10 +118,15 @@ class ChatSession:
         self.active_task_ids: set[str] = set()
         self._supervisors: set[asyncio.Task[None]] = set()
         self._closed = False
+        self._turn: _TurnInFlight | None = None
 
     @property
     def has_active_task(self) -> bool:
         return bool(self.active_task_ids)
+
+    @property
+    def turn_in_progress(self) -> bool:
+        return self._turn is not None
 
     async def start(self, conversation_id: str) -> None:
         self.conversation_id = conversation_id
@@ -142,21 +150,35 @@ class ChatSession:
             return None
         mode, message = accepted
         reply_id = uuid.uuid4().hex
-        turn = await self._runner.turn(
-            self._prompt_for(message, mode, modality),
-            on_text=self._delta_sender(reply_id),
-            on_speech=self._speech_sender(reply_id) if mode.mode != "text" else None,
-        )
+        in_flight = self._turn = _TurnInFlight(reply_id)
+        try:
+            turn = await self._runner.turn(
+                self._prompt_for(message, mode, modality),
+                on_text=self._delta_sender(in_flight),
+                on_speech=self._speech_sender(reply_id) if mode.mode != "text" else None,
+            )
+        finally:
+            self._turn = None
         self._persist_sdk_session()
-        front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
-        reply = AssistantReply(
-            front_reply.display_text,
-            front_reply.speech_text,
-            mode.mode,
-            message_id=reply_id,
-            usage=dict(turn.usage),
-            error=turn.error,
-        )
+        if in_flight.interrupted:
+            reply = AssistantReply(
+                in_flight.interrupted_text(),
+                None,
+                mode.mode,
+                message_id=reply_id,
+                usage=dict(turn.usage),
+                interrupted=True,
+            )
+        else:
+            front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
+            reply = AssistantReply(
+                front_reply.display_text,
+                front_reply.speech_text,
+                mode.mode,
+                message_id=reply_id,
+                usage=dict(turn.usage),
+                error=turn.error,
+            )
         self._store_message("assistant", reply.display_text, mode.mode, reply_id)
         await self._channel.send(reply)
         return reply
@@ -188,9 +210,10 @@ class ChatSession:
             self._events.emit(SKILL_ACTIVATED, {"skill": skill.name})
         return preamble + skill_blocks(message, self._front.skills) + message
 
-    def _delta_sender(self, reply_id: str) -> Callable[[str], Awaitable[None]]:
+    def _delta_sender(self, in_flight: _TurnInFlight) -> Callable[[str], Awaitable[None]]:
         async def on_text(text: str) -> None:
-            await self._channel.send(AssistantDelta(reply_id, text))
+            in_flight.display.append(text)
+            await self._channel.send(AssistantDelta(in_flight.reply_id, text))
 
         return on_text
 
@@ -208,6 +231,17 @@ class ChatSession:
         """Stop the current turn: cancel its delegated tasks, then interrupt the front runner."""
         for task_id in list(self.active_task_ids):
             await self._orchestrator.cancel(task_id, USER_REASON)
+        await self._runner.interrupt()
+
+    async def interrupt_turn(self) -> None:
+        """Stop the front mid-generation without touching its delegated tasks.
+
+        The turn then ends with what was already displayed; the error result the engine may
+        report for the interruption is not a failure of the turn.
+        """
+        if self._turn is None:
+            return
+        self._turn.interrupted = True
         await self._runner.interrupt()
 
     async def close(self, close_orchestrator: bool = True) -> None:
@@ -231,6 +265,8 @@ class ChatSession:
                 errores=[exc.code],
             )
         self.active_task_ids.add(task.id)
+        if self._turn is not None:
+            await self._channel.send(DelegationStarted(self._turn.reply_id))
         usage: dict[str, Any] = {}
         self._record_task(task.id, request, None, usage)
         forwarder = asyncio.ensure_future(self._forward_events(task.id, usage))
@@ -357,6 +393,17 @@ class ChatSession:
             tokens_out=int(usage.get("output_tokens", 0) or 0),
             cost_usd=float(usage.get("total_cost_usd", 0.0) or 0.0),
         )
+
+
+@dataclass
+class _TurnInFlight:
+    reply_id: str
+    display: list[str] = field(default_factory=list)
+    interrupted: bool = False
+
+    def interrupted_text(self) -> str:
+        said = "".join(self.display).rstrip()
+        return said + INTERRUPTED_SUFFIX if said else INTERRUPTED_PLACEHOLDER
 
 
 def _needs_confirmation(task_id: str, payload: dict[str, Any]) -> NeedsConfirmation:

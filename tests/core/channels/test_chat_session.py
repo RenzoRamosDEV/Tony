@@ -13,13 +13,14 @@ import pytest
 
 from tests.fakes.channels import ListChannel
 from tests.fakes.clock import FakeClock
-from tests.fakes.conversation import FakeConversationRunner
+from tests.fakes.conversation import FakeConversationRunner, interruptible
 from tests.fakes.worker_factory import FakeWorkerFactory
 from tony.core.channels.ports import (
     AssistantDelta,
     AssistantReply,
     AssistantSpeechDelta,
     AssistantWait,
+    DelegationStarted,
     NeedsConfirmation,
     Notice,
     TaskEvent,
@@ -134,7 +135,9 @@ def cli_visible(messages: list) -> list:
     return [
         m
         for m in messages
-        if not isinstance(m, (UserAccepted, AssistantDelta, AssistantSpeechDelta, TaskEvent))
+        if not isinstance(
+            m, (UserAccepted, AssistantDelta, AssistantSpeechDelta, DelegationStarted, TaskEvent)
+        )
     ]
 
 
@@ -949,3 +952,78 @@ async def test_speech_chunks_become_speech_deltas_only_outside_text_mode(tmp_mem
     h.channel.messages.clear()
     await h.session.handle("/t hora")
     assert h.channel.of_type(AssistantSpeechDelta) == []
+
+
+# --- voice barge-in: interruptible turn and delegation notice (specs/voice-input, voice-output) ---
+
+
+async def until(condition, clock: FakeClock) -> None:
+    for _ in range(50):
+        if condition():
+            return
+        await clock.settle()
+    raise AssertionError("la condición no se cumplió")
+
+
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [(("Son las",), "Son las …"), (("Son ", "las  "), "Son las …"), ((), "(interrumpido)")],
+)
+async def test_interrupt_turn_closes_the_turn_with_what_was_said(
+    tmp_memory: Path, chunks: tuple[str, ...], expected: str
+) -> None:
+    h = Harness(tmp_memory, [interruptible(*chunks), "Siguiente."])
+    conversation = await h.start()
+    turn = asyncio.ensure_future(h.session.handle("/v ¿qué hora es?"))
+    await until(lambda: h.session.turn_in_progress, h.clock)
+
+    await h.session.interrupt_turn()
+    reply = await asyncio.wait_for(turn, 1)
+
+    assert h.runner.interrupts == 1
+    assert (reply.display_text, reply.speech_text, reply.error) == (expected, None, None)
+    assert reply.interrupted is True
+    assert h.memory.conversations.messages(conversation)[-1].content == expected
+    assert not h.session.turn_in_progress
+    following = await h.session.handle("otra cosa")
+    assert (following.display_text, following.interrupted) == ("Siguiente.", False)
+
+
+async def test_interrupt_turn_does_not_cancel_delegated_tasks(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [delegating("larga")])
+    h.factory.scripts["larga"] = [("sleep", 100)]
+    await h.start()
+    asyncio.ensure_future(h.session.handle("tarea larga"))
+    await until(lambda: h.session.has_active_task, h.clock)
+    task = next(iter(h.orchestrator.tasks.values()))
+
+    await h.session.interrupt_turn()
+    await h.clock.settle()
+
+    assert h.runner.interrupts == 1
+    assert task.status == TaskStatus.RUNNING
+
+
+async def test_interrupt_turn_without_a_turn_is_a_no_op(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, ["Hola."])
+    await h.start()
+
+    await h.session.interrupt_turn()
+    reply = await h.session.handle("hola")
+
+    assert h.runner.interrupts == 0
+    assert (reply.display_text, reply.interrupted) == ("Hola.", False)
+
+
+async def test_delegate_announces_the_delegation_before_waiting(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [delegating("larga")])
+    h.factory.scripts["larga"] = [("sleep", 100)]
+    await h.start()
+    turn = asyncio.ensure_future(h.session.handle("/v tarea larga"))
+    await until(lambda: h.session.has_active_task, h.clock)
+
+    started = h.channel.of_type(DelegationStarted)
+
+    await h.clock.advance(101)
+    reply = await asyncio.wait_for(turn, 1)
+    assert started == [DelegationStarted(reply.message_id)]
