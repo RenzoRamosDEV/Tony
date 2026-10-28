@@ -13,6 +13,14 @@ from typing import Annotated
 
 import typer
 
+from tony.apps.cli.voice_stream_bench import (
+    QUESTION as SPOKEN_QUESTION,
+)
+from tony.apps.cli.voice_stream_bench import (
+    StreamSample,
+    measure_stream_roundtrip,
+    spoken_utterance,
+)
 from tony.core.channels.bootstrap import RuntimeOptions, build_chat_runtime
 from tony.core.channels.ports import AssistantReply, ChannelMessage
 from tony.core.config import ConfigError, VoiceSettings, load_settings
@@ -27,9 +35,11 @@ DEFAULT_CONFIG = Path("config/tony.yaml")
 DEFAULT_AGENTS_DIR = Path("agents")
 EXTRA_MISSING = "Falta el extra de voz: instala con `uv sync --extra voice`."
 REPETITIONS = 5
-TARGET_MS = 2_000
-NOT_MET = "objetivo no alcanzado (p50 > 2000 ms)"
+TARGET_MS = 2_500
+TARGET_ROW = "roundtrip_stream"
+NOT_MET = "objetivo no alcanzado (p50 > 2500 ms)"
 BENCH_SENTENCE = "Buenos días señor, tiene tres reuniones hoy y la primera empieza pronto."
+FIRST_CLAUSE = "Enseguida lo reviso, señor."
 ROUNDTRIP_QUESTION = "¿qué hora es?"
 STT_SAMPLE_S = 3
 FIRST_AUDIO_TIMEOUT_S = 60.0
@@ -119,8 +129,9 @@ def warmup(config: ConfigOption = DEFAULT_CONFIG) -> None:
 
 
 @app.command(
-    help="Mide p50/p95 de la carga, STT de 3 s y TTS de 12 palabras; con TONY_EVALS=1 "
-    "también la ida y vuelta completa con el modelo."
+    help="Mide p50/p95 de la carga, el STT (3 s y una pregunta hablada) y el TTS (12 palabras "
+    "y primer fragmento); con TONY_EVALS=1 también el primer token del modelo y la ida y "
+    "vuelta, completa y en streaming, desde el fin del habla hasta el primer audio."
 )
 def bench(
     config: ConfigOption = DEFAULT_CONFIG, agents_dir: AgentsDirOption = DEFAULT_AGENTS_DIR
@@ -130,20 +141,32 @@ def bench(
     stt = registry.get_stt(voice.stt)
     tts = registry.get_tts(voice.tts)
     sample = synthetic_speech()
+    question = spoken_utterance(tts, registry.tts_voice, SPOKEN_QUESTION)
     rows: dict[str, list[int | None]] = {
         "load": [sum(timings.values())],
         "stt_3s": [_timed(lambda: stt.transcribe(sample, "es")) for _ in range(REPETITIONS)],
+        "stt_utt": [_timed(lambda: stt.transcribe(question, "es")) for _ in range(REPETITIONS)],
         "tts_12w": [
             _timed(lambda: list(tts.synthesize(BENCH_SENTENCE, registry.tts_voice)))
             for _ in range(REPETITIONS)
         ],
+        "tts_first": [
+            _timed(lambda: next(iter(tts.synthesize(FIRST_CLAUSE, registry.tts_voice)), None))
+            for _ in range(REPETITIONS)
+        ],
     }
+    streams: list[StreamSample | None] = []
     if os.environ.get("TONY_EVALS") == "1":
         rows["roundtrip"] = [
             measure_roundtrip(config, agents_dir, registry) for _ in range(REPETITIONS)
         ]
+        streams = [measure_stream(config, agents_dir, registry) for _ in range(REPETITIONS)]
+        rows["ttft"] = [None if s is None else s.ttft_ms for s in streams]
+        rows[TARGET_ROW] = [None if s is None else s.total_ms for s in streams]
     for name, samples in rows.items():
         typer.echo(bench_row(name, samples))
+    if streams:
+        typer.echo(breakdown_row(streams))
 
 
 def bench_row(name: str, samples: list[int | None]) -> str:
@@ -154,8 +177,20 @@ def bench_row(name: str, samples: list[int | None]) -> str:
     if not measured:
         return f"{name:<10} sin muestras válidas{note}"
     p50, p95 = percentiles(measured)
-    flag = f"  {NOT_MET}" if name == "roundtrip" and p50 > TARGET_MS else ""
+    flag = f"  {NOT_MET}" if name == TARGET_ROW and p50 > TARGET_MS else ""
     return f"{name:<10} p50 {p50:>6} ms  p95 {p95:>6} ms{flag}{note}"
+
+
+def breakdown_row(streams: list[StreamSample | None]) -> str:
+    """Where the time of the median streaming roundtrip went."""
+    measured = sorted((s for s in streams if s is not None), key=lambda s: s.total_ms)
+    if not measured:
+        return "desglose   sin muestras válidas"
+    median = measured[max(0, math.ceil(0.5 * len(measured)) - 1)]
+    return (
+        f"desglose   endpoint {median.endpoint_ms} ms · stt {median.stt_ms} ms · "
+        f"ttft {median.ttft_ms} ms · tts_first {median.tts_first_ms} ms"
+    )
 
 
 def _timed(fn: Callable[[], object]) -> int:
@@ -231,6 +266,9 @@ def default_measure_roundtrip(
 
 
 measure_roundtrip: Callable[[Path, Path, EngineRegistry], int | None] = default_measure_roundtrip
+measure_stream: Callable[[Path, Path, EngineRegistry], StreamSample | None] = (
+    measure_stream_roundtrip
+)
 
 
 async def _roundtrip(config: Path, agents_dir: Path, registry: EngineRegistry) -> int | None:

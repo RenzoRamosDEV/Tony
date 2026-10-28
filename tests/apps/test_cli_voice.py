@@ -87,31 +87,72 @@ def test_bench_prints_p50_and_p95_of_five_repetitions_without_the_model(
     roundtrips: list[int] = []
     monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: roundtrips.append(1) or 100)
 
+    streams: list[int] = []
+    monkeypatch.setattr(voice_cli, "measure_stream", lambda *a: streams.append(1))
+
     result = runner.invoke(main.app, ["voice", "bench"])
 
     assert result.exit_code == 0, result.output
-    for measure in ("load", "stt_3s", "tts_12w"):
+    for measure in ("load", "stt_3s", "stt_utt", "tts_12w", "tts_first"):
         row = next(line for line in result.stdout.splitlines() if line.startswith(measure))
         assert re.search(r"p50 +\d+ ms +p95 +\d+ ms", row), row
-    assert "roundtrip" not in result.stdout
-    assert roundtrips == []
-    assert len(cli.stt.calls) == 5 and all(u.duration_ms == 3_000 for u, _ in cli.stt.calls)
-    assert len(cli.tts.sentences) == 5 and len(cli.tts.sentences[0].split()) == 12
+    for measure in ("roundtrip", "ttft", "desglose"):
+        assert measure not in result.stdout
+    assert roundtrips == [] and streams == []
+    stt_inputs = [u.duration_ms for u, _ in cli.stt.calls]
+    assert stt_inputs[:5] == [3_000] * 5 and len(stt_inputs) == 10
+    assert all(0 < ms < 3_000 for ms in stt_inputs[5:])
+    assert cli.tts.sentences.count(voice_cli.BENCH_SENTENCE) == 5
+    assert cli.tts.sentences.count(voice_cli.FIRST_CLAUSE) == 5
+    assert len(voice_cli.BENCH_SENTENCE.split()) == 12
+    assert len(voice_cli.FIRST_CLAUSE.split()) == 4
 
 
-@pytest.mark.parametrize(("ms", "flagged"), [(1_999, False), (2_000, False), (2_001, True)])
-def test_bench_with_evals_measures_the_roundtrip_against_the_2s_target(
+def stream_sample(total: int, endpoint: int = 500) -> voice_cli.StreamSample:
+    return voice_cli.StreamSample(
+        total_ms=total, endpoint_ms=endpoint, stt_ms=300, ttft_ms=900, tts_first_ms=150
+    )
+
+
+@pytest.mark.parametrize(("ms", "flagged"), [(2_499, False), (2_500, False), (2_501, True)])
+def test_bench_with_evals_measures_the_stream_against_the_2500ms_target(
     cli: Registries, monkeypatch: pytest.MonkeyPatch, ms: int, flagged: bool
 ) -> None:
     monkeypatch.setenv("TONY_EVALS", "1")
-    monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: ms)
+    monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: 9_000)
+    monkeypatch.setattr(voice_cli, "measure_stream", lambda *a: stream_sample(ms))
 
     result = runner.invoke(main.app, ["voice", "bench"])
 
     assert result.exit_code == 0, result.output
-    row = next(line for line in result.stdout.splitlines() if line.startswith("roundtrip"))
-    assert f"p50 {ms:>6} ms" in row
-    assert ("objetivo no alcanzado" in row) is flagged
+    rows = {line.split()[0]: line for line in result.stdout.splitlines() if line.strip()}
+    assert f"p50 {ms:>6} ms" in rows["roundtrip_stream"]
+    assert ("objetivo no alcanzado" in rows["roundtrip_stream"]) is flagged
+    assert "objetivo" not in rows["roundtrip"] and f"p50 {9_000:>6} ms" in rows["roundtrip"]
+    assert f"p50 {900:>6} ms" in rows["ttft"]
+    assert rows["desglose"] == (
+        "desglose   endpoint 500 ms · stt 300 ms · ttft 900 ms · tts_first 150 ms"
+    )
+
+
+def test_the_breakdown_is_the_one_of_the_median_run(
+    cli: Registries, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TONY_EVALS", "1")
+    monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: 9_000)
+    samples = iter(
+        [
+            None if t is None else stream_sample(t, endpoint=t // 10)
+            for t in (3_000, 1_000, 2_000, None, 4_000)
+        ]
+    )
+    monkeypatch.setattr(voice_cli, "measure_stream", lambda *a: next(samples))
+
+    result = runner.invoke(main.app, ["voice", "bench"])
+
+    rows = {line.split()[0]: line for line in result.stdout.splitlines() if line.strip()}
+    assert "1/5 fallidas" in rows["roundtrip_stream"]
+    assert rows["desglose"].startswith("desglose   endpoint 200 ms")
 
 
 def test_percentiles_use_the_nearest_rank() -> None:
@@ -217,6 +258,7 @@ def test_review05_finding_15_failed_roundtrips_are_excluded_and_reported(
     cli: Registries, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TONY_EVALS", "1")
+    monkeypatch.setattr(voice_cli, "measure_stream", lambda *a: None)
     samples = iter([100, None, 300, None, 200])
     monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: next(samples))
 
@@ -232,6 +274,7 @@ def test_review05_finding_15_all_failed_roundtrips_print_no_percentiles(
     cli: Registries, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TONY_EVALS", "1")
+    monkeypatch.setattr(voice_cli, "measure_stream", lambda *a: None)
     monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: None)
 
     result = runner.invoke(main.app, ["voice", "bench"])
@@ -245,6 +288,7 @@ def test_review05_finding_15_a_clean_row_has_no_failure_note_nor_flag(
     cli: Registries, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("TONY_EVALS", "1")
+    monkeypatch.setattr(voice_cli, "measure_stream", lambda *a: stream_sample(1_500))
     monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: 1_500)
 
     result = runner.invoke(main.app, ["voice", "bench"])
