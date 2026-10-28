@@ -23,6 +23,7 @@ Interrupt = Callable[[], Awaitable[None]]
 ToolReply = dict[str, Any]
 
 NOT_CONFIRMED = "Tool {tool} no confirmada por el usuario"
+TASK_CANCELLED = "Tarea cancelada; no se ejecuta {tool}"
 PROXY_VERSION = "1.0.0"
 
 
@@ -93,17 +94,20 @@ class ToolProxyFactory:
 
         self._handlers[ref.qualified] = handler
         annotations = ToolAnnotations(destructiveHint=True) if ref.destructive else None
-        return tool(ref.name, ref.description, ref.input_schema, annotations=annotations)(handler)
+        schema = _sdk_input_schema(ref.input_schema)
+        return tool(ref.name, ref.description, schema, annotations=annotations)(handler)
 
     async def _execute(self, ref: ToolRef, args: dict[str, Any]) -> ToolReply:
         qualified = ref.qualified
         self._events.emit("tool.call", {"tool": qualified, "args": args})
+        if self._state.cancelled:
+            return self._reject(qualified, TASK_CANCELLED.format(tool=qualified))
         if ref.needs_confirm and not await self._approved(qualified, args):
-            error = NOT_CONFIRMED.format(tool=qualified)
-            self._emit_result(qualified, ok=False, duration_ms=0, error=error)
             self._state.cancel(qualified)
             await self._state.request_interrupt()
-            return text_reply(error, is_error=True)
+            return self._reject(qualified, NOT_CONFIRMED.format(tool=qualified))
+        if self._state.cancelled:
+            return self._reject(qualified, TASK_CANCELLED.format(tool=qualified))
         outcome = await self._call(qualified, args, self._tool_timeout_s)
         self._emit_result(qualified, outcome.ok, outcome.duration_ms, outcome.error)
         self._state.steps.append(_describe_step(qualified, args))
@@ -118,10 +122,19 @@ class ToolProxyFactory:
         except TimeoutError:
             return False
 
+    def _reject(self, qualified: str, error: str) -> ToolReply:
+        self._emit_result(qualified, ok=False, duration_ms=0, error=error)
+        return text_reply(error, is_error=True)
+
     def _emit_result(self, tool_name: str, ok: bool, duration_ms: int, error: str | None) -> None:
         self._events.emit(
             "tool.result", {"tool": tool_name, "ok": ok, "duration_ms": duration_ms, "error": error}
         )
+
+
+def _sdk_input_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    # The SDK only treats a dict as a full JSON Schema when both keys are present.
+    return {"type": "object", "properties": {}, **schema}
 
 
 def _describe_step(qualified: str, args: dict[str, Any]) -> str:

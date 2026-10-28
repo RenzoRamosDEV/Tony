@@ -64,8 +64,12 @@ def test_turns_model_output_format_and_streaming() -> None:
         "type": "json_schema",
         "schema": TaskResult.model_json_schema(),
     }
-    assert options.include_partial_messages is True
+    assert options.include_partial_messages is False
     assert options.can_use_tool is noop_can_use_tool
+
+
+def test_sdk_ignores_mcp_servers_from_any_other_configuration() -> None:
+    assert options_for().strict_mcp_config is True
 
 
 def test_system_prompt_has_context_block() -> None:

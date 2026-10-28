@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from tests.core.runner_helpers import ECHO_SCHEMA, fake_catalog
+import pytest
+from mcp.types import CallToolRequestParams, PaginatedRequestParams
+
+from tests.core.runner_helpers import ECHO_SCHEMA, fake_catalog, mcp_tool
 from tests.fakes.gates import AutoConfirmGate
 from tests.fakes.sinks import ListEventSink
-from tony.core.mcp import ToolCallOutcome
+from tony.core.mcp import ToolCallOutcome, ToolCatalog
 from tony.core.runner.proxy import TaskState, ToolProxyFactory
 
 
@@ -241,3 +244,81 @@ def test_only_destructive_proxies_carry_annotations() -> None:
 
     assert tools["echo"].annotations is None
     assert tools["destroy"].annotations.destructive_hint is True
+
+
+async def test_cancelled_task_rejects_further_tool_calls_without_executing() -> None:
+    caller = RecordingCaller()
+    factory, sink, state = make_factory(AutoConfirmGate(False), caller)
+    await factory.handler("fake.destroy")({})
+
+    reply = await factory.handler("fake.echo")({"text": "x"})
+
+    assert reply == {
+        "content": [{"type": "text", "text": "Tarea cancelada; no se ejecuta fake.echo"}],
+        "is_error": True,
+    }
+    assert caller.calls == []
+    assert sink.payloads("tool.result")[-1] == {
+        "tool": "fake.echo",
+        "ok": False,
+        "duration_ms": 0,
+        "error": "Tarea cancelada; no se ejecuta fake.echo",
+    }
+
+
+async def test_cancellation_during_confirmation_blocks_the_approved_call() -> None:
+    caller = RecordingCaller()
+    sink = ListEventSink()
+    state = TaskState(task_id="t1")
+
+    class CancellingGate:
+        async def confirm(self, request) -> bool:
+            state.cancel("fake.other")
+            return True
+
+    factory = ToolProxyFactory(
+        fake_catalog(),
+        call=caller,
+        gate=CancellingGate(),
+        events=sink,
+        task_state=state,
+        tool_timeout_s=20,
+        confirm_timeout_s=60,
+    )
+
+    reply = await factory.handler("fake.destroy")({})
+
+    assert reply["is_error"] is True
+    assert "Tarea cancelada" in reply["content"][0]["text"]
+    assert caller.calls == []
+    assert state.cancel_reason == "fake.other"
+
+
+async def server_handlers(factory: ToolProxyFactory, server: str):
+    # The SDK registers plain handlers on an mcp Server; calling them is the in-process
+    # equivalent of tools/list and tools/call without spinning up a transport.
+    instance = factory.build()[server]["instance"]
+    handlers = instance._request_handlers
+    return handlers["tools/list"].handler, handlers["tools/call"].handler
+
+
+@pytest.mark.parametrize(
+    ("schema", "listed"),
+    [
+        ({"type": "object"}, {"type": "object", "properties": {}}),
+        (
+            {"type": "object", "additionalProperties": False},
+            {"type": "object", "properties": {}, "additionalProperties": False},
+        ),
+    ],
+)
+async def test_object_schema_without_properties_is_listed_and_callable(schema, listed) -> None:
+    catalog = ToolCatalog.build({"fake": [mcp_tool("bare", schema=schema)]}, None, [])
+    factory, _, _ = make_factory(AutoConfirmGate(True), RecordingCaller(), catalog=catalog)
+    list_tools, call_tool = await server_handlers(factory, "fake")
+
+    tools = (await list_tools(None, PaginatedRequestParams())).tools
+    result = await call_tool(None, CallToolRequestParams(name="bare", arguments={}))
+
+    assert [tool.input_schema for tool in tools] == [listed]
+    assert result.is_error is False

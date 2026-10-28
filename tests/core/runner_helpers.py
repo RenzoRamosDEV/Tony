@@ -60,17 +60,27 @@ def result_message(**overrides: Any) -> ResultMessage:
 class FakeClient:
     """Stands in for ClaudeSDKClient: scripted messages, optional hang, interrupt spy."""
 
-    def __init__(self, messages: list[Any] | None = None, hang: bool = False) -> None:
+    def __init__(
+        self,
+        messages: list[Any] | None = None,
+        hang: bool = False,
+        connect_delay: float = 0,
+        exit_delay: float = 0,
+    ) -> None:
         self.messages = messages or []
         self.hang = hang
+        self.connect_delay = connect_delay
+        self.exit_delay = exit_delay
         self.prompts: list[str] = []
         self.interrupts = 0
         self.before_messages: list[Any] = []
 
     async def __aenter__(self) -> FakeClient:
+        await asyncio.sleep(self.connect_delay)
         return self
 
     async def __aexit__(self, *exc_info: Any) -> None:
+        await asyncio.sleep(self.exit_delay)
         return None
 
     async def query(self, prompt: str, session_id: str = "default") -> None:

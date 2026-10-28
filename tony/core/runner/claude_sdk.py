@@ -16,7 +16,6 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     PermissionResultDeny,
     ResultMessage,
-    StreamEvent,
     TextBlock,
     ToolPermissionContext,
 )
@@ -49,6 +48,7 @@ BUILTIN_TOOLS: tuple[str, ...] = (
     "Skill",
 )
 MCP_PREFIX = "mcp__"
+CLEANUP_BUDGET_S = 5.0
 
 # allowed_tools auto-approves the proxies before can_use_tool is consulted; that is intended:
 # the proxy itself is the execution barrier and can_use_tool only guards non-proxy names.
@@ -86,8 +86,9 @@ def build_options(
         model=settings.models[spec.model],
         can_use_tool=can_use_tool,
         setting_sources=[],
+        strict_mcp_config=True,
         output_format={"type": "json_schema", "schema": TaskResult.model_json_schema()},
-        include_partial_messages=True,
+        include_partial_messages=False,
     )
 
 
@@ -115,7 +116,11 @@ def qualified_from_sdk_name(tool_name: str) -> str | None:
     return f"{server}.{name}"
 
 
-def result_from_message(message: ResultMessage | None, fallback_text: str) -> TaskResult:
+def result_from_message(
+    message: ResultMessage | None, fallback_text: str, steps: list[str] | None = None
+) -> TaskResult:
+    if message is not None and message.is_error:
+        return _engine_error_result(_sdk_diagnostic(message), steps or [])
     if message is not None and message.structured_output is not None:
         try:
             return TaskResult.model_validate(message.structured_output)
@@ -123,6 +128,10 @@ def result_from_message(message: ResultMessage | None, fallback_text: str) -> Ta
             pass
     resumen = (message.result if message is not None and message.result else None) or fallback_text
     return TaskResult(status="partial", resumen=resumen, errores=[UNSTRUCTURED])
+
+
+def _sdk_diagnostic(message: ResultMessage) -> str:
+    return f"{message.subtype}: {message.result}" if message.result else message.subtype
 
 
 def usage_from_message(message: ResultMessage | None) -> dict[str, Any]:
@@ -133,17 +142,6 @@ def usage_from_message(message: ResultMessage | None) -> dict[str, Any]:
         "total_cost_usd": (message.total_cost_usd if message is not None else None) or 0.0,
         "num_turns": message.num_turns if message is not None else 0,
     }
-
-
-def stream_text(message: Any) -> str | None:
-    """Text delta carried by a StreamEvent, if any."""
-    if not isinstance(message, StreamEvent):
-        return None
-    event = message.event or {}
-    delta = event.get("delta") or {}
-    if event.get("type") == "content_block_delta" and delta.get("type") == "text_delta":
-        return delta.get("text")
-    return None
 
 
 def assistant_text(message: Any) -> str | None:
@@ -161,12 +159,14 @@ class ClaudeSdkRunner:
         gate: ConfirmGate,
         call: ToolCaller,
         client_factory: Callable[[ClaudeAgentOptions], SdkClient] = ClaudeSDKClient,
+        cleanup_budget_s: float = CLEANUP_BUDGET_S,
     ) -> None:
         self._settings = settings
         self._task_id = task_id
         self._gate = gate
         self._call = call
         self._client_factory = client_factory
+        self._cleanup_budget_s = cleanup_budget_s
         self._factory: ToolProxyFactory | None = None
 
     def proxy_handler(self, qualified: str):
@@ -192,30 +192,53 @@ class ClaudeSdkRunner:
             spec, request, tools, self._settings, self._factory.build(), make_can_use_tool(tools)
         )
         transcript = _Transcript()
+        deadline = asyncio.get_running_loop().time() + limits.task_timeout_s
         result: TaskResult | None = None
         try:
-            client = self._client_factory(options)
-            async with client:
-                state.interrupt = client.interrupt
-                try:
-                    async with asyncio.timeout(limits.task_timeout_s):
-                        await client.query(build_user_prompt(request))
-                        async for message in client.receive_response():
-                            transcript.consume(message, events)
-                except TimeoutError:
-                    await state.request_interrupt()
-                    result = _timeout_result(limits.task_timeout_s, state)
+            async with asyncio.timeout_at(deadline + self._cleanup_budget_s):
+                result = await self._drive(options, request, state, transcript, events, deadline)
+        except TimeoutError:
+            if transcript.final is None:
+                result = _timeout_result(limits.task_timeout_s, state)
         except Exception as exc:  # noqa: BLE001 - every engine failure becomes a TaskResult
             result = _error_result(exc, state)
         if state.cancelled:
             result = _cancelled_result(state)
         if result is None:
-            result = result_from_message(transcript.final, transcript.last_text)
+            result = result_from_message(transcript.final, transcript.last_text, list(state.steps))
         events.emit(
             "task.finished",
             {"status": result.status, "usage": usage_from_message(transcript.final)},
         )
         return result
+
+    async def _drive(
+        self,
+        options: ClaudeAgentOptions,
+        request: TaskRequest,
+        state: TaskState,
+        transcript: _Transcript,
+        events: EventSink,
+        deadline: float,
+    ) -> TaskResult | None:
+        """Connect, query and consume the response under the task deadline.
+
+        The deadline covers the client's connect too; the caller bounds disconnect.
+        """
+        client = self._client_factory(options)
+        async with client:
+            state.interrupt = client.interrupt
+            try:
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise TimeoutError
+                async with asyncio.timeout_at(deadline):
+                    await client.query(build_user_prompt(request))
+                    async for message in client.receive_response():
+                        transcript.consume(message, events)
+            except TimeoutError:
+                await state.request_interrupt()
+                return _timeout_result(self._settings.limits.task_timeout_s, state)
+        return None
 
 
 class _Transcript:
@@ -224,18 +247,12 @@ class _Transcript:
     def __init__(self) -> None:
         self.final: ResultMessage | None = None
         self.last_text = ""
-        self._saw_stream_text = False
 
     def consume(self, message: Any, events: EventSink) -> None:
-        delta = stream_text(message)
-        if delta is not None:
-            self._saw_stream_text = True
-            events.emit("assistant.text", {"text": delta})
         text = assistant_text(message)
         if text is not None:
             self.last_text = text
-            if not self._saw_stream_text:
-                events.emit("assistant.text", {"text": text})
+            events.emit("assistant.text", {"text": text})
         if isinstance(message, ResultMessage):
             self.final = message
 
@@ -250,11 +267,14 @@ def _timeout_result(timeout_s: float, state: TaskState) -> TaskResult:
 
 
 def _error_result(exc: Exception, state: TaskState) -> TaskResult:
-    message = str(exc) or exc.__class__.__name__
+    return _engine_error_result(str(exc) or exc.__class__.__name__, list(state.steps))
+
+
+def _engine_error_result(message: str, steps: list[str]) -> TaskResult:
     return TaskResult(
         status="error",
         resumen=f"Error del motor de ejecución: {message}",
-        pasos=list(state.steps),
+        pasos=steps,
         errores=[message],
     )
 
