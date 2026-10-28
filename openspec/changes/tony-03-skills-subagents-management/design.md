@@ -190,3 +190,12 @@ tests/fakes/
 
 - Si `watchfiles` en el sistema de ficheros del usuario entrega `Change.modified` o `Change.added` al guardar con editores que renombran; solo afecta al filtro (se aceptan ambos) y no a specs ni tareas.
 - Si el modelo `claude-haiku` devuelve `structured_output` fiable para el juez con `max_turns=1`; si no, el juez cae a parsear el primer objeto JSON del texto, sin cambiar la interfaz.
+
+## Desviaciones de implementación
+
+- D4/D7: el `McpManager` compartido sigue siendo propiedad de una tarea asyncio dedicada (`ManagerOwner`, extraído de la revisión post-implementación de la entrega 02); cada `Generation` del `McpGenerationPool` y el manager propio de un subagente tienen su `ManagerOwner`, de modo que `swap` cierra la generación anterior desde la tarea que la abrió en vez de reiniciarla en sitio. La firma del `WorkerRunnerFactory` recibe un sexto argumento (`native_handlers`) y los protocolos `ToolManager`/`ManagerFactory` viven en `tony.core.mcp.ports`.
+- D4: los handlers concretos del worker son `SkillToolHandlers` (solo `read_skill`, para subagentes) y `WorkerToolHandlers` (+ `run_subagent`) en `tony.core.subagents.handlers`; `NativeToolSet` construye cada tool solo si el agente la declara y los handlers la implementan.
+- D5: `ChatSession` registra las subtareas en `active_task_ids` a partir de `subtask.started/finished` (Ctrl+C y `/cancel` llegan a los hijos) y reenvía la confirmación del hijo con su `task_id`; el espejo en el bus del padre no se escribe en el JSONL del padre. Se añade el evento `skill.activated {skill}` (runner y sesión) para que el log refleje los triggers.
+- D7/D9: `AgentReloader` valida con `validate_agent` (`tony.core.doctor.validate`), la misma comprobación por agente que compone `run_checks`; `validate_config` es `run_checks(offline=True, connect=False)`.
+- D10: `TaskEval` admite `confirm: bool` (respuesta automática a las confirmaciones del eval); el MCP `fetch` del cierre es `uvx mcp-server-fetch` (el paquete npm `@modelcontextprotocol/server-fetch` no existe); los prompts de `jarvis` (mensaje literal en `contexto`) y `viernes` (leer la skill que encaje) se ajustaron para que los triggers y `read_skill` se activen al delegar.
+- 14.4: el commit se hace en `main` (instrucción de la entrega) en lugar de en una rama `feat/`.
