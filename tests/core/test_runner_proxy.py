@@ -383,3 +383,27 @@ async def test_interrupt_is_requested_at_most_once() -> None:
     await state.request_interrupt()
 
     assert spy.count == 1
+
+
+async def test_proxies_consult_the_state_provider_on_every_call() -> None:
+    caller = RecordingCaller()
+    current = [TaskState(task_id="front")]
+    current[0].cancel_token.cancel("user")
+    factory = ToolProxyFactory(
+        fake_catalog(),
+        call=caller,
+        gate=AutoConfirmGate(True),
+        events=ListEventSink(),
+        task_state=lambda: current[0],
+        tool_timeout_s=20,
+        confirm_timeout_s=60,
+    )
+
+    rejected = await factory.handler("fake.echo")({"text": "a"})
+    current[0] = TaskState(task_id="front")
+    executed = await factory.handler("fake.echo")({"text": "b"})
+
+    assert rejected["is_error"] is True
+    assert executed == {"content": [{"type": "text", "text": "hola"}]}
+    assert caller.calls == [("fake.echo", {"text": "b"}, 20)]
+    assert current[0].steps == ["fake.echo(b)"]

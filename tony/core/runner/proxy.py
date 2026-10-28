@@ -22,6 +22,7 @@ from tony.core.runner.ports import EventSink
 ToolCaller = Callable[[str, dict[str, Any], float], Awaitable[ToolCallOutcome]]
 Interrupt = Callable[[], Awaitable[None]]
 ToolReply = dict[str, Any]
+StateProvider = Callable[[], "TaskState"]
 
 NOT_CONFIRMED = "Tool {tool} no confirmada por el usuario"
 TASK_CANCELLED = "Tarea cancelada; no se ejecuta {tool}"
@@ -71,14 +72,16 @@ class ToolProxyFactory:
         call: ToolCaller,
         gate: ConfirmGate,
         events: EventSink,
-        task_state: TaskState,
+        task_state: TaskState | StateProvider,
         tool_timeout_s: float,
         confirm_timeout_s: float,
     ) -> None:
         self._call = call
         self._gate = gate
         self._events = events
-        self._state = task_state
+        self._current_state: StateProvider = (
+            task_state if callable(task_state) else lambda: task_state
+        )
         self._tool_timeout_s = tool_timeout_s
         self._confirm_timeout_s = confirm_timeout_s
         self._handlers: dict[str, Callable[[dict[str, Any]], Awaitable[ToolReply]]] = {}
@@ -95,6 +98,10 @@ class ToolProxyFactory:
 
     def handler(self, qualified: str) -> Callable[[dict[str, Any]], Awaitable[ToolReply]]:
         return self._handlers[qualified]
+
+    @property
+    def _state(self) -> TaskState:
+        return self._current_state()
 
     def _make_tool(self, ref: ToolRef) -> SdkMcpTool:
         async def handler(args: dict[str, Any]) -> ToolReply:

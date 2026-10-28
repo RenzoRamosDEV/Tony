@@ -26,6 +26,15 @@ from tony.core.runner.proxy import TaskState, ToolCaller, ToolProxyFactory
 from tony.core.runner.reply_mode import FrontReply
 
 FRONT_OWNER_ID = "front"
+TURN_ERROR = "turn.error"
+TURN_LOST = (
+    "No pude completar el turno: se perdió la conexión con el modelo y el resultado de "
+    "las acciones ya iniciadas es desconocido; no las repitas sin comprobarlo. "
+    "Diagnóstico: {diagnostic}"
+)
+TURN_FAILED = (
+    "No pude completar el turno: el modelo terminó con un error. Diagnóstico: {diagnostic}"
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +42,7 @@ class FrontTurn:
     text: str
     structured: dict[str, Any] | None = None
     usage: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
 
 
 @runtime_checkable
@@ -104,7 +114,13 @@ class ClaudeSdkConversation:
         self._client: SessionClient | None = None
         self._options: ClaudeAgentOptions | None = None
         self._events: EventSink | None = None
+        self._dead = False
+        self._turn_state = TaskState(FRONT_OWNER_ID)
         self.session_id: str | None = None
+
+    @property
+    def turn_state(self) -> TaskState:
+        return self._turn_state
 
     async def open(
         self,
@@ -119,7 +135,7 @@ class ClaudeSdkConversation:
             self._call,
             self._gate,
             events,
-            TaskState(FRONT_OWNER_ID),
+            lambda: self._turn_state,
             limits.tool_timeout_s,
             limits.confirm_timeout_s,
         ).build()
@@ -134,16 +150,20 @@ class ClaudeSdkConversation:
         await self._connect(self._options)
 
     async def turn(self, prompt: str) -> FrontTurn:
-        if self._client is None or self._options is None:
-            raise RuntimeError("la sesión del front no está abierta")
+        client = await self._live_client()
+        self._turn_state = TaskState(FRONT_OWNER_ID, interrupt=self.interrupt)
         try:
-            return await self._exchange(self._client, prompt)
+            await client.query(prompt)
         except Exception:
             if self.session_id is None:
                 raise
-        await self._reopen()
-        assert self._client is not None
-        return await self._exchange(self._client, prompt)
+            client = await self._reopen()
+            await client.query(prompt)
+        try:
+            return await self._receive(client)
+        except Exception as exc:  # noqa: BLE001 - the prompt is out: never resend it
+            self._dead = True
+            return self._failed_turn(TURN_LOST, f"{exc.__class__.__name__}: {exc}", None)
 
     async def interrupt(self) -> None:
         if self._client is not None:
@@ -154,37 +174,65 @@ class ClaudeSdkConversation:
         if client is not None:
             await client.disconnect()
 
-    async def _connect(self, options: ClaudeAgentOptions) -> None:
+    async def _live_client(self) -> SessionClient:
+        if self._client is None or self._options is None:
+            raise RuntimeError("la sesión del front no está abierta")
+        if self._dead:
+            return await self._reopen()
+        return self._client
+
+    async def _connect(self, options: ClaudeAgentOptions) -> SessionClient:
         client = self._client_factory(options)
         await client.connect()
         self._client = client
+        self._dead = False
+        return client
 
-    async def _reopen(self) -> None:
+    async def _reopen(self) -> SessionClient:
         assert self._options is not None
         try:
             await self.close()
         except Exception:  # noqa: BLE001 - the dead client may refuse to disconnect
             pass
         self._options.resume = self.session_id
-        await self._connect(self._options)
+        return await self._connect(self._options)
 
-    async def _exchange(self, client: SessionClient, prompt: str) -> FrontTurn:
-        await client.query(prompt)
+    async def _receive(self, client: SessionClient) -> FrontTurn:
         last_text = ""
         final: ResultMessage | None = None
         async for message in client.receive_response():
             text = assistant_text(message)
             if text is not None:
                 last_text = text
-                if self._events is not None:
-                    self._events.emit("assistant.text", {"text": text})
+                self._emit("assistant.text", {"text": text})
             if isinstance(message, ResultMessage):
                 final = message
         if final is not None and final.session_id:
             self.session_id = final.session_id
+        if final is not None and final.is_error:
+            return self._failed_turn(TURN_FAILED, _diagnostic(final), final)
         result_text = final.result if final is not None and final.result else None
         return FrontTurn(
             text=last_text or result_text or "",
             structured=final.structured_output if final is not None else None,
             usage=usage_from_message(final),
         )
+
+    def _failed_turn(
+        self, template: str, diagnostic: str, final: ResultMessage | None
+    ) -> FrontTurn:
+        self._emit(TURN_ERROR, {"diagnostic": diagnostic})
+        return FrontTurn(
+            text=template.format(diagnostic=diagnostic),
+            usage=usage_from_message(final),
+            error=diagnostic,
+        )
+
+    def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self._events is not None:
+            self._events.emit(event_type, payload)
+
+
+def _diagnostic(final: ResultMessage) -> str:
+    detail = final.result or "; ".join(final.errors or []) or "sin detalle"
+    return f"{final.subtype}: {detail}"

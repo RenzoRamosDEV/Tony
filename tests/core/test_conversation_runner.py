@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,13 +34,20 @@ class Handlers:
 class FakeSessionClient:
     """ClaudeSDKClient stand-in: explicit connect/disconnect, scripted responses per turn."""
 
-    def __init__(self, responses: list[list[Any]], fail_query_at: int | None = None) -> None:
+    def __init__(
+        self,
+        responses: list[list[Any]],
+        fail_query_at: int | None = None,
+        fail_receive_at: int | None = None,
+    ) -> None:
         self.responses = list(responses)
         self.fail_query_at = fail_query_at
+        self.fail_receive_at = fail_receive_at
         self.prompts: list[str] = []
         self.connects = 0
         self.disconnects = 0
         self.interrupts = 0
+        self.during_receive: list[Callable[[], Awaitable[None]]] = []
 
     async def connect(self) -> None:
         self.connects += 1
@@ -53,8 +61,13 @@ class FakeSessionClient:
         self.prompts.append(prompt)
 
     async def receive_response(self):
+        turn_index = len(self.prompts) - 1
+        for hook in self.during_receive:
+            await hook()
         for message in self.responses.pop(0):
             yield message
+            if turn_index == self.fail_receive_at:
+                raise ConnectionError("cli died mid-turn")
 
     async def interrupt(self) -> None:
         self.interrupts += 1
@@ -187,3 +200,82 @@ async def test_open_builds_proxies_for_the_front_catalog() -> None:
     assert list(options.mcp_servers) == ["tony", "fake"]
     assert options.allowed_tools == ["mcp__tony__*", "mcp__fake__*"]
     assert options.model == "claude-haiku-5-5"
+
+
+async def test_turn_that_fails_after_the_prompt_was_sent_is_never_resent() -> None:
+    first = FakeSessionClient([turn_messages("uno"), turn_messages("dos")], fail_receive_at=1)
+    second = FakeSessionClient([turn_messages("tres", session_id="s1")])
+    conversation, captured = make_conversation([first, second])
+    sink = ListEventSink()
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), sink)
+    await conversation.turn("a")
+
+    failed = await conversation.turn("b")
+
+    assert second.prompts == []
+    assert failed.structured is None
+    assert failed.error == "ConnectionError: cli died mid-turn"
+    assert failed.text == (
+        "No pude completar el turno: se perdió la conexión con el modelo y el resultado de "
+        "las acciones ya iniciadas es desconocido; no las repitas sin comprobarlo. "
+        "Diagnóstico: ConnectionError: cli died mid-turn"
+    )
+    assert sink.payloads("turn.error") == [{"diagnostic": "ConnectionError: cli died mid-turn"}]
+
+    recovered = await conversation.turn("c")
+
+    assert recovered.text == "tres"
+    assert second.prompts == ["c"]
+    assert first.disconnects == 1
+    assert captured[1].resume == "s1"
+
+
+async def test_error_result_message_yields_an_explicit_failed_turn() -> None:
+    client = FakeSessionClient(
+        [
+            [
+                AssistantMessage(content=[TextBlock(text="Voy a hacerlo")], model="m"),
+                result_message(is_error=True, subtype="error_max_turns", result="max turns"),
+            ]
+        ]
+    )
+    conversation, _ = make_conversation([client])
+    sink = ListEventSink()
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), sink)
+
+    turn = await conversation.turn("x")
+
+    assert "Voy a hacerlo" not in turn.text
+    assert turn.text == (
+        "No pude completar el turno: el modelo terminó con un error. "
+        "Diagnóstico: error_max_turns: max turns"
+    )
+    assert turn.structured is None
+    assert turn.error == "error_max_turns: max turns"
+    assert turn.usage["input_tokens"] == 100
+    assert sink.payloads("turn.error") == [{"diagnostic": "error_max_turns: max turns"}]
+    assert conversation.session_id == "s"
+
+
+async def test_each_turn_gets_a_fresh_cancel_state_wired_to_interrupt() -> None:
+    client = FakeSessionClient([turn_messages("uno"), turn_messages("dos")])
+    conversation, _ = make_conversation([client])
+    await conversation.open(spec(), fake_catalog(allow=["fake.echo"]), Handlers(), ListEventSink())
+    seen: list[Any] = []
+
+    async def reject_a_tool() -> None:
+        state = conversation.turn_state
+        seen.append(state)
+        state.cancel("fake.destroy")
+        await state.request_interrupt()
+
+    client.during_receive = [reject_a_tool]
+    await conversation.turn("a")
+    client.during_receive = []
+
+    await conversation.turn("b")
+
+    assert seen[0].cancelled is True
+    assert client.interrupts == 1
+    assert conversation.turn_state is not seen[0]
+    assert conversation.turn_state.cancelled is False
