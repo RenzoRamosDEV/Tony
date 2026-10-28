@@ -16,15 +16,22 @@ function defaultContext(): AudioContext {
   return new AudioContext({ sampleRate: OUTPUT_RATE });
 }
 
-/** Gapless playback of Int16 PCM chunks: each buffer starts exactly where the previous ends. */
+/**
+ * Gapless playback of Int16 PCM chunks: each buffer starts exactly where the previous ends.
+ * `onStopped` fires once per message, when its queue drains after `end` or when it is stopped.
+ */
 export class PcmPlayer {
   onDrain: (() => void) | null = null;
+  onStopped: ((messageId: string) => void) | null = null;
   private context: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private readonly samples = new Float32Array(ANALYSER_FFT_SIZE);
   private nextStartTime = 0;
   private lastSeq = -1;
   private readonly sources = new Set<AudioBufferSourceNode>();
+  private current: string | null = null;
+  private ended = false;
+  private readonly finishedMessages = new Set<string>();
 
   constructor(private readonly createContext: () => AudioContext = defaultContext) {}
 
@@ -33,12 +40,14 @@ export class PcmPlayer {
   }
 
   /** A new reply starts its chunk sequence at 0 again. */
-  begin(): void {
+  begin(messageId: string | null = null): void {
     this.lastSeq = -1;
+    this.current = messageId;
+    this.ended = false;
   }
 
-  enqueue(seq: number, pcm16: ArrayBuffer): boolean {
-    if (seq <= this.lastSeq) {
+  enqueue(seq: number, pcm16: ArrayBuffer, messageId: string | null = null): boolean {
+    if (seq <= this.lastSeq || (messageId !== null && this.finishedMessages.has(messageId))) {
       return false;
     }
     this.lastSeq = seq;
@@ -66,7 +75,19 @@ export class PcmPlayer {
     return normalizeLevel(rms(this.samples));
   }
 
-  stop(): void {
+  /** The server sent every chunk of the message: it is reported once its queue drains. */
+  end(messageId: string): void {
+    if (messageId !== this.current) {
+      return;
+    }
+    this.ended = true;
+    if (this.sources.size === 0) {
+      this.report();
+    }
+  }
+
+  /** Stops every scheduled source at once; later chunks of the stopped message are dropped. */
+  stop(messageId: string | null = this.current): void {
     const pending = Array.from(this.sources);
     this.sources.clear();
     for (const source of pending) {
@@ -74,6 +95,20 @@ export class PcmPlayer {
       source.stop();
     }
     this.nextStartTime = 0;
+    if (messageId !== null && messageId === this.current) {
+      this.report();
+    } else if (messageId !== null) {
+      this.finishedMessages.add(messageId);
+    }
+  }
+
+  private report(): void {
+    const messageId = this.current;
+    if (messageId === null || this.finishedMessages.has(messageId)) {
+      return;
+    }
+    this.finishedMessages.add(messageId);
+    this.onStopped?.(messageId);
   }
 
   private contextOrCreate(): AudioContext {
@@ -101,6 +136,9 @@ export class PcmPlayer {
     this.sources.delete(source);
     if (this.sources.size === 0) {
       this.nextStartTime = 0;
+      if (this.ended) {
+        this.report();
+      }
       this.onDrain?.();
     }
   }

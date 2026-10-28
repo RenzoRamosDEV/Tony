@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { createApi } from "./api/client";
 import type { MicCaptureDeps } from "./audio/capture";
 import { PERMISSION_DENIED, useMicCapture, usePcmPlayer } from "./audio/hooks";
+import { applyToPlayback } from "./audio/playbackEvents";
 import { ConfirmationCard } from "./components/ConfirmationCard";
 import { DebugPanel } from "./components/DebugPanel";
 import { HudBar } from "./components/HudBar";
@@ -63,12 +64,16 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
   const stateRef = useRef(state);
   stateRef.current = state;
   const socketRef = useRef<ChatSocket | null>(null);
-  const player = usePcmPlayer(audioContextFactory);
+  const reportStopped = useCallback((messageId: string) => {
+    socketRef.current?.send({ type: "playback.stopped", payload: { message_id: messageId } });
+  }, []);
+  const player = usePcmPlayer(audioContextFactory, reportStopped);
   const playerRef = useRef(player);
   playerRef.current = player;
   const mic = useMicCapture(micDeps, {
     onFrame: (frame) => void socketRef.current?.sendBinary(frame.buffer as ArrayBuffer),
     onSilenceAfterSpeech: () => dispatch({ type: "silence_after_speech" }),
+    replyPlaying: () => playerRef.current.isPlaying(),
   });
   const stopMic = mic.stop;
 
@@ -76,16 +81,13 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
     const socket = new ChatSocket({
       url: defaultSocketUrl(window.location),
       onEnvelope: (envelope: Envelope) => {
-        if (envelope.type === "tts.start") {
-          playerRef.current.begin();
-        } else if (envelope.type === "tts.cancelled" || envelope.type === "user.accepted") {
-          playerRef.current.stop();
-        } else if (envelope.type === "hello.ok" || isCaptureRejection(envelope)) {
+        applyToPlayback(envelope, playerRef.current);
+        if (envelope.type === "hello.ok" || isCaptureRejection(envelope)) {
           stopMic();
         }
         dispatch({ type: "envelope", envelope, now: Date.now() });
       },
-      onAudio: (meta, buffer) => playerRef.current.enqueue(meta.seq, buffer),
+      onAudio: (meta, buffer) => playerRef.current.enqueue(meta.seq, buffer, meta.messageId),
       onStatus: (connected) => {
         if (!connected) {
           stopMic();
@@ -160,10 +162,6 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
       dispatch({ type: "playback_drained" });
     }
   }, [speaking, heardMessageId]);
-  const setMuted = mic.setMuted;
-  useEffect(() => {
-    setMuted(speaking);
-  }, [setMuted, speaking]);
 
   const send = useCallback((text: string): boolean => {
     const clientId = newClientId();

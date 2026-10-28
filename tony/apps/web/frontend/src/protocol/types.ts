@@ -66,7 +66,7 @@ export interface HistoryMessage {
 }
 
 export interface ClientMessage {
-  type: "hello" | "user.text" | "confirm" | "cancel" | "set_mode" | "audio.start" | "audio.end";
+  type: "hello" | "user.text" | "confirm" | "cancel" | "set_mode" | "audio.start" | "audio.end" | "playback.stopped";
   payload: Record<string, unknown>;
 }
 

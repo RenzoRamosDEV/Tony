@@ -63,12 +63,14 @@ describe("MicCapture", () => {
     await capture.start();
 
     expect(requests).toEqual([MIC_CONSTRAINTS]);
-    expect(MIC_CONSTRAINTS).toMatchObject({ audio: { channelCount: 1, echoCancellation: true } });
+    expect(MIC_CONSTRAINTS).toEqual({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
     expect(context.modules).toEqual(["worklet.js"]);
     expect(capture.active).toBe(true);
   });
 
-  it("forwards every worklet frame unless muted, and always reports the level", async () => {
+  it("forwards every worklet frame and reports its level", async () => {
     const { capture, node } = harness();
     const frames: Float32Array[] = [];
     const levels: number[] = [];
@@ -77,13 +79,11 @@ describe("MicCapture", () => {
     await capture.start();
 
     node.port.emit(new Float32Array(480).fill(0.5));
-    capture.muted = true;
     node.port.emit(new Float32Array(480).fill(0.25));
-    capture.muted = false;
-    node.port.emit(new Float32Array(480).fill(0.125));
 
-    expect(frames.map((f) => f[0])).toEqual([0.5, 0.125]);
-    expect(levels.map((l) => Number(l.toFixed(3)))).toEqual([0.5, 0.25, 0.125]);
+    expect(frames.map((f) => f[0])).toEqual([0.5, 0.25]);
+    expect(levels.map((l) => Number(l.toFixed(3)))).toEqual([0.5, 0.25]);
+    expect("muted" in capture).toBe(false);
   });
 
   it("stop releases the tracks and closes the context", async () => {
@@ -117,17 +117,26 @@ describe("level", () => {
     expect(rms(new Float32Array(0))).toBe(0);
   });
 
-  it("detects 700 ms of silence after speech exactly once per utterance", () => {
+  it("detects 500 ms of silence after speech exactly once per utterance", () => {
     const detector = new SilenceDetector();
 
     expect(detector.update(0.3, 0)).toBe(false);
     expect(detector.update(0.001, 100)).toBe(false);
-    expect(detector.update(0.001, 699)).toBe(false);
-    expect(detector.update(0.001, 700)).toBe(true);
+    expect(detector.update(0.001, 499)).toBe(false);
+    expect(detector.update(0.001, 500)).toBe(true);
     expect(detector.update(0.001, 2000)).toBe(false);
     expect(detector.update(0.3, 2100)).toBe(false);
-    expect(detector.update(0.001, 2799)).toBe(false);
-    expect(detector.update(0.001, 2800)).toBe(true);
+    expect(detector.update(0.001, 2599)).toBe(false);
+    expect(detector.update(0.001, 2600)).toBe(true);
+  });
+
+  it("forgets the speech heard while the reply was playing", () => {
+    const detector = new SilenceDetector();
+
+    detector.update(0.3, 0);
+    detector.reset();
+
+    expect(detector.update(0.001, 600)).toBe(false);
   });
 
   it("never fires without speech first", () => {

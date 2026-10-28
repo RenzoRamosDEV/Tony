@@ -128,6 +128,68 @@ describe("PcmPlayer", () => {
     expect(ctx.sources[2]!.started).toBe(1);
   });
 
+  it("tts.cancelled-style stop halts every scheduled source, zeroes the amplitude and drops later chunks", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    const stopped: string[] = [];
+    player.onStopped = (messageId) => stopped.push(messageId);
+    player.begin("m-2");
+    player.enqueue(0, pcm(500), "m-2");
+    player.enqueue(1, pcm(500), "m-2");
+    player.enqueue(2, pcm(500), "m-2");
+    player.amplitude();
+    ctx.analysers[0]!.signal = 0.5;
+
+    player.stop("m-2");
+
+    expect(ctx.sources.map((s) => s.stopped)).toEqual([true, true, true]);
+    expect(player.amplitude()).toBe(0);
+    expect(player.enqueue(3, pcm(500), "m-2")).toBe(false);
+    expect(ctx.sources).toHaveLength(3);
+    expect(stopped).toEqual(["m-2"]);
+    player.stop("m-2");
+    expect(stopped).toEqual(["m-2"]);
+    player.begin("m-3");
+    expect(player.enqueue(0, pcm(100), "m-3")).toBe(true);
+  });
+
+  it("reports the playback stopped once when the queue drains after the end", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    const stopped: string[] = [];
+    player.onStopped = (messageId) => stopped.push(messageId);
+    player.begin("m-2");
+    player.enqueue(0, pcm(100), "m-2");
+    player.enqueue(1, pcm(100), "m-2");
+
+    ctx.sources[0]!.finish();
+    ctx.sources[1]!.finish();
+    expect(stopped).toEqual([]);
+    player.enqueue(2, pcm(100), "m-2");
+    player.end("m-2");
+    expect(stopped).toEqual([]);
+    ctx.sources[2]!.finish();
+
+    expect(stopped).toEqual(["m-2"]);
+    player.end("m-2");
+    player.stop();
+    expect(stopped).toEqual(["m-2"]);
+  });
+
+  it("an end with the queue already empty reports at once", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    const stopped: string[] = [];
+    player.onStopped = (messageId) => stopped.push(messageId);
+    player.begin("m-4");
+    player.enqueue(0, pcm(100), "m-4");
+    ctx.sources[0]!.finish();
+
+    player.end("m-4");
+
+    expect(stopped).toEqual(["m-4"]);
+  });
+
   it("calls onDrain once when the last source ends", () => {
     const ctx = new FakeContext();
     const player = new PcmPlayer(() => ctx as unknown as AudioContext);

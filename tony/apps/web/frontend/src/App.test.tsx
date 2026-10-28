@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import type { Envelope } from "./protocol/types";
@@ -433,7 +433,7 @@ describe("App (voice)", () => {
     expect(audio.tracks[0]!.stopped).toBe(true);
   });
 
-  it("mutes the capture from tts.start until the playback drains after tts.end", async () => {
+  it("keeps sending frames while Tony speaks and reports the playback stopped once it drains", async () => {
     const audio = new FakeAudio();
     const { ws } = await listening(audio);
 
@@ -446,18 +446,48 @@ describe("App (voice)", () => {
     act(() => ws.receiveBinary(pcm(500)));
     act(() => audio.speak());
 
-    expect(ws.sentBinary).toHaveLength(0);
+    expect(ws.sentBinary).toHaveLength(2);
     expect(audio.output.sources.map((s) => s.started)).toEqual([0, 0.5]);
     act(() => ws.receive(env("tts.end", { message_id: "a-1" }, { message_id: "a-1" })));
     expect(screen.getByRole("status")).toHaveTextContent("Hablando…");
-    act(() => audio.speak());
-    expect(ws.sentBinary).toHaveLength(0);
+    expect(ws.sent.some((m) => m.type === "playback.stopped")).toBe(false);
 
     act(() => audio.output.finishAll());
 
     expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
-    act(() => audio.speak());
-    expect(ws.sentBinary).toHaveLength(1);
+    expect(ws.sent.filter((m) => m.type === "playback.stopped")).toEqual([
+      expect.objectContaining({ payload: { message_id: "a-1" } }),
+    ]);
+  });
+
+  it("never shows Transcribiendo for the silence heard while the reply plays", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+    const start = Date.now();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(start);
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => ws.receive(env("tts.end", { message_id: "a-1" }, { message_id: "a-1" })));
+
+    act(() => audio.speak(0.5));
+    now.mockReturnValue(start + 600);
+    act(() => audio.speak(0));
+    act(() => audio.output.finishAll());
+    now.mockReturnValue(start + 1200);
+    act(() => audio.speak(0));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
+    now.mockReturnValue(start + 1300);
+    act(() => audio.speak(0.5));
+    now.mockReturnValue(start + 1799);
+    act(() => audio.speak(0));
+    expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
+    now.mockReturnValue(start + 1800);
+    act(() => audio.speak(0));
+    expect(screen.getByRole("status")).toHaveTextContent("Transcribiendo…");
+    now.mockRestore();
   });
 
   it("a binary frame without a pending meta is discarded", async () => {
@@ -477,10 +507,21 @@ describe("App (voice)", () => {
     act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
     act(() => ws.receiveBinary(pcm(500)));
 
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 1, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 2, sentence_index: 1 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+
     act(() => ws.receive(env("tts.cancelled", { message_id: "a-1" }, { message_id: "a-1" })));
 
-    expect(audio.output.sources[0]!.stopped).toBe(true);
+    expect(audio.output.sources.map((s) => s.stopped)).toEqual([true, true, true]);
     expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 3, sentence_index: 1 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    expect(audio.output.sources).toHaveLength(3);
+    expect(ws.sent.filter((m) => m.type === "playback.stopped")).toEqual([
+      expect.objectContaining({ payload: { message_id: "a-1" } }),
+    ]);
     act(() => audio.speak());
     expect(ws.sentBinary).toHaveLength(1);
   });
@@ -495,9 +536,12 @@ describe("App (voice)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Detener audio" }));
 
     expect(audio.output.sources[0]!.stopped).toBe(true);
-    expect(ws.sent.at(-1)).toMatchObject({ type: "cancel", payload: { message_id: "a-2" } });
+    expect(ws.sent.some((m) => m.type === "cancel" && (m.payload as { message_id: string }).message_id === "a-2")).toBe(true);
     act(() => ws.receive(env("tts.cancelled", { message_id: "a-2" }, { message_id: "a-2" })));
     expect(screen.queryByRole("button", { name: "Detener audio" })).toBeNull();
+    expect(ws.sent.filter((m) => m.type === "playback.stopped")).toEqual([
+      expect.objectContaining({ payload: { message_id: "a-2" } }),
+    ]);
   });
 
   it("shows the transcription as a voice bubble and the full answer rendered", async () => {

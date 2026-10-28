@@ -22,9 +22,8 @@ export function browserDeps(): MicCaptureDeps {
   };
 }
 
-/** Microphone -> AudioWorklet -> 16 kHz frames; `muted` drops frames without closing the mic. */
+/** Microphone -> AudioWorklet -> 16 kHz frames, also while the reply plays (barge-in). */
 export class MicCapture {
-  muted = false;
   onFrame: ((frame: Float32Array) => void) | null = null;
   onLevel: ((level: number) => void) | null = null;
   private stream: MediaStream | null = null;
@@ -97,9 +96,7 @@ export class MicCapture {
       return;
     }
     this.onLevel?.(rms(frame));
-    if (!this.muted) {
-      this.onFrame?.(frame);
-    }
+    this.onFrame?.(frame);
   }
 }
 

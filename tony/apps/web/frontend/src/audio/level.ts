@@ -1,5 +1,5 @@
 export const SPEECH_RMS = 0.01;
-export const SILENCE_AFTER_SPEECH_MS = 700;
+export const SILENCE_AFTER_SPEECH_MS = 500;
 
 export function rms(frame: Float32Array): number {
   if (frame.length === 0) {
@@ -26,5 +26,10 @@ export class SilenceDetector {
       return true;
     }
     return false;
+  }
+
+  /** Forget the speech heard so far, e.g. while the reply plays through the speakers. */
+  reset(): void {
+    this.lastSpeechAt = null;
   }
 }
