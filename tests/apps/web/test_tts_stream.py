@@ -107,7 +107,13 @@ def test_voice_reply_streams_meta_then_binary_per_chunk_with_the_final_message_i
     }
     assert envelopes(seen, "tts.start")[0]["payload"] == {"message_id": final["message_id"]}
     assert [m["seq"] for m in seen if isinstance(m, dict)] == list(range(1, 10))
-    assert all(len(frame) == 7_200 for frame in seen if isinstance(frame, bytes))
+    sentence_pause = 24_000 * 160 // 1_000 * 2
+    assert [len(frame) for frame in seen if isinstance(frame, bytes)] == [
+        7_200,
+        7_200 + sentence_pause,
+        7_200,
+        7_200,
+    ]
 
 
 def test_text_mode_sends_no_tts(tmp_path: Path) -> None:
@@ -142,7 +148,7 @@ def test_without_speech_text_the_cleaned_display_text_is_spoken(tmp_path: Path) 
             send(ws, "user.text", {"text": "/v tabla"})
             drain_mixed(ws, "tts.end")
 
-    assert tts.sentences == [f"Aquí tiene la tabla: {SCREEN_SUFFIX}"]
+    assert tts.sentences == ["Aquí tiene la tabla:", SCREEN_SUFFIX]
 
 
 def test_a_front_that_streams_speech_fragments_speaks_before_the_final(tmp_path: Path) -> None:
@@ -236,7 +242,7 @@ def test_failure_in_the_second_sentence_degrades_to_text(tmp_path: Path) -> None
 
 
 def test_an_engine_that_fails_to_load_reports_tts_failed_without_start(tmp_path: Path) -> None:
-    def broken(voice_name: str) -> Tts:
+    def broken(alias: object, threads: int) -> Tts:
         raise RuntimeError("espeak-ng no encontrado")
 
     with build_test_app(tmp_path, turns=[TWO], voice=voice(loader=broken)) as client:
@@ -259,7 +265,7 @@ def test_the_session_log_records_the_synthesis_without_text_or_audio(tmp_path: P
     log = next((tmp_path / "logs").rglob(f"chat-{conversation}.jsonl"))
     records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     tts = [r["payload"] for r in records if r["type"] == "tts"]
-    assert tts == [{"sentences": 2, "duration_ms": 600, "cancelled": False}]
+    assert tts == [{"sentences": 2, "duration_ms": 600 + 160, "cancelled": False}]
 
 
 def test_aclose_during_a_spoken_reply_cancels_and_closes_1001(tmp_path: Path) -> None:
@@ -330,3 +336,17 @@ async def test_review05_finding_1_a_secret_in_the_reply_never_reaches_the_tts() 
     assert SECRET not in spoken and SECRET[:9] not in spoken
     assert "***" not in spoken
     assert spoken.count(SPOKEN_MASK) == 3
+
+
+def test_the_first_spoken_piece_is_cut_at_the_first_clause(tmp_path: Path) -> None:
+    tts = FakeTts()
+    turn = {
+        "display_text": "Buenas tardes, señor. Todo en orden.",
+        "speech_text": "Buenas tardes, señor. Todo en orden.",
+    }
+    with build_test_app(tmp_path, turns=[turn], voice=voice(tts)) as client:
+        with open_chat(client) as (ws, _):
+            send(ws, "user.text", {"text": "/v hola"})
+            drain_mixed(ws, "tts.end")
+
+    assert tts.sentences == ["Buenas tardes,", "señor.", "Todo en orden."]

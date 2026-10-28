@@ -68,3 +68,79 @@ def test_bigram_abbreviation_split_across_fragments_does_not_cut() -> None:
     assert segmenter.feed("Tome algo, p. ") == []
     assert segmenter.feed("ej. agua. Luego") == ["Tome algo, p. ej. agua."]
     assert segmenter.flush() == "Luego"
+
+
+def pieces_of(text: str, first_clause: bool = True) -> list[tuple[str, str]]:
+    segmenter = SentenceSegmenter(first_clause=first_clause)
+    pieces = segmenter.feed(text)
+    rest = segmenter.flush()
+    return [(p, p.kind) for p in [*pieces, *([rest] if rest is not None else [])]]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "Buenas tardes, señor. Los sistemas están en línea.",
+            [
+                ("Buenas tardes,", "clause"),
+                ("señor.", "sentence"),
+                ("Los sistemas están en línea.", "final"),
+            ],
+        ),
+        (
+            "La reunión de las cinco con el equipo sigue en pie.",
+            [("La reunión de las cinco con", "clause"), ("el equipo sigue en pie.", "final")],
+        ),
+        (
+            "Cuesta 10,5 euros, señor.",
+            [("Cuesta 10,5 euros,", "clause"), ("señor.", "final")],
+        ),
+        (
+            "Uno dos tres cuatro cinco seis siete ocho nueve, diez.",
+            [("Uno dos tres cuatro cinco seis", "clause"), ("siete ocho nueve, diez.", "final")],
+        ),
+        (
+            "Uno dos tres cuatro cinco, seis siete.",
+            [("Uno dos tres cuatro cinco,", "clause"), ("seis siete.", "final")],
+        ),
+        (
+            "Sr. Pérez, le esperan. Ahora.",
+            [("Sr. Pérez,", "clause"), ("le esperan.", "sentence"), ("Ahora.", "final")],
+        ),
+        ("Sí. Claro que sí, señor.", [("Sí.", "sentence"), ("Claro que sí, señor.", "final")]),
+        ("Hora: las diez.", [("Hora:", "clause"), ("las diez.", "final")]),
+        ("Hecho", [("Hecho", "final")]),
+        ("", []),
+    ],
+)
+def test_first_clause_mode_cuts_the_first_piece_short(
+    text: str, expected: list[tuple[str, str]]
+) -> None:
+    assert pieces_of(text) == expected
+
+
+def test_first_clause_streamed_word_by_word_gives_the_same_pieces() -> None:
+    text = "La reunión de las cinco con el equipo sigue en pie. Buenas tardes, señor."
+    segmenter = SentenceSegmenter(first_clause=True)
+    pieces = []
+    for word in text.split(" "):
+        pieces += segmenter.feed(word + " ")
+    pieces.append(segmenter.flush())
+
+    assert pieces == [
+        "La reunión de las cinco con",
+        "el equipo sigue en pie.",
+        "Buenas tardes, señor.",
+    ]
+
+
+def test_without_first_clause_pieces_are_sentences_then_final() -> None:
+    assert pieces_of("Buenas tardes, señor. Los sistemas están en línea.", False) == [
+        ("Buenas tardes, señor.", "sentence"),
+        ("Los sistemas están en línea.", "final"),
+    ]
+
+
+def test_a_paragraph_break_is_a_sentence_cut() -> None:
+    assert pieces_of("Hola\n\nAdiós", False) == [("Hola", "sentence"), ("Adiós", "final")]

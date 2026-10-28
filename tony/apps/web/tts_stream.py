@@ -19,6 +19,7 @@ from tony.core.voice.cleanup import speech_text_for, spoken_mask
 from tony.core.voice.executor import VoiceExecutor
 from tony.core.voice.pipeline import SpeechPipeline
 from tony.core.voice.ports import AudioChunk, Tts
+from tony.core.voice.segmenter import SentenceSegmenter
 
 TTS_FAILED = "tts_failed"
 SPOKEN_MODES = frozenset({"voice", "both"})
@@ -127,6 +128,7 @@ class SpeechStreamer:
                 self._voice,
                 ReplySink(self._stream, message_id),
                 self._events,
+                segmenter=SentenceSegmenter(first_clause=True),
                 sanitize=self._speakable,
             )
         return self._pipelines[message_id]

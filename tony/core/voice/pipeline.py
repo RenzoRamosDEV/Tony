@@ -9,12 +9,23 @@ from dataclasses import dataclass
 
 from tony.core.runner import EventSink
 from tony.core.voice.executor import VoiceExecutor
-from tony.core.voice.ports import AudioChunk, SpeechSink, Tts
-from tony.core.voice.segmenter import SentenceSegmenter
+from tony.core.voice.ports import INT16_BYTES, AudioChunk, SpeechSink, Tts
+from tony.core.voice.segmenter import CutKind, Piece, SentenceSegmenter
 
 TTS_EVENT = "tts"
 TTS_LANE = "tts"
+PAUSE_MS: dict[CutKind, int] = {"sentence": 160, "clause": 80, "final": 0}
 TtsLoader = Callable[[], Tts]
+
+
+def with_pause(chunks: list[AudioChunk], kind: CutKind) -> list[AudioChunk]:
+    """Append the natural pause that follows a piece to its last chunk."""
+    pause_ms = PAUSE_MS[kind]
+    if not chunks or not pause_ms:
+        return chunks
+    last = chunks[-1]
+    silence = b"\0" * (last.sample_rate * pause_ms // 1_000 * INT16_BYTES)
+    return [*chunks[:-1], AudioChunk(last.pcm16 + silence, last.sample_rate)]
 
 
 @dataclass
@@ -57,7 +68,7 @@ class SpeechPipeline:
         self._events = events
         self._segmenter = segmenter or SentenceSegmenter()
         self._sanitize = sanitize
-        self._queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[str, CutKind] | None] = asyncio.Queue()
         self._consumer: asyncio.Task[None] | None = None
         self._stop = threading.Event()
         self._stats = SpeechStats()
@@ -70,8 +81,8 @@ class SpeechPipeline:
         return self._finished
 
     def feed(self, text: str) -> None:
-        for sentence in self._segmenter.feed(text):
-            self._enqueue(sentence)
+        for piece in self._segmenter.feed(text):
+            self._enqueue(piece)
 
     async def finish(self) -> None:
         rest = self._segmenter.flush()
@@ -94,10 +105,10 @@ class SpeechPipeline:
         self._settle(cancelled=True)
         await self._sink.cancelled()
 
-    def _enqueue(self, sentence: str) -> None:
+    def _enqueue(self, piece: Piece) -> None:
         if self._finished or self._stop.is_set():
             return
-        self._queue.put_nowait(self._sanitize(sentence))
+        self._queue.put_nowait((self._sanitize(piece), piece.kind))
         if self._consumer is None:
             self._consumer = asyncio.create_task(self._consume())
 
@@ -109,9 +120,11 @@ class SpeechPipeline:
             self._settle(cancelled=True)
             return
         await self._sink.start()
-        while (sentence := await self._queue.get()) is not None:
+        while (item := await self._queue.get()) is not None:
+            sentence, kind = item
             try:
                 chunks = await self._executor.run_serial(TTS_LANE, self._synthesize, tts, sentence)
+                chunks = with_pause(chunks, kind)
             except Exception as exc:  # noqa: BLE001 - same degradation, after some audio
                 await self._sink.failed(f"{exc.__class__.__name__}: {exc}")
                 self._settle(cancelled=True)

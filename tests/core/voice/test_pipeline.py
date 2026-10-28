@@ -14,6 +14,7 @@ from tests.fakes.voice import FakeTts, ListSpeechSink, sine_chunk
 from tony.core.voice.executor import VoiceExecutor
 from tony.core.voice.pipeline import TTS_EVENT, SpeechPipeline
 from tony.core.voice.ports import AudioChunk, Tts
+from tony.core.voice.segmenter import SentenceSegmenter
 
 TWO_SENTENCES = "Son las diez. Tiene una reunión."
 
@@ -44,7 +45,75 @@ async def test_two_sentences_become_ordered_chunks_between_start_and_end(executo
     assert [(seq, index) for seq, index, _ in sink.chunks] == [(0, 0), (1, 0), (2, 1), (3, 1)]
     assert tts.sentences == ["Son las diez.", "Tiene una reunión."]
     assert tts.voices == ["ef_dora", "ef_dora"]
-    assert events.events == [(TTS_EVENT, {"sentences": 2, "duration_ms": 600, "cancelled": False})]
+    assert events.events == [(TTS_EVENT, {"sentences": 2, "duration_ms": 760, "cancelled": False})]
+
+
+SAMPLE_BYTES = 2
+PAUSE_SAMPLES = {"sentence": 3_840, "clause": 1_920}
+
+
+def trailing_zero_samples(chunk: AudioChunk) -> int:
+    pcm = chunk.pcm16
+    count = 0
+    while (
+        count * SAMPLE_BYTES < len(pcm)
+        and pcm[len(pcm) - (count + 1) * SAMPLE_BYTES :][:SAMPLE_BYTES] == b"\0\0"
+    ):
+        count += 1
+    return count
+
+
+async def test_a_sentence_ends_with_160ms_of_silence_and_the_last_piece_with_none(
+    executor,
+) -> None:
+    speech, sink, _ = pipeline(executor)
+
+    speech.feed(TWO_SENTENCES)
+    await speech.finish()
+
+    chunks = [chunk for _, _, chunk in sink.chunks]
+    assert trailing_zero_samples(chunks[1]) == PAUSE_SAMPLES["sentence"]
+    assert len(chunks[1].pcm16) == len(sine_chunk().pcm16) + 3_840 * SAMPLE_BYTES
+    assert trailing_zero_samples(chunks[0]) < 10
+    assert chunks[3] == sine_chunk()
+
+
+async def test_a_first_clause_ends_with_80ms_of_silence(executor) -> None:
+    sink, events = ListSpeechSink(), ListEventSink()
+    tts = FakeTts()
+    speech = SpeechPipeline(
+        lambda: tts, executor, "v", sink, events, segmenter=SentenceSegmenter(first_clause=True)
+    )
+
+    speech.feed("Buenas tardes, señor.")
+    await speech.finish()
+
+    chunks = [chunk for _, _, chunk in sink.chunks]
+    assert tts.sentences == ["Buenas tardes,", "señor."]
+    assert trailing_zero_samples(chunks[1]) == PAUSE_SAMPLES["clause"]
+    assert chunks[3] == sine_chunk()
+    assert events.events[-1][1]["duration_ms"] == 4 * 150 + 80
+
+
+async def test_redaction_still_covers_a_secret_split_across_feeds(executor) -> None:
+    sink, events = ListSpeechSink(), ListEventSink()
+    tts = FakeTts()
+    speech = SpeechPipeline(
+        lambda: tts,
+        executor,
+        "v",
+        sink,
+        events,
+        segmenter=SentenceSegmenter(first_clause=True),
+        sanitize=lambda text: text.replace("sk-123456", "[oculto]"),
+    )
+
+    for fragment in ("La clave sk-12", "3456 está guardada. Nada más."):
+        speech.feed(fragment)
+    await speech.finish()
+
+    assert all("sk-" not in sentence for sentence in tts.sentences)
+    assert "[oculto]" in " ".join(tts.sentences)
 
 
 async def test_a_sentence_split_across_feeds_is_synthesized_whole(executor) -> None:
@@ -97,7 +166,7 @@ async def test_cancel_with_pending_sentences_emits_cancelled_and_nothing_more(ex
     assert len(tts.sentences) < 4
     done = len(sink.chunks) // 2
     assert events.payloads(TTS_EVENT) == [
-        {"sentences": done, "duration_ms": done * 300, "cancelled": True}
+        {"sentences": done, "duration_ms": done * (300 + 160), "cancelled": True}
     ]
 
 
@@ -129,7 +198,9 @@ async def test_failure_in_the_second_sentence_degrades_after_the_first(executor)
 
     assert sink.types() == ["start", "chunk", "chunk", "failed", "cancelled"]
     assert "frase 2" in sink.failures[0]
-    assert events.payloads(TTS_EVENT) == [{"sentences": 1, "duration_ms": 300, "cancelled": True}]
+    assert events.payloads(TTS_EVENT) == [
+        {"sentences": 1, "duration_ms": 300 + 160, "cancelled": True}
+    ]
 
 
 async def test_a_loader_that_raises_fails_without_start(executor) -> None:
