@@ -280,6 +280,7 @@ async def test_new_tasks_keep_the_old_spec_and_catalog_until_the_new_generation_
     after = await h.build("t3")
     assert [s.name for s in after.spec.skills] == ["nueva"]
     assert after.catalog is h.managers[1].catalog
+    assert h.managers[1].started_with == after.spec.tools
     await h.factory.close()
 
 

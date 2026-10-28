@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tony.core.logging.replay import ReplayError, read_events, render_events, to_eval
+from tony.core.logging.replay import (
+    INCOMPLETE_REQUEST,
+    ReplayError,
+    read_events,
+    render_events,
+    to_eval,
+)
 
 EVENTS = [
     ("task.queued", {"objetivo": "lista los .md", "parent_id": None}),
@@ -247,3 +253,14 @@ def test_to_eval_does_not_warn_when_task_started_carries_the_request(tmp_path: P
 
     assert warnings == []
     assert yaml.safe_load(entry)[0]["contexto"] == ""
+
+
+def test_to_eval_warns_when_only_one_of_context_or_restrictions_is_logged(tmp_path: Path) -> None:
+    events = [
+        ("task.started", {"agent": "v", "objetivo": "o", "contexto": "c"}),
+        ("task.result", {"result": {"status": "ok", "resumen": "x"}}),
+    ]
+
+    _, _, warnings = to_eval(read_events(write_log(tmp_path / "t.jsonl", events)), "e")
+
+    assert warnings == [INCOMPLETE_REQUEST]

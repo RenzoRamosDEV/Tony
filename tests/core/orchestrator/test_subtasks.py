@@ -365,4 +365,7 @@ async def test_release_failure_is_logged_and_never_blocks_finishing(h: Harness, 
     assert result.status == "ok" and child.finished.is_set() and parent.finished.is_set()
     assert following.status == TaskStatus.DONE
     assert h.factory.released == [child.id, parent.id, following.id]
-    assert any("stop roto" in r.message and child.id in r.message for r in caplog.records)
+    assert [r.message for r in caplog.records] == [
+        f"error al liberar los recursos de la tarea {task_id}: stop roto"
+        for task_id in (child.id, parent.id, following.id)
+    ]

@@ -101,15 +101,31 @@ async def test_swap_without_any_acquire_starts_the_new_generation_as_current() -
     assert pool.current is new and len(managers.created) == 1
 
 
-async def test_failing_stop_does_not_propagate() -> None:
+async def test_failing_stop_does_not_propagate(caplog) -> None:
     pool, managers = make_pool(Managers(failing_stop=True))
     old = await pool.acquire()
     await pool.release(old)
 
+    with caplog.at_level("WARNING"):
+        await pool.swap(SECOND)
+        await pool.close_all()
+
+    assert all(m.stopped for m in managers.created)
+    assert [r.message for r in caplog.records] == [
+        "error al cerrar la generación 1 de MCPs: no se pudo cerrar",
+        "error al cerrar la generación 2 de MCPs: no se pudo cerrar",
+    ]
+
+
+async def test_acquire_after_close_all_restarts_with_the_last_swapped_config() -> None:
+    pool, managers = make_pool()
     await pool.swap(SECOND)
     await pool.close_all()
 
-    assert all(m.stopped for m in managers.created)
+    generation = await pool.acquire()
+
+    assert generation.tool_config == SECOND and managers.created[1].started_with == SECOND
+    assert pool.current is generation
 
 
 async def test_close_all_stops_every_generation_even_with_leases() -> None:
@@ -199,6 +215,7 @@ async def test_late_initial_start_loses_against_a_swapped_generation() -> None:
     leased = await asyncio.wait_for(first, 1)
 
     assert leased is swapped and swapped.tool_config == SECOND and swapped.leases == 1
+    assert managers.created[0].started_with == FIRST
     assert [m.stopped for m in managers.created] == [True, False]
     await pool.close_all()
     assert [m.stopped for m in managers.created] == [True, True]

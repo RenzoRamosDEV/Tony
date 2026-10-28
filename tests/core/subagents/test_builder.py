@@ -235,4 +235,6 @@ async def test_close_logs_a_failing_child_manager_stop_instead_of_raising(caplog
         await worker.close()
 
     assert own.stopped is True
-    assert any("stop roto" in r.message and "investigador" in r.message for r in caplog.records)
+    assert [r.message for r in caplog.records] == [
+        "error al cerrar los servidores del subagente investigador: stop roto"
+    ]

@@ -412,12 +412,16 @@ def make_rw_factory(tmp_path: Path, spec: AgentSpec) -> tuple[SdkWorkerFactory, 
 
 
 async def test_child_of_an_old_root_keeps_the_permissions_snapshotted_at_build(tmp_path) -> None:
-    factory, _ = make_rw_factory(tmp_path, spec_with_child(READ_ONLY_CHILD))
+    factory, recorder = make_rw_factory(tmp_path, spec_with_child(READ_ONLY_CHILD))
     await build(factory, Task("t1", TaskRequest(objetivo="a")))
 
     factory.update_spec(spec_with_child(UNRESTRICTED_CHILD))
-    old_child = await build(
-        factory, Task("s1", TaskRequest(objetivo="b"), "t1", agent="investigador")
+    child_gate, child_token = AutoConfirmGate(False), CancelToken()
+    old_child = await factory.build_worker(
+        Task("s1", TaskRequest(objetivo="b"), "t1", agent="investigador"),
+        ListEventSink(),
+        child_token,
+        child_gate,
     )
     await build(factory, Task("t2", TaskRequest(objetivo="c")))
     new_child = await build(
@@ -425,7 +429,8 @@ async def test_child_of_an_old_root_keeps_the_permissions_snapshotted_at_build(t
     )
 
     assert old_child.catalog.qualified_names() == ["fs.read_file"]
-    assert old_child.spec is READ_ONLY_CHILD
+    assert old_child.spec is READ_ONLY_CHILD and old_child.runner is not None
+    assert recorder.calls[1][1:] == ("s1", child_gate, recorder.managers[0].call, child_token)
     assert sorted(new_child.catalog.qualified_names()) == ["fs.read_file", "fs.write_file"]
     await factory.close()
 
@@ -461,3 +466,18 @@ def test_subagent_secrets_are_redacted_from_logs_even_after_a_reload_drops_them(
     assert logged_line("t1")["payload"] == {"a": "clave *** vista"}
     factory.update_spec(spec_with_child(UNRESTRICTED_CHILD))
     assert logged_line("t2")["payload"] == {"a": "clave *** vista"}
+
+
+async def test_release_of_a_child_stops_its_own_servers(tmp_path) -> None:
+    child = READ_ONLY_CHILD.model_copy(
+        update={"tools": ToolConfig(mcpServers={"fetch": StdioServer(command="fetch")})}
+    )
+    factory, recorder = make_rw_factory(tmp_path, spec_with_child(child))
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+    await build(factory, Task("s1", TaskRequest(objetivo="b"), "t1", agent="investigador"))
+    assert recorder.managers[1].server_filter == ["fetch"]
+
+    await factory.release("s1")
+
+    assert recorder.managers[1].stopped is True and recorder.managers[0].stopped is False
+    await factory.close()
