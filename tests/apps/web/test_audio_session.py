@@ -42,9 +42,9 @@ class GatedStt(FakeStt):
 
 
 class SlowVad(FakeVad):
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         time.sleep(0.005)
-        return super().classify(window)
+        return super().classify(window, threshold)
 
 
 class Recorder:
@@ -156,9 +156,9 @@ class SpyVad(FakeVad):
         super().__init__()
         self.calls: list[str] = []
 
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         self.calls.append("classify")
-        return super().classify(window)
+        return super().classify(window, threshold)
 
     def reset(self) -> None:
         self.calls.append("reset")
@@ -188,11 +188,11 @@ class CountingVad(FakeVad):
         self.classified = 0
         self.fail_first = fail_first
 
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         self.classified += 1
         if self.fail_first and self.classified == 1:
             raise RuntimeError("vad roto")
-        return super().classify(window)
+        return super().classify(window, threshold)
 
 
 SPEECH_SAMPLES = 8_192

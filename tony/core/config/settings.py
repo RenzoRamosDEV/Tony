@@ -6,7 +6,15 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 ReplyMode = Literal["auto", "voice", "text", "both"]
 REPLY_MODES: tuple[str, ...] = get_args(ReplyMode)
@@ -39,10 +47,54 @@ class WebSettings(StrictModel):
     host: str = "127.0.0.1"
 
 
+DEFAULT_ACKNOWLEDGEMENTS = [
+    "Un momento, señor.",
+    "Enseguida, señor.",
+    "Ahora mismo lo reviso, señor.",
+]
+MAX_ACKNOWLEDGEMENT_CHARS = 60
+VOICE_RANGES: dict[str | None, tuple[float, float]] = {
+    "end_silence_ms": (300, 1500),
+    "barge_in_threshold": (0.5, 0.99),
+    "barge_in_min_speech_ms": (150, 1000),
+    "cpu_threads": (1, 64),
+}
+
+
 class VoiceSettings(StrictModel):
-    stt: str = "faster-whisper/small"
-    tts: str = "kokoro/ef_dora"
+    stt: str = "faster-whisper/base"
+    tts: str = "piper/es_MX-ald-medium?speed=0.95"
     vad: str = "silero"
+    end_silence_ms: int = 500
+    barge_in: bool = True
+    barge_in_threshold: float = 0.8
+    barge_in_min_speech_ms: int = 280
+    cpu_threads: int | None = None
+    acknowledgements: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_ACKNOWLEDGEMENTS), min_length=1, max_length=10
+    )
+
+    @field_validator(
+        "end_silence_ms", "barge_in_threshold", "barge_in_min_speech_ms", "cpu_threads"
+    )
+    @classmethod
+    def must_be_in_range(cls, value: float | None, info: ValidationInfo) -> float | None:
+        low, high = VOICE_RANGES[info.field_name]
+        if value is not None and not low <= value <= high:
+            raise ValueError(f"debe estar entre {low} y {high}")
+        return value
+
+    @field_validator("acknowledgements")
+    @classmethod
+    def acknowledgements_must_be_short_phrases(cls, value: list[str]) -> list[str]:
+        for phrase in value:
+            if not phrase.strip():
+                raise ValueError("cada acuse debe ser una frase no vacía")
+            if len(phrase) > MAX_ACKNOWLEDGEMENT_CHARS:
+                raise ValueError(
+                    f"cada acuse debe tener como máximo {MAX_ACKNOWLEDGEMENT_CHARS} caracteres"
+                )
+        return value
 
 
 class TonySettings(StrictModel):

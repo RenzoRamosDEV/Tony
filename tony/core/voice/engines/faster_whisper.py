@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from tony.core.voice.ports import Transcript, Utterance
 
-CPU_THREADS = 4
-
 
 class FasterWhisperStt:
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, cpu_threads: int) -> None:
         import numpy
         from faster_whisper import WhisperModel
 
         self._numpy = numpy
         self._model = WhisperModel(
-            model, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS
+            model, device="cpu", compute_type="int8", cpu_threads=cpu_threads
         )
 
     def transcribe(self, utterance: Utterance, language: str) -> Transcript:

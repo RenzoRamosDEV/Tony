@@ -23,6 +23,8 @@ tony/apps/web/frontend/dist/
 .serena/
 # Eval runs recorded with the real model
 evals/runs/
+# Generated voice listening pack
+samples/voices/
 # Lock file of tony mcp add/remove
 tool.json.lock
 tony/apps/web/frontend/tsconfig.tsbuildinfo

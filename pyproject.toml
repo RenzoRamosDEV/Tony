@@ -20,6 +20,7 @@ web = ["fastapi>=0.162,<1", "uvicorn[standard]>=0.30,<1", "websockets>=12,<16"]
 voice = [
     "faster-whisper>=1.2,<2",
     "kokoro>=0.9.4,<1",
+    "piper-tts>=1.8,<2",
     "silero-vad>=6,<7",
     "onnxruntime>=1.17,<2",
     "numpy>=1.26,<3",

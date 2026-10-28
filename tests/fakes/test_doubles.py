@@ -394,7 +394,9 @@ async def test_fake_conversation_runner_streams_speech_chunks_to_on_speech() -> 
 
 # --- voice doubles (specs/voice-engines) --------------------------------------------------------
 
-from tests.fakes.voice import FakeStt, FakeTts, FakeVad, ListSpeechSink  # noqa: E402
+from array import array  # noqa: E402
+
+from tests.fakes.voice import FULL_SCALE_RMS, FakeStt, FakeTts, FakeVad, ListSpeechSink  # noqa: E402
 from tests.fixtures.audio.generate import FIXTURES_DIR, read_wav_float32  # noqa: E402
 from tony.core.voice.ports import (  # noqa: E402
     OUTPUT_SAMPLE_RATE,
@@ -419,8 +421,8 @@ def test_fake_vad_classifies_by_energy_and_segments_the_fixtures() -> None:
     vad = FakeVad()
     loud = read_wav_float32(FIXTURES_DIR / "tone_3s.wav")[: 512 * 4]
     quiet = read_wav_float32(FIXTURES_DIR / "silence_1s.wav")[: 512 * 4]
-    assert vad.classify(loud) is True
-    assert vad.classify(quiet) is False
+    assert vad.classify(loud, 0.5) is True
+    assert vad.classify(quiet, 0.5) is False
 
     speech = VadSegmenter(FakeVad())
     utterances = speech.feed(read_wav_float32(FIXTURES_DIR / "speech_1500ms.wav"))
@@ -430,6 +432,21 @@ def test_fake_vad_classifies_by_energy_and_segments_the_fixtures() -> None:
 
     assert len(utterances) == 1 and 1_400 <= utterances[0].duration_ms <= 1_600
     assert nothing == []
+
+
+def constant(level: float) -> bytes:
+    return array("f", [level] * 512).tobytes()
+
+
+def test_fake_vad_reads_probability_from_energy_against_the_threshold() -> None:
+    vad = FakeVad()
+    probability_06 = constant(0.6 * FULL_SCALE_RMS)
+
+    assert vad.classify(probability_06, 0.5) is True
+    assert vad.classify(probability_06, 0.8) is False
+    assert vad.classify(constant(0.8 * FULL_SCALE_RMS), 0.8) is True
+    assert vad.classify(constant(5 * FULL_SCALE_RMS), 0.99) is True
+    assert vad.classify(b"", 0.5) is False
 
 
 def test_fake_stt_returns_the_fixed_text_with_language_and_duration() -> None:

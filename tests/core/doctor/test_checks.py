@@ -245,8 +245,8 @@ async def test_voice_aliases_are_checked_and_an_invalid_one_fails(tmp_repo: Path
     p.config_path.write_text("worker: viernes\nvoice:\n  tts: kokoro/no_existe\n", encoding="utf-8")
     invalid = await check(tmp_repo, paths=p)
 
-    assert valid["voice.stt"] == CheckResult("voice.stt", True, "faster-whisper/small")
-    assert valid["voice.tts"] == CheckResult("voice.tts", True, "kokoro/ef_dora")
+    assert valid["voice.stt"] == CheckResult("voice.stt", True, "faster-whisper/base")
+    assert valid["voice.tts"] == CheckResult("voice.tts", True, "piper/es_MX-ald-medium?speed=0.95")
     assert invalid["voice.tts"].failed and "kokoro/no_existe" in invalid["voice.tts"].detail
     assert "ef_dora, em_alex, em_santa" in invalid["voice.tts"].detail
     assert invalid["voice.tts"].hint.startswith("corrige voice.tts")
@@ -256,21 +256,41 @@ async def test_voice_aliases_are_checked_and_an_invalid_one_fails(tmp_repo: Path
 async def test_voice_models_cache_is_informative(tmp_repo: Path) -> None:
     cache = tmp_repo / "hub"
     empty = await check(tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache))
-    (cache / "models--Systran--faster-whisper-small").mkdir(parents=True)
-    (cache / "models--hexgrad--Kokoro-82M").mkdir()
+    (cache / "models--Systran--faster-whisper-base").mkdir(parents=True)
+    (cache / "models--rhasspy--piper-voices").mkdir()
     cached = await check(tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache))
-    (cache / "models--Systran--faster-whisper-small").rmdir()
+    (cache / "models--Systran--faster-whisper-base").rmdir()
     partial = await check(tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache))
 
     assert empty["voice-models"].ok is None and "tony voice warmup" in empty["voice-models"].detail
     assert cached["voice-models"] == CheckResult(
-        "voice-models", True, "faster-whisper-small y Kokoro-82M en caché"
+        "voice-models", True, "faster-whisper-base y piper-voices en caché"
     )
     assert (
         partial["voice-models"].ok is None
-        and "faster-whisper-small" in partial["voice-models"].detail
+        and "faster-whisper-base" in partial["voice-models"].detail
     )
     assert exit_code(empty.values()) == 0
+
+
+async def test_voice_models_cache_follows_the_kokoro_engine(tmp_repo: Path) -> None:
+    cache = tmp_repo / "hub"
+    (cache / "models--Systran--faster-whisper-small").mkdir(parents=True)
+    (cache / "models--hexgrad--Kokoro-82M").mkdir()
+    p = healthy_repo(tmp_repo)
+    p.config_path.write_text(
+        "worker: viernes\nvoice:\n  stt: faster-whisper/small\n"
+        "  tts: kokoro/em_alex*0.6+em_santa*0.4\n",
+        encoding="utf-8",
+    )
+
+    results = await check(
+        tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache), paths=p
+    )
+
+    assert results["voice-models"] == CheckResult(
+        "voice-models", True, "faster-whisper-small y Kokoro-82M en caché"
+    )
 
 
 async def test_mcp_connection_results_and_patterns(tmp_repo: Path) -> None:

@@ -1,4 +1,4 @@
-"""Voice aliases `motor/nombre` of voice.stt / voice.tts (specs/voice-engines)."""
+"""Voice aliases `motor/voz[?clave=valor]` of voice.stt / voice.tts (specs/voice-engines)."""
 
 from __future__ import annotations
 
@@ -7,69 +7,100 @@ import pytest
 from tony.core.config import VoiceSettings
 from tony.core.voice.aliases import (
     KOKORO_SPANISH_VOICES,
+    PIPER_SPANISH_VOICES,
     WHISPER_MODELS,
+    VoiceAlias,
     parse_alias,
     validate_voice_settings,
 )
 from tony.core.voice.ports import VoiceConfigError
 
 
-def test_parse_alias_splits_engine_and_name() -> None:
-    assert parse_alias("kokoro/ef_dora") == ("kokoro", "ef_dora")
-
-
 @pytest.mark.parametrize(
     ("alias", "expected"),
     [
-        ("faster-whisper/small", ("faster-whisper", "small")),
-        ("faster-whisper/base", ("faster-whisper", "base")),
-        ("faster-whisper/large-v3", ("faster-whisper", "large-v3")),
-        ("faster-whisper/distil-large-v3", ("faster-whisper", "distil-large-v3")),
-        ("faster-whisper/small.en", ("faster-whisper", "small.en")),
-        ("kokoro/em_alex", ("kokoro", "em_alex")),
-        ("kokoro/em_santa", ("kokoro", "em_santa")),
+        ("kokoro/ef_dora", VoiceAlias("kokoro", (("ef_dora", 1.0),), speed=1.0, lang="es-419")),
+        (
+            "piper/es_MX-ald-medium?speed=0.95",
+            VoiceAlias("piper", (("es_MX-ald-medium", 1.0),), speed=0.95, lang="es-419"),
+        ),
+        (
+            "kokoro/em_alex*0.6+em_santa*0.4?speed=0.94&lang=es",
+            VoiceAlias("kokoro", (("em_alex", 0.6), ("em_santa", 0.4)), speed=0.94, lang="es"),
+        ),
+        ("faster-whisper/base", VoiceAlias("faster-whisper", (("base", 1.0),))),
+        (
+            "faster-whisper/distil-large-v3",
+            VoiceAlias("faster-whisper", (("distil-large-v3", 1.0),)),
+        ),
+        ("kokoro/em_santa?lang=es-419", VoiceAlias("kokoro", (("em_santa", 1.0),))),
+        (
+            "piper/es_MX-ald-medium?speed=0.5",
+            VoiceAlias("piper", (("es_MX-ald-medium", 1.0),), 0.5),
+        ),
+        (
+            "piper/es_MX-ald-medium?speed=1.5",
+            VoiceAlias("piper", (("es_MX-ald-medium", 1.0),), 1.5),
+        ),
+        (
+            "kokoro/em_alex*0.6+em_santa*0.395",
+            VoiceAlias("kokoro", (("em_alex", 0.6), ("em_santa", 0.395))),
+        ),
     ],
 )
-def test_known_engines_and_names_are_accepted(alias: str, expected: tuple[str, str]) -> None:
+def test_valid_aliases_parse_to_voice_alias(alias: str, expected: VoiceAlias) -> None:
     assert parse_alias(alias) == expected
 
 
+def test_voice_alias_name_is_the_voice_part() -> None:
+    assert parse_alias("kokoro/ef_dora").name == "ef_dora"
+    assert parse_alias("piper/es_MX-ald-medium?speed=0.95").name == "es_MX-ald-medium"
+    assert parse_alias("kokoro/em_alex*0.6+em_santa*0.4").name == "em_alex*0.6+em_santa*0.4"
+
+
 @pytest.mark.parametrize(
-    ("alias", "valid_values"),
+    ("alias", "fragments"),
     [
         ("kokoro/no_existe", KOKORO_SPANISH_VOICES),
-        ("whisper/small", ("faster-whisper", "kokoro")),
-        ("kokoro", ("faster-whisper", "kokoro")),
-        ("", ("faster-whisper", "kokoro")),
+        ("piper/es_XX-nadie-low", PIPER_SPANISH_VOICES),
+        ("whisper/small", ("faster-whisper", "kokoro", "piper")),
+        ("kokoro", ("faster-whisper", "kokoro", "piper")),
+        ("", ("faster-whisper", "kokoro", "piper")),
         ("faster-whisper/", WHISPER_MODELS),
         ("faster-whisper/huge", WHISPER_MODELS),
+        ("piper/es_MX-ald-medium?pitch=2", ("pitch", "speed", "lang")),
+        ("piper/es_MX-ald-medium?speed=0.49", ("0,5", "1,5")),
+        ("piper/es_MX-ald-medium?speed=1.51", ("0,5", "1,5")),
+        ("piper/es_MX-ald-medium?speed=2", ("0,5", "1,5")),
+        ("piper/es_MX-ald-medium?speed=rápido", ("speed",)),
+        ("kokoro/em_alex*0.6+em_santa*0.6", ("sumar 1",)),
+        ("kokoro/em_alex*x+em_santa*0.4", ("peso",)),
+        ("kokoro/em_alex*0.6+nadie*0.4", KOKORO_SPANISH_VOICES),
+        ("kokoro/em_alex?lang=fr", ("lang", "es-419", "es")),
+        ("piper/es_MX-ald-medium?lang=es", ("lang", "kokoro")),
+        ("piper/es_MX-ald-medium*0.5+es_MX-claude-high*0.5", ("mezcla", "kokoro")),
+        ("kokoro/em_alex?speed=0.9&speed=1.0", ("speed", "repetido")),
+        ("kokoro/em_alex?speed", ("speed",)),
+        ("faster-whisper/base?speed=1.0", ("faster-whisper", "parámetros")),
     ],
 )
-def test_invalid_alias_names_the_alias_and_the_valid_values(
-    alias: str, valid_values: tuple[str, ...]
-) -> None:
+def test_invalid_alias_names_the_alias_and_explains(alias: str, fragments: tuple[str, ...]) -> None:
     with pytest.raises(VoiceConfigError) as info:
         parse_alias(alias)
 
     message = str(info.value)
-    assert alias in message
-    assert "inválido" in message
-    for value in valid_values:
-        assert value in message
+    assert f"alias de voz '{alias}' inválido" in message
+    for fragment in fragments:
+        assert fragment in message
 
 
-def test_error_messages_list_the_valid_values_separated_by_commas() -> None:
+def test_engine_error_lists_the_engines_separated_by_commas() -> None:
     with pytest.raises(VoiceConfigError) as info:
         parse_alias("kokoro")
-    assert str(info.value) == (
-        "alias de voz 'kokoro' inválido; usa motor/nombre con motor en: faster-whisper, kokoro"
-    )
 
-    problems = validate_voice_settings(VoiceSettings(tts="faster-whisper/small"))
-    assert problems == [
-        "voice.tts: alias de voz 'faster-whisper/small' inválido; valores válidos: "
-        "kokoro/ef_dora, kokoro/em_alex, kokoro/em_santa"
-    ]
+    assert str(info.value) == (
+        "alias de voz 'kokoro' inválido; usa motor/voz con motor en: faster-whisper, kokoro, piper"
+    )
 
 
 def test_both_aliases_invalid_report_two_problems() -> None:
@@ -78,8 +109,12 @@ def test_both_aliases_invalid_report_two_problems() -> None:
     assert [p.split(":")[0] for p in problems] == ["voice.stt", "voice.tts"]
 
 
-def test_valid_settings_have_no_problems() -> None:
+def test_default_and_legacy_settings_have_no_problems() -> None:
     assert validate_voice_settings(VoiceSettings()) == []
+    assert (
+        validate_voice_settings(VoiceSettings(stt="faster-whisper/small", tts="kokoro/ef_dora"))
+        == []
+    )
 
 
 def test_each_invalid_setting_is_reported_with_its_key() -> None:
@@ -88,15 +123,32 @@ def test_each_invalid_setting_is_reported_with_its_key() -> None:
     problems = validate_voice_settings(settings)
 
     assert len(problems) == 2
-    assert problems[0].startswith("voice.stt: ") and "faster-whisper/" in problems[0]
+    assert problems[0] == (
+        "voice.stt: alias de voz 'kokoro/ef_dora' inválido; motores válidos: faster-whisper"
+    )
     assert problems[1].startswith("voice.tts: ") and "kokoro/no_existe" in problems[1]
     assert "ef_dora, em_alex, em_santa" in problems[1]
 
 
-def test_tts_alias_must_be_a_kokoro_voice_and_stt_a_whisper_model() -> None:
+def test_tts_alias_must_be_a_synthesis_engine() -> None:
     swapped = VoiceSettings(stt="faster-whisper/small", tts="faster-whisper/small")
 
     problems = validate_voice_settings(swapped)
 
-    assert [p.split(":")[0] for p in problems] == ["voice.tts"]
-    assert "kokoro/" in problems[0]
+    assert problems == [
+        "voice.tts: alias de voz 'faster-whisper/small' inválido; motores válidos: kokoro, piper"
+    ]
+
+
+def test_piper_catalog_is_the_spanish_index() -> None:
+    assert PIPER_SPANISH_VOICES == (
+        "es_AR-daniela-high",
+        "es_ES-carlfm-x_low",
+        "es_ES-davefx-medium",
+        "es_ES-mls_10246-low",
+        "es_ES-mls_9972-low",
+        "es_ES-sharvard-medium",
+        "es_MX-ald-medium",
+        "es_MX-ald-x_low",
+        "es_MX-claude-high",
+    )

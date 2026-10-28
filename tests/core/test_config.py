@@ -26,9 +26,19 @@ def test_missing_file_yields_full_defaults(tmp_repo: Path) -> None:
         "claude-sonnet": "claude-sonnet-5-5",
     }
     assert settings.voice.model_dump() == {
-        "stt": "faster-whisper/small",
-        "tts": "kokoro/ef_dora",
+        "stt": "faster-whisper/base",
+        "tts": "piper/es_MX-ald-medium?speed=0.95",
         "vad": "silero",
+        "end_silence_ms": 500,
+        "barge_in": True,
+        "barge_in_threshold": 0.8,
+        "barge_in_min_speech_ms": 280,
+        "cpu_threads": None,
+        "acknowledgements": [
+            "Un momento, señor.",
+            "Enseguida, señor.",
+            "Ahora mismo lo reviso, señor.",
+        ],
     }
     assert settings.channels == ["cli", "web"]
     assert settings.web.model_dump() == {"port": 8787, "host": "127.0.0.1"}
@@ -168,3 +178,53 @@ def test_malformed_root_or_section_becomes_config_error(
         load_settings(write_yaml(tmp_repo, body))
 
     assert str(exc_info.value).startswith(fragment)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "valid"),
+    [
+        ("end_silence_ms", "299", False),
+        ("end_silence_ms", "300", True),
+        ("end_silence_ms", "1500", True),
+        ("end_silence_ms", "1501", False),
+        ("barge_in_threshold", "0.49", False),
+        ("barge_in_threshold", "0.5", True),
+        ("barge_in_threshold", "0.99", True),
+        ("barge_in_threshold", "1.0", False),
+        ("barge_in_min_speech_ms", "149", False),
+        ("barge_in_min_speech_ms", "150", True),
+        ("barge_in_min_speech_ms", "1000", True),
+        ("barge_in_min_speech_ms", "1001", False),
+        ("cpu_threads", "null", True),
+        ("cpu_threads", "0", False),
+        ("cpu_threads", "64", True),
+        ("cpu_threads", "65", False),
+        ("acknowledgements", "[]", False),
+        ("acknowledgements", "[" + ", ".join(["Vale."] * 11) + "]", False),
+        ("acknowledgements", "[" + ", ".join(["Vale."] * 10) + "]", True),
+        ("acknowledgements", '["' + "a" * 61 + '"]', False),
+        ("acknowledgements", '["' + "a" * 60 + '"]', True),
+        ("acknowledgements", '["Vale.", ""]', False),
+        ("acknowledgements", '["Vale.", "   "]', False),
+    ],
+)
+def test_voice_ranges_name_the_field_path(
+    tmp_repo: Path, field: str, value: str, valid: bool
+) -> None:
+    path = write_yaml(tmp_repo, f"voice:\n  {field}: {value}\n")
+
+    if valid:
+        load_settings(path)
+        return
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(path)
+    assert f"voice.{field}" in str(exc_info.value)
+
+
+def test_end_silence_out_of_range_names_the_range(tmp_repo: Path) -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(write_yaml(tmp_repo, "voice:\n  end_silence_ms: 100\n"))
+
+    assert "voice.end_silence_ms" in str(exc_info.value)
+    assert "300" in str(exc_info.value)
+    assert "1500" in str(exc_info.value)

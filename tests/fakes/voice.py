@@ -9,25 +9,25 @@ from typing import Any
 
 from tony.core.voice.ports import OUTPUT_SAMPLE_RATE, AudioChunk, Transcript, Utterance
 
-SPEECH_RMS = 0.01
+FULL_SCALE_RMS = 0.02
 CHUNK_MS = 150
 CHUNKS_PER_SENTENCE = 2
 SINE_HZ = 440.0
 
 
 class FakeVad:
-    """Speech is any window whose RMS energy exceeds SPEECH_RMS."""
+    """The speech probability of a window is its RMS energy over FULL_SCALE_RMS (capped at 1)."""
 
     def __init__(self) -> None:
         self.resets = 0
 
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         samples = array("f")
         samples.frombytes(window)
         if not samples:
             return False
         rms = math.sqrt(sum(value * value for value in samples) / len(samples))
-        return rms > SPEECH_RMS
+        return min(1.0, rms / FULL_SCALE_RMS) >= threshold
 
     def reset(self) -> None:
         self.resets += 1

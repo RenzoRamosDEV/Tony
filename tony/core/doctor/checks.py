@@ -18,9 +18,8 @@ from tony.core.doctor.validate import CheckResult, validate_agent
 from tony.core.loader import AgentLoadError, AgentSpec, StdioServer, ToolConfig, load_all
 from tony.core.mcp import McpManager, McpServerStatus, ToolCatalog
 from tony.core.runner.oneshot import one_shot
-from tony.core.voice.aliases import ENGINE_FOR_KEY, parse_alias
+from tony.core.voice.aliases import ENGINES_FOR_KEY, alias_problem
 from tony.core.voice.engines import EXTRA_HINT, REQUIRED_MODULES
-from tony.core.voice.ports import VoiceConfigError
 
 REQUIRED_PYTHON = (3, 12)
 PROBE_PROMPT = "Responde exactamente: OK"
@@ -30,6 +29,11 @@ GROUP_OR_OTHER_READABLE = stat.S_IRWXG | stat.S_IRWXO
 ESPEAK_HINT = "rpm-ostree install espeak-ng o brew install espeak-ng"
 WARMUP_HINT = "ejecuta tony voice warmup"
 KOKORO_MODEL_DIR = "models--hexgrad--Kokoro-82M"
+PIPER_MODEL_DIR = "models--rhasspy--piper-voices"
+TTS_MODEL_DIRS = {
+    "kokoro": ("Kokoro-82M", KOKORO_MODEL_DIR),
+    "piper": ("piper-voices", PIPER_MODEL_DIR),
+}
 WHISPER_MODEL_DIR = "models--Systran--faster-whisper-{size}"
 
 
@@ -252,26 +256,23 @@ def check_voice(env: Environment, settings: TonySettings) -> list[CheckResult]:
 
 def check_voice_aliases(settings: TonySettings) -> list[CheckResult]:
     results = []
-    for key in ENGINE_FOR_KEY:
+    for key in ENGINES_FOR_KEY:
         alias = getattr(settings.voice, key.split(".")[1])
-        try:
-            engine, _ = parse_alias(alias)
-            if engine != ENGINE_FOR_KEY[key]:
-                raise VoiceConfigError(
-                    f"alias de voz '{alias}' inválido; el motor de {key} es {ENGINE_FOR_KEY[key]}"
-                )
-        except VoiceConfigError as exc:
-            results.append(CheckResult(key, False, str(exc), f"corrige {key} en config/tony.yaml"))
+        problem = alias_problem(key, alias)
+        if problem is not None:
+            results.append(CheckResult(key, False, problem, f"corrige {key} en config/tony.yaml"))
             continue
         results.append(CheckResult(key, True, alias))
     return results
 
 
 def check_voice_models(env: Environment, settings: TonySettings) -> CheckResult:
-    size = settings.voice.stt.partition("/")[2] or "small"
+    size = settings.voice.stt.partition("/")[2] or "base"
+    tts_engine = settings.voice.tts.partition("/")[0]
+    tts_name, tts_dir = TTS_MODEL_DIRS.get(tts_engine, TTS_MODEL_DIRS["piper"])
     wanted = {
         f"faster-whisper-{size}": env.model_cache / WHISPER_MODEL_DIR.format(size=size),
-        "Kokoro-82M": env.model_cache / KOKORO_MODEL_DIR,
+        tts_name: env.model_cache / tts_dir,
     }
     missing = [name for name, path in wanted.items() if not path.is_dir()]
     if not missing:

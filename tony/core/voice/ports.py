@@ -15,6 +15,7 @@ OUTPUT_SAMPLE_RATE = 24_000
 FLOAT32_BYTES = 4
 INT16_BYTES = 2
 VAD_WINDOW_SAMPLES = 512
+SPEECH_THRESHOLD = 0.5
 
 
 class VoiceConfigError(ValueError):
@@ -54,8 +55,9 @@ class AudioChunk:
 
 @runtime_checkable
 class Vad(Protocol):
-    def classify(self, window: bytes) -> bool:
-        """Whether a window of VAD_WINDOW_SAMPLES Float32 samples contains speech."""
+    def classify(self, window: bytes, threshold: float) -> bool:
+        """Whether a window of VAD_WINDOW_SAMPLES Float32 samples has a speech probability
+        of at least `threshold`."""
 
     def reset(self) -> None:
         """Forget the state carried between windows of one utterance."""

@@ -1,4 +1,4 @@
-"""UtteranceAssembler: 700 ms end-of-speech, 300 ms minimum, 30 s cut (specs/voice-engines)."""
+"""UtteranceAssembler: 500 ms end-of-speech, 300 ms minimum, 30 s cut (specs/voice-engines)."""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ def push(assembler: UtteranceAssembler, speech_ms: int = 0, silence_ms: int = 0)
     return emitted
 
 
-def test_700ms_of_silence_after_speech_closes_the_utterance() -> None:
+def test_500ms_of_silence_after_speech_closes_the_utterance_by_default() -> None:
     assembler = UtteranceAssembler(window_ms=WINDOW_MS)
 
-    none_yet = push(assembler, speech_ms=1_500, silence_ms=700 - WINDOW_MS)
+    none_yet = push(assembler, speech_ms=1_500, silence_ms=500 - WINDOW_MS)
     closed = assembler.push(SILENCE, False)
 
     assert none_yet == []
@@ -50,18 +50,53 @@ def test_speech_shorter_than_300ms_is_discarded() -> None:
 def test_exactly_300ms_of_speech_is_kept() -> None:
     assembler = UtteranceAssembler(window_ms=WINDOW_MS, min_speech_ms=320)
 
-    assert len(push(assembler, speech_ms=320, silence_ms=700)) == 1
+    assert len(push(assembler, speech_ms=320, silence_ms=500)) == 1
 
 
-def test_silence_shorter_than_700ms_does_not_close() -> None:
+def test_silence_shorter_than_500ms_does_not_close() -> None:
     assembler = UtteranceAssembler(window_ms=WINDOW_MS)
 
-    assert push(assembler, speech_ms=1_000, silence_ms=500) == []
+    assert push(assembler, speech_ms=1_000, silence_ms=400) == []
     assert push(assembler, speech_ms=1_000) == []
-    assert assembler.pending_ms == windows(1_000) * 2 * WINDOW_MS + windows(500) * WINDOW_MS
-    closed = push(assembler, silence_ms=700)
+    assert assembler.pending_ms == windows(1_000) * 2 * WINDOW_MS + windows(400) * WINDOW_MS
+    closed = push(assembler, silence_ms=500)
     assert len(closed) == 1
-    assert closed[0].duration_ms == assembler_total(1_000, 500, 1_000)
+    assert closed[0].duration_ms == assembler_total(1_000, 400, 1_000)
+
+
+@pytest.mark.parametrize(("silence_ms", "count"), [(468, 0), (500, 1)])
+def test_default_end_silence_boundary(silence_ms: int, count: int) -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS)
+
+    assert len(push(assembler, speech_ms=1_000, silence_ms=silence_ms)) == count
+
+
+def test_configured_end_silence_of_700ms_waits_past_600ms() -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS, end_silence_ms=700)
+
+    assert push(assembler, speech_ms=1_000, silence_ms=600) == []
+    assert len(push(assembler, silence_ms=100)) == 1
+
+
+def test_two_speech_windows_separated_by_ten_silent_ones_are_discarded() -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS)
+
+    emitted = assembler.push(SPEECH, True)
+    emitted += [u for _ in range(10) for u in assembler.push(SILENCE, False)]
+    emitted += assembler.push(SPEECH, True)
+    emitted += push(assembler, silence_ms=500)
+
+    assert emitted == []
+
+
+def test_speech_ms_counts_the_speech_of_the_open_utterance() -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS)
+
+    push(assembler, speech_ms=5 * WINDOW_MS, silence_ms=2 * WINDOW_MS)
+    assembler.push(SPEECH, True)
+    assert assembler.speech_ms == 6 * WINDOW_MS
+    push(assembler, silence_ms=500)
+    assert assembler.speech_ms == 0
 
 
 def assembler_total(*parts_ms: int) -> int:
@@ -133,9 +168,9 @@ def test_counters_restart_after_an_utterance_closes() -> None:
 def test_consecutive_utterances_have_independent_durations() -> None:
     assembler = UtteranceAssembler(window_ms=WINDOW_MS)
 
-    first = push(assembler, speech_ms=1_000, silence_ms=700)
-    second = push(assembler, speech_ms=500, silence_ms=700)
-    none = push(assembler, speech_ms=100, silence_ms=700)
+    first = push(assembler, speech_ms=1_000, silence_ms=500)
+    second = push(assembler, speech_ms=500, silence_ms=500)
+    none = push(assembler, speech_ms=100, silence_ms=500)
 
     assert [u.duration_ms for u in first] == [windows(1_000) * WINDOW_MS]
     assert [u.duration_ms for u in second] == [windows(500) * WINDOW_MS]
@@ -169,7 +204,7 @@ class AlwaysSpeech:
         self.windows: list[bytes] = []
         self.resets = 0
 
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         self.windows.append(window)
         return True
 
@@ -207,7 +242,7 @@ def test_segmenter_feeds_exact_windows_and_forgets_the_remainder_on_flush() -> N
 
 
 class EnergyVad:
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         return window[:4] != b"\0\0\0\0"
 
     def reset(self) -> None:
@@ -254,7 +289,7 @@ class SpyVad:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def classify(self, window: bytes) -> bool:
+    def classify(self, window: bytes, threshold: float) -> bool:
         self.calls.append("classify")
         return True
 
@@ -278,7 +313,7 @@ def test_review05_finding_14_reset_drops_the_remainder_of_a_partial_window() -> 
     windows: list[bytes] = []
 
     class Recording(SpyVad):
-        def classify(self, window: bytes) -> bool:
+        def classify(self, window: bytes, threshold: float) -> bool:
             windows.append(window)
             return True
 
@@ -299,3 +334,26 @@ def test_review05_finding_13_minimum_speech_boundary_on_a_fresh_assembler(
         assembler.push(SPEECH, True)
 
     assert len(assembler.flush()) == count
+
+
+class ThresholdSpy:
+    def __init__(self) -> None:
+        self.thresholds: list[float] = []
+
+    def classify(self, window: bytes, threshold: float) -> bool:
+        self.thresholds.append(threshold)
+        return False
+
+    def reset(self) -> None:
+        return None
+
+
+def test_segmenter_forwards_the_threshold_to_every_window() -> None:
+    vad = ThresholdSpy()
+    segmenter = VadSegmenter(vad)
+
+    segmenter.feed(SILENCE * 2, 0.8)
+    segmenter.feed(SILENCE)
+
+    assert vad.thresholds == [0.8, 0.8, 0.5]
+    assert segmenter.speech_ms == 0

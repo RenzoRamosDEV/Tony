@@ -17,7 +17,7 @@ from tony.core.channels.bootstrap import RuntimeOptions, build_chat_runtime
 from tony.core.channels.ports import AssistantReply, ChannelMessage
 from tony.core.config import ConfigError, VoiceSettings, load_settings
 from tony.core.runner import EventSink
-from tony.core.voice.aliases import parse_alias
+from tony.core.voice.aliases import alias_problem
 from tony.core.voice.engines import EngineRegistry
 from tony.core.voice.executor import VoiceExecutor
 from tony.core.voice.pipeline import SpeechPipeline
@@ -87,8 +87,10 @@ def _load(config: Path) -> tuple[EngineRegistry, VoiceSettings]:
         typer.echo(f"Configuración inválida en {config}: {exc}", err=True)
         raise typer.Exit(2) from None
     try:
-        parse_alias(settings.voice.stt)
-        parse_alias(settings.voice.tts)
+        for key, alias in (("voice.stt", settings.voice.stt), ("voice.tts", settings.voice.tts)):
+            problem = alias_problem(key, alias)
+            if problem is not None:
+                raise VoiceConfigError(problem)
         return registry_factory(settings.voice), settings.voice
     except ImportError:
         typer.echo(EXTRA_MISSING, err=True)

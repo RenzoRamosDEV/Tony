@@ -20,6 +20,7 @@ from tony.core.config import VoiceSettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
 from tony.core.runner import EventSink, TaskRequest, TaskResult
+from tony.core.voice.aliases import VoiceAlias
 from tony.core.voice.engines import EngineRegistry, VoiceAvailability
 from tony.core.voice.ports import Tts
 
@@ -35,7 +36,7 @@ class FakeVoice:
         vad: FakeVad,
         stt: FakeStt,
         tts: FakeTts | None = None,
-        tts_factory: Callable[[str], Tts] | None = None,
+        tts_factory: Callable[[VoiceAlias, int], Tts] | None = None,
         settings: VoiceSettings | None = None,
     ) -> None:
         self.vad, self.stt, self.tts = vad, stt, tts
@@ -43,8 +44,8 @@ class FakeVoice:
         self.registry = EngineRegistry(
             self.settings,
             vad_factory=lambda: vad,
-            stt_factory=lambda model: stt,
-            tts_factory=tts_factory or (lambda voice_name: tts),
+            stt_factory=lambda alias, threads: stt,
+            tts_factory=tts_factory or (lambda alias, threads: tts),
         )
         self.availability = VoiceAvailability(True, None, self.settings.stt, self.settings.tts)
 

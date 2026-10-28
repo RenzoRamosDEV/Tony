@@ -30,8 +30,8 @@ class Registries:
         return EngineRegistry(
             settings,
             vad_factory=FakeVad,
-            stt_factory=lambda model: self.stt,
-            tts_factory=lambda voice: self.tts,
+            stt_factory=lambda alias, threads: self.stt,
+            tts_factory=lambda alias, threads: self.tts,
         )
 
 

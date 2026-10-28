@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from tony.core.voice.ports import FLOAT32_BYTES, VAD_WINDOW_SAMPLES, Utterance, Vad
+from tony.core.voice.ports import (
+    FLOAT32_BYTES,
+    SPEECH_THRESHOLD,
+    VAD_WINDOW_SAMPLES,
+    Utterance,
+    Vad,
+)
 
 WINDOW_MS = 32
-END_SILENCE_MS = 700
+END_SILENCE_MS = 500
 MIN_SPEECH_MS = 300
 MAX_UTTERANCE_MS = 30_000
 WINDOW_BYTES = VAD_WINDOW_SAMPLES * FLOAT32_BYTES
@@ -36,6 +42,11 @@ class UtteranceAssembler:
     def pending_ms(self) -> int:
         return len(self._windows) * self._window_ms
 
+    @property
+    def speech_ms(self) -> int:
+        """Speech accumulated by the open utterance."""
+        return self._speech_windows * self._window_ms
+
     def push(self, window: bytes, is_speech: bool) -> list[Utterance]:
         if not self._windows and not is_speech:
             return []
@@ -63,7 +74,7 @@ class UtteranceAssembler:
 
     def _close(self) -> list[Utterance]:
         speech = self._windows[: self._last_speech_index + 1]
-        speech_ms = self._speech_windows * self._window_ms
+        speech_ms = self.speech_ms
         self.reset()
         if speech_ms < self._min_speech_ms:
             return []
@@ -78,14 +89,18 @@ class VadSegmenter:
         self._assembler = assembler or UtteranceAssembler()
         self._remainder = b""
 
-    def feed(self, pcm: bytes) -> list[Utterance]:
+    @property
+    def speech_ms(self) -> int:
+        return self._assembler.speech_ms
+
+    def feed(self, pcm: bytes, threshold: float = SPEECH_THRESHOLD) -> list[Utterance]:
         data = self._remainder + pcm
         utterances: list[Utterance] = []
         offset = 0
         while offset + WINDOW_BYTES <= len(data):
             window = data[offset : offset + WINDOW_BYTES]
             offset += WINDOW_BYTES
-            found = self._assembler.push(window, self._vad.classify(window))
+            found = self._assembler.push(window, self._vad.classify(window, threshold))
             if found:
                 self._vad.reset()
                 utterances += found
