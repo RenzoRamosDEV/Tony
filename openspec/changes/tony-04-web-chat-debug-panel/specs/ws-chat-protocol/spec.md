@@ -20,6 +20,18 @@ Todo mensaje en `/ws/chat` SHALL ser un objeto JSON `{v: 1, type, seq, conversat
 ### Requirement: Tipos de mensaje del cliente
 El servidor SHALL aceptar exactamente los tipos `hello`, `user.text`, `confirm`, `cancel` y `set_mode`; los tipos reservados `audio.start`, `audio.chunk` y `audio.end` SHALL responder `error {code: "not_implemented"}`; cualquier otro tipo SHALL responder `error {code: "unknown_type"}`. Cualquier mensaje distinto de `hello` antes de un `hello` aceptado SHALL responder `error {code: "hello_required"}`.
 
+### Requirement: Validación estricta del payload
+El servidor SHALL validar el `payload` de cada tipo antes de procesarlo y responder `error {code: "bad_payload", detail}` sin cerrar la conexión cuando no cumpla su forma: `hello {conversation_id: string | null, last_seq?: entero ≥ 0}`, `user.text {text: string, client_id?: string}`, `confirm {confirmation_id: string, approved: boolean JSON, task_id?: string}`, `cancel {task_id: string}` y `set_mode {reply_mode: string}`. Los booleanos y enteros SHALL ser estrictos: `"false"`, `1` o `1.5` no se convierten. Los campos desconocidos se ignoran.
+
+#### Scenario: Aprobación como cadena
+- **GIVEN** una confirmación pendiente `a3f`
+- **WHEN** el cliente envía `confirm {confirmation_id: "a3f", approved: "false"}`
+- **THEN** recibe `error {code: "bad_payload"}` y la confirmación sigue pendiente
+
+#### Scenario: last_seq inválido
+- **WHEN** el cliente envía `hello {conversation_id: null, last_seq: "abc"}` o `last_seq: -1`
+- **THEN** recibe `error {code: "bad_payload"}` y la conexión sigue abierta
+
 #### Scenario: Tipo reservado de audio
 - **GIVEN** un `hello` aceptado
 - **WHEN** el cliente envía `audio.start`
@@ -34,11 +46,16 @@ El servidor SHALL aceptar exactamente los tipos `hello`, `user.text`, `confirm`,
 - **THEN** recibe `error {code: "unknown_type"}`
 
 ### Requirement: Apertura con `hello`
-`hello {conversation_id | null, last_seq?}` SHALL abrir la conversación indicada o crear una nueva en el canal `web` si es `null`, y responder `hello.ok {conversation_id, reply_mode, last_seq, state}` donde `reply_mode` es el modo persistido o el de configuración y `state` describe el turno en curso, las tareas activas y la confirmación pendiente. Un `conversation_id` inexistente SHALL responder `error {code: "unknown_conversation"}`.
+`hello {conversation_id | null, last_seq?}` SHALL abrir la conversación indicada o crear una nueva en el canal `web` si es `null`, y responder `hello.ok {conversation_id, stream_id, reply_mode, last_seq, state}` donde `stream_id` identifica la instancia del flujo de `seq` en el servidor (estable entre reconexiones, distinto tras un reinicio o un cambio de conversación), `reply_mode` es el modo persistido o el de configuración y `state` describe el turno en curso, las tareas activas y la confirmación pendiente. Un `conversation_id` inexistente SHALL responder `error {code: "unknown_conversation"}`. El `hello.ok` SHALL enviarse con la cola del socket ya conectada, de modo que ningún evento publicado durante su envío se pierda. El contenido de `hello.ok.state` SHALL pasar por la misma redacción de secretos que el resto de sobres.
 
 #### Scenario: Conversación nueva
 - **WHEN** el cliente envía `hello {conversation_id: null}`
-- **THEN** recibe `hello.ok` con un `conversation_id` nuevo, `reply_mode`, `last_seq: 0` y `state: {turn_in_progress: false, active_tasks: [], pending_confirmation: null}`
+- **THEN** recibe `hello.ok` con un `conversation_id` nuevo, `stream_id`, `reply_mode`, `last_seq: 0` y `state: {turn_in_progress: false, active_tasks: [], pending_confirmation: null}`
+
+#### Scenario: stream_id tras un reinicio
+- **GIVEN** un cliente con `stream_id: "s-1"` y `last_seq: 40`
+- **WHEN** el servidor se reinicia y el cliente reconecta
+- **THEN** recibe `hello.ok` con un `stream_id` distinto; el cliente vuelve a pedir el historial y reinicia su cursor con el `last_seq` recibido
 
 #### Scenario: Conversación existente
 - **GIVEN** la conversación `c-1` con mensajes previos
@@ -50,7 +67,24 @@ El servidor SHALL aceptar exactamente los tipos `hello`, `user.text`, `confirm`,
 - **THEN** recibe `error {code: "unknown_conversation"}` y puede enviar otro `hello`
 
 ### Requirement: Un solo socket activo por conversación
-Mientras una conversación tenga un socket aceptado, un segundo `hello` para la misma conversación desde otro socket SHALL responder `error {code: "conversation_busy", detail}` y cerrar ese segundo socket con código `1008`; al cerrarse el primero, la conversación SHALL quedar libre para un nuevo `hello`.
+Mientras una conversación tenga un socket aceptado, un segundo `hello` para la misma conversación desde otro socket SHALL responder `error {code: "conversation_busy", detail}` y cerrar ese segundo socket con código `1008`; al cerrarse el primero, la conversación SHALL quedar libre para un nuevo `hello`. La transición completa de apertura, cambio y adjunción SHALL ser atómica frente a otros `hello` concurrentes: de dos `hello` simultáneos exactamente uno recibe `hello.ok`.
+
+#### Scenario: Dos hello simultáneos
+- **WHEN** los sockets A y B envían `hello` a la vez mientras el `hello.ok` de A aún se está enviando
+- **THEN** solo A recibe `hello.ok`, B recibe `error {code: "conversation_busy"}` y solo A recibe los eventos siguientes
+
+### Requirement: Nueva conversación desde el socket propietario
+El socket propietario de una conversación SHALL poder enviar `hello {conversation_id: null}` o `hello {conversation_id: otra}` mientras no haya turno ni tareas activas: el servidor cierra la sesión actual, abre la nueva y responde `hello.ok` con el nuevo `conversation_id`, `stream_id` y `last_seq: 0`. Con un turno o tareas en curso SHALL responder `error {code: "conversation_busy"}` sin alterar la conversación ni el socket. El cliente SHALL reiniciar su cursor y su estado (mensajes, tareas, confirmación) al recibir un `hello.ok` con un `conversation_id` distinto del actual.
+
+#### Scenario: Nueva conversación en reposo
+- **GIVEN** el socket A con un turno terminado en `c-1`
+- **WHEN** A envía `hello {conversation_id: null}`
+- **THEN** recibe `hello.ok {conversation_id: "c-2", last_seq: 0}` con un `stream_id` nuevo y los eventos siguientes llegan con `seq` desde 1
+
+#### Scenario: Nueva conversación con turno en curso
+- **GIVEN** el socket A con un turno en curso en `c-1`
+- **WHEN** A envía `hello {conversation_id: null}`
+- **THEN** recibe `error {code: "conversation_busy"}` y sigue recibiendo los eventos de `c-1`
 
 #### Scenario: Segundo socket rechazado
 - **GIVEN** el socket A con `hello {conversation_id: "c-1"}` aceptado
@@ -63,7 +97,11 @@ Mientras una conversación tenga un socket aceptado, un segundo `hello` para la 
 - **THEN** B recibe `hello.ok`
 
 ### Requirement: Mensaje de usuario y aceptación
-`user.text {text}` SHALL crear el mensaje de usuario (respetando los prefijos `/v`, `/t`, `/b`), responder `user.accepted {message_id, effective_mode}` antes de iniciar el turno y terminar el turno con `assistant.final {display_text, speech_text, message_id}`. Un `text` vacío SHALL responder `error {code: "empty_text"}`; un `user.text` mientras hay un turno en curso SHALL responder `error {code: "turn_in_progress"}` sin encolarlo.
+`user.text {text, client_id?}` SHALL crear el mensaje de usuario (respetando los prefijos `/v`, `/t`, `/b`), responder `user.accepted {message_id, effective_mode, client_id}` antes de iniciar el turno (con el `client_id` recibido o `null`) y terminar el turno con `assistant.final {display_text, speech_text, message_id}`. Un `text` vacío SHALL responder `error {code: "empty_text"}`; un `user.text` mientras hay un turno en curso SHALL responder `error {code: "turn_in_progress"}` sin encolarlo. El cliente SHALL bloquear nuevos envíos desde que envía `user.text` hasta recibir el `user.accepted` con su `client_id` o un `error`, y SHALL conservar el borrador si no pudo transmitirlo.
+
+#### Scenario: Acuse correlacionado
+- **WHEN** el cliente envía `user.text {text: "hola", client_id: "r-1"}`
+- **THEN** recibe `user.accepted {client_id: "r-1"}` y solo entonces vuelve a aceptar un envío
 
 #### Scenario: Turno completo
 - **GIVEN** un `hello` aceptado con `reply_mode: "text"`
@@ -171,7 +209,7 @@ Al terminar cada tarea o subtarea el servidor SHALL enviar `usage {task_id, inpu
 - **THEN** el cliente recibe `usage {task_id: null, input_tokens: 1200, output_tokens: 80, alert: false}` antes de `assistant.final`
 
 ### Requirement: `seq` monótono y reenvío en la reconexión
-El servidor SHALL numerar cada mensaje enviado con un `seq` creciente por conversación y conservar al menos los últimos 500 mensajes. Un `hello {conversation_id, last_seq}` SHALL reenviar, tras `hello.ok`, solo los mensajes con `seq > last_seq`; si `last_seq` es anterior al primero conservado, `hello.ok` SHALL incluir `resync: true` y no reenviar nada. El cliente SHALL descartar todo mensaje con `seq` menor o igual al último visto.
+El servidor SHALL numerar cada mensaje enviado con un `seq` creciente por conversación y conservar al menos los últimos 500 mensajes; la asignación de `seq`, la inserción en el búfer y el encolado SHALL ser atómicos, de modo que el socket reciba los `seq` en orden incluso con productores concurrentes bajo backpressure. Un `hello {conversation_id, last_seq}` SHALL reenviar, tras `hello.ok`, solo los mensajes con `seq > last_seq`; si `last_seq` es anterior al primero conservado, `hello.ok` SHALL incluir `resync: true` y no reenviar nada. El cliente SHALL descartar todo mensaje con `seq` menor o igual al último visto, SHALL tratar un `hello.ok.last_seq` menor que el suyo o un `stream_id` distinto como invalidación (reinicia el cursor y vuelve a cargar el historial) y SHALL reconstruir el estado activo (raíz activa y confirmación) exclusivamente desde `hello.ok.state`; los mensajes reenviados con `seq ≤ hello.ok.last_seq` no alteran ese estado activo ni el plazo de la confirmación.
 
 #### Scenario: Reconexión sin texto duplicado
 - **GIVEN** una respuesta en streaming con `seq` 10..25 enviada y el cliente desconectado tras recibir hasta 18
