@@ -105,6 +105,7 @@ async def test_cancelling_the_supervision_cancels_the_turn_too() -> None:
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
+            await settle()  # the supervision must wait for this cleanup before returning
             turn_cancelled.set()
             raise
 

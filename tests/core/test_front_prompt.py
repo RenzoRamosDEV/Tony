@@ -67,7 +67,9 @@ def test_turn_preamble_has_datetime_with_zone_mode_style_and_preferences() -> No
 def test_turn_preamble_without_preferences_says_so() -> None:
     preamble = build_turn_preamble(datetime.now(UTC), EffectiveMode("text", "yaml"), SPEC.style, "")
 
-    assert "(ninguna)" in preamble
+    assert (
+        f"Preferencias del usuario ({UNTRUSTED_DATA_NOTE}):\n(ninguna)\n{PREAMBLE_END}" in preamble
+    )
 
 
 def test_format_moment_is_shared_with_the_worker_prompt() -> None:

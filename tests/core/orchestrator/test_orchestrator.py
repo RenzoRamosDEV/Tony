@@ -10,7 +10,7 @@ import pytest
 from tests.fakes.clock import FakeClock
 from tests.fakes.worker_factory import FakeWorkerFactory
 from tony.core.config import Limits
-from tony.core.mcp import ToolCallOutcome
+from tony.core.mcp import ToolCallOutcome, ToolCatalog
 from tony.core.orchestrator.errors import OrchestratorError
 from tony.core.orchestrator.orchestrator import CLEANUP_BUDGET_S, Orchestrator
 from tony.core.orchestrator.task import (
@@ -78,6 +78,9 @@ async def test_submit_returns_a_queued_task_that_starts_and_completes(h: Harness
     ]
     assert h.factory.logs[task.id].types()[-1] == TASK_RESULT
     assert h.factory.logs[task.id].closed is True
+    spec, request, catalog = h.factory.runners[task.id].calls[0]
+    assert (spec.name, request.objetivo) == ("viernes", "a")
+    assert isinstance(catalog, ToolCatalog)
 
 
 async def test_one_root_runs_at_a_time_in_fifo_order(h: Harness) -> None:
