@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import signal
 import sys
+from collections.abc import Awaitable, Callable
 from typing import TextIO
 
 from tony.apps.cli.stdin_dispatcher import StdinDispatcher
@@ -29,8 +30,10 @@ class ChatRepl:
         out: TextIO | None = None,
         stdout: TextIO | None = None,
         close_timeout_s: float = CLOSE_TIMEOUT_S,
+        before_close: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._session = session
+        self._before_close = before_close
         self._lines = lines
         self._memory = memory
         self._settings = settings
@@ -126,6 +129,8 @@ class ChatRepl:
 
     async def _shutdown(self) -> None:
         with contextlib.suppress(TimeoutError, asyncio.CancelledError):
+            if self._before_close is not None:
+                await self._before_close()
             await asyncio.wait_for(self._session.close(), self._close_timeout_s)
 
     def _print(self, text: str) -> None:

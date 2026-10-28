@@ -174,7 +174,9 @@ async def run_chat(
         await session.start(conversation_id)
         watcher.start()
         stack.push_async_callback(watcher.stop)
-        return await ChatRepl(session, stdin, memory, settings, out, stdout).run()
+        # The watcher stops before the session closes so no reload lands on a closed pool.
+        repl = ChatRepl(session, stdin, memory, settings, out, stdout, before_close=watcher.stop)
+        return await repl.run()
 
 
 async def _front_tools(

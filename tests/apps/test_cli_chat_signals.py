@@ -142,3 +142,31 @@ async def test_cancel_command_typed_during_a_task_cancels_it(tmp_path: Path) -> 
     assert "Tarea cancelada." in out.getvalue()
     stdin.feed("/salir\n")
     assert await asyncio.wait_for(running, 1) == 0
+
+
+async def test_before_close_hook_runs_before_the_session_closes(tmp_path: Path) -> None:
+    h = Harness(tmp_path, [])
+    await h.start()
+    order: list[str] = []
+    original_close = h.session.close
+
+    async def before_close() -> None:
+        order.append("hook")
+
+    async def closing() -> None:
+        order.append("session")
+        await original_close()
+
+    h.session.close = closing  # type: ignore[method-assign]
+    repl = ChatRepl(
+        h.session,
+        StdinDispatcher(FakeStdin(["/salir\n"]), io.StringIO()),
+        h.memory,
+        h.settings,
+        out=io.StringIO(),
+        stdout=io.StringIO(),
+        before_close=before_close,
+    )
+
+    assert await asyncio.wait_for(repl.run(), 1) == 0
+    assert order == ["hook", "session"]
