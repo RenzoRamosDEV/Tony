@@ -26,7 +26,12 @@ class ManagerOwner:
         self._task = asyncio.create_task(self._own(manager, tools, server_filter))
 
     async def manager(self) -> ToolManager:
-        return await self._ready
+        try:
+            return await asyncio.shield(self._ready)
+        except asyncio.CancelledError:
+            # Nobody will use the manager once its only waiter is gone: stop it when started.
+            self._stop.set()
+            raise
 
     async def stop(self) -> None:
         self._stop.set()
@@ -39,8 +44,17 @@ class ManagerOwner:
         try:
             await manager.start(tools, server_filter)
         except BaseException as exc:
-            self._ready.set_exception(exc)
+            self._publish(exc)
+        else:
+            self._publish(manager)
+            await self._stop.wait()
+        finally:
+            await manager.stop()
+
+    def _publish(self, outcome: ToolManager | BaseException) -> None:
+        if self._ready.done():
             return
-        self._ready.set_result(manager)
-        await self._stop.wait()
-        await manager.stop()
+        if isinstance(outcome, BaseException):
+            self._ready.set_exception(outcome)
+        else:
+            self._ready.set_result(outcome)

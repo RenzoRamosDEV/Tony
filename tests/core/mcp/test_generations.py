@@ -161,3 +161,81 @@ async def test_close_all_on_an_empty_pool_is_a_no_op() -> None:
     await pool.close_all()
 
     assert managers.created == [] and pool.current is None
+
+
+# --- serialisation of the first start, swaps and close -----------------------------------------
+
+
+class BlockedFirstStart:
+    """The first manager's start waits on `gate`; later managers start at once."""
+
+    def __init__(self) -> None:
+        self.gate = asyncio.Event()
+        self.created: list[FakeManager] = []
+
+    def factory(self, settings) -> FakeManager:
+        gate = self.gate if not self.created else None
+
+        class Manager(FakeManager):
+            async def start(self, tool_config, server_filter=None) -> None:
+                if gate is not None:
+                    await gate.wait()
+                await super().start(tool_config, server_filter)
+
+        manager = Manager()
+        self.created.append(manager)
+        return manager
+
+
+async def test_late_initial_start_does_not_overwrite_a_swapped_generation() -> None:
+    managers = BlockedFirstStart()
+    pool = McpGenerationPool(managers.factory, SETTINGS, FIRST)
+    first = asyncio.ensure_future(pool.acquire())
+    await asyncio.sleep(0)
+    swapped = asyncio.ensure_future(pool.swap(SECOND))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert not swapped.done()
+
+    managers.gate.set()
+    old, new = await asyncio.wait_for(first, 1), await asyncio.wait_for(swapped, 1)
+
+    assert pool.current is new and new.tool_config == SECOND
+    assert old.tool_config == FIRST and old.retired is True and old.leases == 1
+    assert [m.stopped for m in managers.created] == [False, False]
+    await pool.release(old)
+    assert managers.created[0].stopped is True
+    await pool.close_all()
+    assert [m.stopped for m in managers.created] == [True, True]
+
+
+async def test_close_all_waits_for_a_start_in_flight_and_stops_it() -> None:
+    managers = BlockedFirstStart()
+    pool = McpGenerationPool(managers.factory, SETTINGS, FIRST)
+    first = asyncio.ensure_future(pool.acquire())
+    await asyncio.sleep(0)
+    closing = asyncio.ensure_future(pool.close_all())
+    await asyncio.sleep(0)
+
+    managers.gate.set()
+    await asyncio.wait_for(first, 1)
+    await asyncio.wait_for(closing, 1)
+
+    assert pool.current is None
+    assert managers.created[0].stopped is True
+
+
+async def test_cancelled_acquire_during_start_publishes_nothing_and_stops_the_manager() -> None:
+    managers = BlockedFirstStart()
+    pool = McpGenerationPool(managers.factory, SETTINGS, FIRST)
+    first = asyncio.ensure_future(pool.acquire())
+    await asyncio.sleep(0)
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    managers.gate.set()
+    await asyncio.wait_for(pool.close_all(), 1)
+
+    assert pool.current is None
+    assert managers.created[0].stopped is True
