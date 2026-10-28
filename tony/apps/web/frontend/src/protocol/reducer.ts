@@ -13,6 +13,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** seq of the envelope that created it; 0 for messages loaded from the history. */
+  seq: number;
   effectiveMode?: string;
   streaming?: boolean;
 }
@@ -67,11 +69,15 @@ export interface UsageTotal {
 
 export interface ChatState {
   conversationId: string | null;
+  streamId: string | null;
   replyMode: ReplyMode;
   lastSeq: number;
+  /** last_seq of the latest hello.ok: events at or below it are replays older than its state. */
+  snapshotSeq: number;
   connected: boolean;
   messages: Message[];
   pendingText: string | null;
+  pendingClientId: string | null;
   waitText: string | null;
   turnInProgress: boolean;
   tasks: Record<string, TaskNode>;
@@ -87,7 +93,7 @@ export interface ChatState {
 
 export type Action =
   | { type: "envelope"; envelope: Envelope; now: number }
-  | { type: "sent"; text: string }
+  | { type: "sent"; text: string; clientId: string }
   | { type: "history"; messages: HistoryMessage[] }
   | { type: "tick"; now: number }
   | { type: "connection"; connected: boolean }
@@ -106,11 +112,14 @@ const RESULT_STATUS: Record<string, TaskStatus> = {
 
 export const initialState: ChatState = {
   conversationId: null,
+  streamId: null,
   replyMode: "auto",
   lastSeq: 0,
+  snapshotSeq: 0,
   connected: false,
   messages: [],
   pendingText: null,
+  pendingClientId: null,
   waitText: null,
   turnInProgress: false,
   tasks: {},
@@ -129,19 +138,9 @@ export function reduce(state: ChatState, action: Action): ChatState {
     case "envelope":
       return onEnvelope(state, action.envelope, action.now);
     case "sent":
-      return { ...state, pendingText: action.text, notice: null };
+      return { ...state, pendingText: action.text, pendingClientId: action.clientId, notice: null };
     case "history":
-      return {
-        ...state,
-        resyncRequested: false,
-        waitText: null,
-        messages: action.messages.map((m) => ({
-          id: m.id,
-          role: m.role === "user" ? "user" : "assistant",
-          content: m.content,
-          effectiveMode: m.reply_mode ?? undefined,
-        })),
-      };
+      return { ...state, resyncRequested: false, waitText: null, messages: mergeHistory(state, action.messages) };
     case "tick":
       if (state.confirmation && action.now >= state.confirmation.deadline) {
         return { ...state, confirmation: null, notice: EXPIRED_NOTICE };
@@ -156,6 +155,20 @@ export function reduce(state: ChatState, action: Action): ChatState {
   }
 }
 
+/** Loaded history wins for the ids it contains; messages that arrived after the snapshot survive. */
+function mergeHistory(state: ChatState, history: HistoryMessage[]): Message[] {
+  const loaded: Message[] = history.map((m) => ({
+    id: m.id,
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.content,
+    seq: 0,
+    effectiveMode: m.reply_mode ?? undefined,
+  }));
+  const known = new Set(loaded.map((m) => m.id));
+  const live = state.messages.filter((m) => m.seq > state.snapshotSeq && !known.has(m.id));
+  return [...loaded, ...live];
+}
+
 function onEnvelope(state: ChatState, envelope: Envelope, now: number): ChatState {
   if (envelope.type === "hello.ok") {
     return onHello(state, envelope.payload as unknown as HelloOkPayload, now);
@@ -167,7 +180,12 @@ function onEnvelope(state: ChatState, envelope: Envelope, now: number): ChatStat
   const payload = envelope.payload;
   switch (envelope.type) {
     case "error":
-      return { ...next, notice: String(payload.detail ?? payload.code ?? "error") };
+      return {
+        ...next,
+        notice: String(payload.detail ?? payload.code ?? "error"),
+        pendingText: null,
+        pendingClientId: null,
+      };
     case "user.accepted":
       return onUserAccepted(next, envelope);
     case "assistant.delta":
@@ -188,9 +206,13 @@ function onEnvelope(state: ChatState, envelope: Envelope, now: number): ChatStat
 }
 
 function onHello(state: ChatState, hello: HelloOkPayload, now: number): ChatState {
+  const base = isAnotherConversation(state, hello) ? resetForConversation(state) : state;
+  const streamId = hello.stream_id ?? null;
+  const restarted = base.streamId !== null && streamId !== null && streamId !== base.streamId;
+  const resync = hello.resync === true || restarted || hello.last_seq < base.lastSeq;
   const pending = hello.state.pending_confirmation;
-  let tasks = state.tasks;
-  let activeRootId = state.activeRootId;
+  let tasks = base.tasks;
+  let activeRootId: string | null = null;
   for (const task of hello.state.active_tasks) {
     tasks = upsertTask(tasks, task.task_id, task.parent_id, { status: task.status });
     if (task.parent_id === null) {
@@ -198,17 +220,27 @@ function onHello(state: ChatState, hello: HelloOkPayload, now: number): ChatStat
     }
   }
   return {
-    ...state,
+    ...base,
     conversationId: hello.conversation_id,
+    streamId,
     replyMode: hello.reply_mode,
-    lastSeq: hello.resync || hello.last_seq < state.lastSeq ? hello.last_seq : state.lastSeq,
+    lastSeq: resync ? hello.last_seq : base.lastSeq,
+    snapshotSeq: hello.last_seq,
     connected: true,
     turnInProgress: hello.state.turn_in_progress,
     tasks,
     activeRootId,
-    confirmation: pending ? toConfirmation(pending, "front", now) : state.confirmation,
-    resyncRequested: hello.resync === true,
+    confirmation: pending ? toConfirmation(pending, "front", now) : null,
+    resyncRequested: resync,
   };
+}
+
+function isAnotherConversation(state: ChatState, hello: HelloOkPayload): boolean {
+  return state.conversationId !== null && hello.conversation_id !== state.conversationId;
+}
+
+function resetForConversation(state: ChatState): ChatState {
+  return { ...initialState, connected: state.connected, replyMode: state.replyMode, reloads: state.reloads };
 }
 
 function toConfirmation(
@@ -226,13 +258,24 @@ function toConfirmation(
 }
 
 function onUserAccepted(state: ChatState, envelope: Envelope): ChatState {
+  const clientId = envelope.payload.client_id;
+  if (clientId != null && clientId !== state.pendingClientId) {
+    return { ...state, turnInProgress: true };
+  }
   const message: Message = {
     id: String(envelope.payload.message_id ?? envelope.message_id),
     role: "user",
     content: state.pendingText ?? "",
+    seq: envelope.seq,
     effectiveMode: String(envelope.payload.effective_mode),
   };
-  return { ...state, messages: [...state.messages, message], pendingText: null, turnInProgress: true };
+  return {
+    ...state,
+    messages: [...state.messages, message],
+    pendingText: null,
+    pendingClientId: null,
+    turnInProgress: true,
+  };
 }
 
 function onDelta(state: ChatState, envelope: Envelope): ChatState {
@@ -241,7 +284,7 @@ function onDelta(state: ChatState, envelope: Envelope): ChatState {
   const existing = state.messages.find((m) => m.id === id);
   const messages = existing
     ? state.messages.map((m) => (m.id === id ? { ...m, content: m.content + text } : m))
-    : [...state.messages, { id, role: "assistant" as const, content: text, streaming: true }];
+    : [...state.messages, { id, role: "assistant" as const, content: text, seq: envelope.seq, streaming: true }];
   return { ...state, messages, turnInProgress: true };
 }
 
@@ -249,9 +292,9 @@ function onFinal(state: ChatState, envelope: Envelope): ChatState {
   const id = String(envelope.payload.message_id ?? envelope.message_id);
   const content = String(envelope.payload.display_text ?? "");
   const exists = state.messages.some((m) => m.id === id);
-  const final: Message = { id, role: "assistant", content, streaming: false };
+  const final: Message = { id, role: "assistant", content, seq: envelope.seq, streaming: false };
   const messages = exists
-    ? state.messages.map((m) => (m.id === id ? final : m))
+    ? state.messages.map((m) => (m.id === id ? { ...final, seq: m.seq } : m))
     : [...state.messages, final];
   return { ...state, messages, waitText: null, turnInProgress: false };
 }
@@ -287,6 +330,12 @@ function addReload(state: ChatState, agent: string, ok: boolean, detail: string)
 }
 
 function onTaskEvent(state: ChatState, envelope: Envelope, taskId: string, now: number): ChatState {
+  const next = applyTaskEvent(state, envelope, taskId, now);
+  const replayed = envelope.seq > 0 && envelope.seq <= state.snapshotSeq;
+  return replayed ? { ...next, activeRootId: state.activeRootId, confirmation: state.confirmation } : next;
+}
+
+function applyTaskEvent(state: ChatState, envelope: Envelope, taskId: string, now: number): ChatState {
   const payload = envelope.payload;
   const parentId = typeof payload.parent_id === "string" ? payload.parent_id : null;
   let tasks = upsertTask(state.tasks, taskId, parentId, {});

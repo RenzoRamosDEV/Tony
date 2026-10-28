@@ -7,7 +7,8 @@ export const ANSWERING = "Jarvis está respondiendo…";
 
 interface Props {
   disabled: boolean;
-  onSend: (text: string) => void;
+  /** Returning false means the text was not sent: the draft stays in the field. */
+  onSend: (text: string) => boolean | void;
 }
 
 export function Composer({ disabled, onSend }: Props) {
@@ -18,8 +19,9 @@ export function Composer({ disabled, onSend }: Props) {
     if (!trimmed || disabled) {
       return;
     }
-    onSend(text.trim());
-    setText("");
+    if (onSend(trimmed) !== false) {
+      setText("");
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {

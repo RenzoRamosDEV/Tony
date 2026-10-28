@@ -168,3 +168,23 @@ describe("ChatSocket", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 });
+
+describe("ChatSocket (review of change 04)", () => {
+  it("finding 14: send reports whether the frame was transmitted", () => {
+    const socket = new ChatSocket({
+      url: "ws://x/ws/chat",
+      onEnvelope: () => undefined,
+      onStatus: () => undefined,
+      conversationId: () => null,
+      lastSeq: () => 0,
+      factory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    socket.connect();
+    const ws = FakeWebSocket.instances.at(-1)!;
+
+    expect(socket.send({ type: "user.text", payload: { text: "antes" } })).toBe(false);
+    ws.open();
+    expect(socket.send({ type: "user.text", payload: { text: "ahora" } })).toBe(true);
+    socket.close();
+  });
+});

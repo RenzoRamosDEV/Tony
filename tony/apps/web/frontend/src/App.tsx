@@ -14,6 +14,13 @@ import type { Envelope, ReplyMode } from "./protocol/types";
 
 export const CONVERSATION_KEY = "tony.conversation_id";
 
+let requestCounter = 0;
+
+function newClientId(): string {
+  requestCounter += 1;
+  return `${Date.now().toString(36)}-${requestCounter.toString(36)}`;
+}
+
 interface Props {
   socketFactory?: (url: string) => WebSocket;
   fetchImpl?: typeof fetch;
@@ -103,9 +110,13 @@ export function App({ socketFactory, fetchImpl, storage }: Props) {
     return () => clearInterval(timer);
   }, []);
 
-  const send = useCallback((text: string) => {
-    dispatch({ type: "sent", text });
-    socketRef.current?.send({ type: "user.text", payload: { text } });
+  const send = useCallback((text: string): boolean => {
+    const clientId = newClientId();
+    const sent = socketRef.current?.send({ type: "user.text", payload: { text, client_id: clientId } }) ?? false;
+    if (sent) {
+      dispatch({ type: "sent", text, clientId });
+    }
+    return sent;
   }, []);
 
   const answer = useCallback((confirmationId: string, approved: boolean) => {
@@ -123,7 +134,7 @@ export function App({ socketFactory, fetchImpl, storage }: Props) {
   const dismiss = useCallback(() => dispatch({ type: "dismiss_notice" }), []);
   const newConversation = useCallback(() => socketRef.current?.newConversation(), []);
 
-  const inputDisabled = !state.connected || !historyReady || state.turnInProgress;
+  const inputDisabled = !state.connected || !historyReady || state.turnInProgress || state.pendingText !== null;
 
   return (
     <div className="layout">

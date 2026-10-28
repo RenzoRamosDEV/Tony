@@ -78,29 +78,29 @@ describe("seq handling", () => {
 describe("messages", () => {
   it("adds the sent text as a user message when it is accepted", () => {
     let state = fresh();
-    state = reduce(state, { type: "sent", text: "hola" });
+    state = reduce(state, { type: "sent", text: "hola", clientId: "r-1" });
     state = apply(state, env("user.accepted", { message_id: "u1", effective_mode: "voice" }, { message_id: "u1" }));
 
-    expect(state.messages).toEqual([{ id: "u1", role: "user", content: "hola", effectiveMode: "voice" }]);
+    expect(state.messages).toEqual([{ id: "u1", role: "user", content: "hola", effectiveMode: "voice", seq: 1 }]);
     expect(state.turnInProgress).toBe(true);
   });
 
   it("concatenates deltas and replaces them with the final text", () => {
     let state = fresh();
     state = apply(state, env("assistant.delta", { text: "Hola" }, { message_id: "a1" }));
-    expect(state.messages).toEqual([{ id: "a1", role: "assistant", content: "Hola", streaming: true }]);
+    expect(state.messages).toEqual([{ id: "a1", role: "assistant", content: "Hola", seq: 1, streaming: true }]);
     state = apply(state, env("assistant.delta", { text: ", Renzo" }, { message_id: "a1" }));
     expect(state.messages[0]?.content).toBe("Hola, Renzo");
 
     state = apply(state, env("assistant.final", { display_text: "Hola, Renzo.", speech_text: null, message_id: "a1" }, { message_id: "a1" }));
 
-    expect(state.messages).toEqual([{ id: "a1", role: "assistant", content: "Hola, Renzo.", streaming: false }]);
+    expect(state.messages).toEqual([{ id: "a1", role: "assistant", content: "Hola, Renzo.", seq: 1, streaming: false }]);
     expect(state.turnInProgress).toBe(false);
   });
 
   it("final without deltas appends the assistant message", () => {
     let state = fresh();
-    state = reduce(state, { type: "sent", text: "hola" });
+    state = reduce(state, { type: "sent", text: "hola", clientId: "r-1" });
     state = apply(state, env("user.accepted", { message_id: "u1", effective_mode: "text" }, { message_id: "u1" }));
     state = apply(state, env("assistant.final", { display_text: "Hola.", speech_text: null, message_id: "a1" }, { message_id: "a1" }));
 
@@ -117,15 +117,16 @@ describe("messages", () => {
     expect(state.waitText).toBeNull();
   });
 
-  it("replaces the messages with the loaded history and drops streaming text", () => {
+  it("loads the history first and keeps the streaming text received after the snapshot", () => {
     let state = fresh();
     state = apply(state, env("assistant.delta", { text: "parcial" }, { message_id: "a9" }));
 
     state = reduce(state, { type: "history", messages: [{ id: "m1", role: "user", content: "antes", reply_mode: null, created_at: "t" }, { id: "m2", role: "assistant", content: "Hola.", reply_mode: "text", created_at: "t" }] });
 
     expect(state.messages).toEqual([
-      { id: "m1", role: "user", content: "antes", effectiveMode: undefined },
-      { id: "m2", role: "assistant", content: "Hola.", effectiveMode: "text" },
+      { id: "m1", role: "user", content: "antes", effectiveMode: undefined, seq: 0 },
+      { id: "m2", role: "assistant", content: "Hola.", effectiveMode: "text", seq: 0 },
+      { id: "a9", role: "assistant", content: "parcial", seq: 1, streaming: true },
     ]);
   });
 });
@@ -309,5 +310,180 @@ describe("config, errors and resync", () => {
     expect(state.conversationId).toBe("c-1");
     expect(state.replyMode).toBe("auto");
     expect(reduce(state, { type: "set_reply_mode", mode: "text" }).replyMode).toBe("text");
+  });
+});
+
+describe("review of change 04", () => {
+  const snapshot = (overrides: Record<string, unknown> = {}) =>
+    oob("hello.ok", {
+      conversation_id: "c-1",
+      stream_id: "s-1",
+      reply_mode: "auto",
+      last_seq: 0,
+      state: { turn_in_progress: false, active_tasks: [], pending_confirmation: null },
+      ...overrides,
+    });
+
+  it("finding 9: a hello.ok for another conversation resets the client state", () => {
+    let state = fresh();
+    state = apply(state, env("assistant.final", { display_text: "Hola.", speech_text: null, message_id: "a1" }, { message_id: "a1" }));
+    state = apply(state, env("task.queued", { objetivo: "x" }, { task_id: "t-9" }));
+    state = reduce(state, { type: "sent", text: "pendiente", clientId: "r-1" });
+
+    state = apply(state, snapshot({ conversation_id: "c-2", stream_id: "s-2" }));
+
+    expect(state.conversationId).toBe("c-2");
+    expect(state.lastSeq).toBe(0);
+    expect(state.messages).toEqual([]);
+    expect(state.tasks).toEqual({});
+    expect(state.activeRootId).toBeNull();
+    expect(state.pendingText).toBeNull();
+    expect(state.connected).toBe(true);
+    seq = 0;
+    state = apply(state, env("assistant.wait", { text: "nueva" }));
+    expect(state.waitText).toBe("nueva");
+  });
+
+  it("finding 10: an empty snapshot clears the active root and confirmation but keeps history", () => {
+    let state = fresh();
+    state = apply(state, env("task.queued", { objetivo: "x" }, { task_id: "t-9" }));
+    state = apply(state, env("task.needs_confirmation", { confirmation_id: "a3f", tool: "fs.move", args: {}, expires_in_s: 60 }, { task_id: "t-9" }));
+    expect(state.activeRootId).toBe("t-9");
+
+    state = apply(state, snapshot({ last_seq: 900, resync: true }));
+
+    expect(state.activeRootId).toBeNull();
+    expect(state.confirmation).toBeNull();
+    expect(state.tasks["t-9"]).toBeDefined();
+  });
+
+  it("finding 11: a last_seq regression requests a resync and restarts the counter", () => {
+    let state = fresh();
+    state = apply(state, env("assistant.wait", { text: "a" }), env("assistant.wait", { text: "b" }));
+
+    state = apply(state, snapshot({ last_seq: 0 }));
+
+    expect(state.resyncRequested).toBe(true);
+    expect(state.lastSeq).toBe(0);
+  });
+
+  it("finding 11: a new stream_id requests a resync even when last_seq is higher", () => {
+    seq = 0;
+    let state = apply(initialState, snapshot({ stream_id: "s-1" }));
+    state = apply(state, env("assistant.wait", { text: "a" }));
+
+    state = apply(state, snapshot({ stream_id: "s-2", last_seq: 5 }));
+
+    expect(state.resyncRequested).toBe(true);
+    expect(state.lastSeq).toBe(5);
+  });
+
+  it("finding 11: the same stream_id without regression keeps the counter and needs no resync", () => {
+    seq = 0;
+    let state = apply(initialState, snapshot({ stream_id: "s-1" }));
+    state = apply(state, env("assistant.wait", { text: "a" }));
+
+    state = apply(state, snapshot({ stream_id: "s-1", last_seq: 5 }));
+
+    expect(state.resyncRequested).toBe(false);
+    expect(state.lastSeq).toBe(1);
+  });
+
+  it("finding 12: a late history keeps the messages received after the snapshot", () => {
+    let state = fresh();
+    state = apply(state, env("assistant.final", { display_text: "Nuevo.", speech_text: null, message_id: "a2" }, { message_id: "a2" }));
+
+    state = reduce(state, { type: "history", messages: [{ id: "m1", role: "user", content: "antes", reply_mode: null, created_at: "t" }] });
+
+    expect(state.messages.map((m) => [m.id, m.content])).toEqual([
+      ["m1", "antes"],
+      ["a2", "Nuevo."],
+    ]);
+  });
+
+  it("finding 12: history replaces messages that it already contains and drops replayed ones", () => {
+    let state = apply(initialState, snapshot({ last_seq: 2 }));
+    seq = 0;
+    state = apply(state, env("assistant.final", { display_text: "viejo", speech_text: null, message_id: "a1" }, { message_id: "a1" }));
+    state = apply(state, env("assistant.delta", { text: "parcial" }, { message_id: "a9" }));
+
+    state = reduce(state, { type: "history", messages: [{ id: "a1", role: "assistant", content: "viejo", reply_mode: "text", created_at: "t" }] });
+
+    expect(state.messages.map((m) => m.id)).toEqual(["a1"]);
+  });
+
+  it("finding 13: a replayed needs_confirmation keeps the deadline restored from the snapshot", () => {
+    let state = apply(
+      initialState,
+      snapshot({
+        last_seq: 3,
+        state: {
+          turn_in_progress: true,
+          active_tasks: [{ task_id: "t-9", parent_id: null, status: "waiting_confirmation" }],
+          pending_confirmation: { confirmation_id: "a3f", task_id: "t-9", tool: "fs.move", args: {}, expires_in_s: 10 },
+        },
+      }),
+    );
+    expect(state.confirmation?.deadline).toBe(11000);
+    seq = 0;
+
+    state = apply(state, env("task.queued", { objetivo: "x" }, { task_id: "t-9" }));
+    state = apply(state, env("task.needs_confirmation", { confirmation_id: "a3f", tool: "fs.move", args: {}, expires_in_s: 60 }, { task_id: "t-9" }));
+
+    expect(state.confirmation?.deadline).toBe(11000);
+    expect(state.activeRootId).toBe("t-9");
+  });
+
+  it("finding 13: replayed terminal events never clear the active state of the snapshot", () => {
+    let state = apply(
+      initialState,
+      snapshot({
+        last_seq: 2,
+        state: {
+          turn_in_progress: true,
+          active_tasks: [{ task_id: "t-9", parent_id: null, status: "waiting_confirmation" }],
+          pending_confirmation: { confirmation_id: "a3f", task_id: "t-9", tool: "fs.move", args: {}, expires_in_s: 10 },
+        },
+      }),
+    );
+    seq = 0;
+
+    state = apply(state, env("task.result", { result: { status: "ok" } }, { task_id: "t-8" }));
+    state = apply(state, env("task.cancelled", { reason: "user" }, { task_id: "t-9" }));
+
+    expect(state.activeRootId).toBe("t-9");
+    expect(state.confirmation?.confirmationId).toBe("a3f");
+    expect(state.tasks["t-8"]?.status).toBe("done");
+  });
+
+  it("finding 14: sent blocks the composer until the matching user.accepted arrives", () => {
+    let state = fresh();
+    state = reduce(state, { type: "sent", text: "hola", clientId: "r-1" });
+    expect(state.pendingText).toBe("hola");
+
+    state = apply(state, env("user.accepted", { message_id: "u1", effective_mode: "text", client_id: "r-1" }, { message_id: "u1" }));
+
+    expect(state.pendingText).toBeNull();
+    expect(state.messages).toEqual([{ id: "u1", role: "user", content: "hola", effectiveMode: "text", seq: 1 }]);
+  });
+
+  it("finding 14: an error after sent releases the composer without adding a message", () => {
+    let state = fresh();
+    state = reduce(state, { type: "sent", text: "hola", clientId: "r-1" });
+
+    state = apply(state, oob("error", { code: "turn_in_progress", detail: "espera" }));
+
+    expect(state.pendingText).toBeNull();
+    expect(state.messages).toEqual([]);
+  });
+
+  it("finding 14: an acceptance of another request does not consume the pending text", () => {
+    let state = fresh();
+    state = reduce(state, { type: "sent", text: "hola", clientId: "r-2" });
+
+    state = apply(state, env("user.accepted", { message_id: "u1", effective_mode: "text", client_id: "r-1" }, { message_id: "u1" }));
+
+    expect(state.pendingText).toBe("hola");
+    expect(state.messages).toEqual([]);
   });
 });

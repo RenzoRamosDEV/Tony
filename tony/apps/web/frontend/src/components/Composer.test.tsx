@@ -55,3 +55,16 @@ describe("Composer", () => {
     expect(screen.getByText("Jarvis está respondiendo…")).toBeInTheDocument();
   });
 });
+
+describe("Composer (review of change 04)", () => {
+  it("finding 14: keeps the draft when the message could not be sent", async () => {
+    const onSend = vi.fn().mockReturnValue(false);
+    render(<Composer disabled={false} onSend={onSend} />);
+    const field = screen.getByPlaceholderText("Escribe a Jarvis…");
+
+    await userEvent.type(field, "hola{Enter}");
+
+    expect(onSend).toHaveBeenCalledWith("hola");
+    expect(field).toHaveValue("hola");
+  });
+});

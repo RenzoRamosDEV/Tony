@@ -22,6 +22,7 @@ export interface Envelope<P = Record<string, unknown>> {
 
 export interface HelloOkPayload {
   conversation_id: string;
+  stream_id?: string;
   reply_mode: ReplyMode;
   last_seq: number;
   resync?: boolean;

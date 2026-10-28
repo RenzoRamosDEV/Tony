@@ -224,3 +224,59 @@ describe("App", () => {
     await waitFor(() => expect(calls.filter((c) => c.url.includes("/messages")).length).toBe(2));
   });
 });
+
+describe("App (review of change 04)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    seq = 0;
+    window.localStorage.clear();
+    storage = window.localStorage;
+  });
+
+  it("finding 14: blocks a second send until the first is acknowledged by its client_id", async () => {
+    const { ws } = mount({ "/api/conversations/c-1/messages": [] });
+    act(() => ws.open());
+    act(() => ws.receive(helloOk()));
+    await waitFor(() => expect(screen.getByPlaceholderText("Escribe a Jarvis…")).toBeEnabled());
+
+    await userEvent.type(screen.getByPlaceholderText("Escribe a Jarvis…"), "A{Enter}");
+
+    const sent = ws.sent.at(-1) as { type: string; payload: { text: string; client_id: string } };
+    expect(sent.type).toBe("user.text");
+    expect(typeof sent.payload.client_id).toBe("string");
+    expect(screen.getByPlaceholderText("Escribe a Jarvis…")).toBeDisabled();
+    act(() => ws.receive(env("user.accepted", { message_id: "u1", effective_mode: "text", client_id: sent.payload.client_id }, { message_id: "u1" })));
+    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.getByText("Jarvis está respondiendo…")).toBeInTheDocument();
+    act(() => ws.receive(env("assistant.final", { display_text: "Hecho.", speech_text: null, message_id: "a1" }, { message_id: "a1" })));
+    expect(screen.getByPlaceholderText("Escribe a Jarvis…")).toBeEnabled();
+  });
+
+  it("finding 14: keeps the draft when the socket is not open", async () => {
+    const { ws } = mount({ "/api/conversations/c-1/messages": [] });
+    act(() => ws.open());
+    act(() => ws.receive(helloOk()));
+    await waitFor(() => expect(screen.getByPlaceholderText("Escribe a Jarvis…")).toBeEnabled());
+    ws.readyState = 3;
+
+    await userEvent.type(screen.getByPlaceholderText("Escribe a Jarvis…"), "borrador{Enter}");
+
+    expect(ws.sent.some((m) => m.type === "user.text")).toBe(false);
+    expect(screen.getByPlaceholderText("Escribe a Jarvis…")).toHaveValue("borrador");
+  });
+
+  it("finding 9: a new conversation reloads its own history and empties the chat", async () => {
+    const { ws, calls } = mount({ "/api/conversations/c-1/messages": [], "/api/conversations/c-2/messages": [] });
+    act(() => ws.open());
+    act(() => ws.receive(helloOk()));
+    act(() => ws.receive(env("assistant.final", { display_text: "Primera.", speech_text: null, message_id: "a1" }, { message_id: "a1" })));
+    await waitFor(() => expect(screen.getByText("Primera.")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Nueva conversación" }));
+    act(() => ws.receive(helloOk("c-2")));
+
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/conversations/c-2/messages")).toBe(true));
+    expect(screen.queryByText("Primera.")).toBeNull();
+    expect(storage.getItem("tony.conversation_id")).toBe("c-2");
+  });
+});

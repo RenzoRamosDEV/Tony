@@ -47,10 +47,11 @@ export class ChatSocket {
     };
   }
 
-  send(message: ClientMessage): void {
+  /** Returns false when there is no open socket, so the caller can keep its draft. */
+  send(message: ClientMessage): boolean {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
     this.seq += 1;
     ws.send(
@@ -62,6 +63,7 @@ export class ChatSocket {
         payload: message.payload,
       }),
     );
+    return true;
   }
 
   newConversation(): void {
