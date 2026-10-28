@@ -101,3 +101,21 @@ def test_servers_groups_refs_by_server_name() -> None:
         "fs": ["read_file"],
         "notion": ["search"],
     }
+
+
+def test_colliding_qualified_names_keep_the_first_and_record_the_conflict() -> None:
+    tools = {"a": [mcp_tool("b.c")], "a.b": [mcp_tool("c", destructive=True)]}
+
+    catalog = ToolCatalog.build(tools, allow=None, confirm=[])
+
+    assert catalog.qualified_names() == ["a.b.c"]
+    ref = catalog.get("a.b.c")
+    assert (ref.server, ref.name, ref.needs_confirm) == ("a", "b.c", False)
+    assert catalog.conflicts == (
+        "a.b.c: se ignora la tool 'c' del servidor 'a.b' porque colisiona con "
+        "la tool 'b.c' del servidor 'a'",
+    )
+
+
+def test_catalog_without_collisions_has_no_conflicts() -> None:
+    assert ToolCatalog.build(FAKE_TOOLS, allow=None, confirm=[]).conflicts == ()

@@ -32,6 +32,7 @@ class ToolRef:
 class ToolCatalog:
     refs: tuple[ToolRef, ...] = ()
     _index: Mapping[str, ToolRef] = field(default_factory=dict, repr=False, compare=False)
+    conflicts: tuple[str, ...] = ()
 
     @classmethod
     def build(
@@ -40,13 +41,20 @@ class ToolCatalog:
         allow: list[str] | None,
         confirm: list[str],
     ) -> ToolCatalog:
-        refs = tuple(
+        candidates = (
             _to_ref(server, tool, confirm)
             for server, tools in tools_by_server.items()
             for tool in tools
             if _is_allowed(f"{server}.{tool.name}", allow)
         )
-        return cls(refs, {ref.qualified: ref for ref in refs})
+        index: dict[str, ToolRef] = {}
+        conflicts: list[str] = []
+        for ref in candidates:
+            if ref.qualified in index:
+                conflicts.append(_conflict_message(index[ref.qualified], ref))
+            else:
+                index[ref.qualified] = ref
+        return cls(tuple(index.values()), index, tuple(conflicts))
 
     @classmethod
     def empty(cls) -> ToolCatalog:
@@ -78,6 +86,13 @@ def _is_allowed(qualified: str, allow: list[str] | None) -> bool:
     if allow is None:
         return True
     return any(fnmatchcase(qualified, pattern) for pattern in allow)
+
+
+def _conflict_message(kept: ToolRef, dropped: ToolRef) -> str:
+    return (
+        f"{kept.qualified}: se ignora la tool '{dropped.name}' del servidor '{dropped.server}' "
+        f"porque colisiona con la tool '{kept.name}' del servidor '{kept.server}'"
+    )
 
 
 def _to_ref(server: str, tool: McpToolLike, confirm: list[str]) -> ToolRef:

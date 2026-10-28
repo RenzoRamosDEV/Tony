@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any
 
+import anyio
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
-from mcp.types import CallToolResult
+from mcp.shared.exceptions import MCPError
+from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, CallToolResult
 
 from tony.core.loader import HttpServer, StdioServer, ToolConfig
 from tony.core.mcp.catalog import ToolCatalog
@@ -20,6 +23,17 @@ from tony.core.mcp.content import render_content
 from tony.core.mcp.outcome import McpServerStatus, ToolCallOutcome
 
 ServerSpec = StdioServer | HttpServer
+
+logger = logging.getLogger(__name__)
+
+UNKNOWN_OUTCOME = "; el resultado es desconocido, no repitas la llamada"
+TRANSPORT_ERROR_CODES = frozenset({CONNECTION_CLOSED, REQUEST_TIMEOUT})
+TRANSPORT_EXCEPTIONS = (
+    anyio.ClosedResourceError,
+    anyio.BrokenResourceError,
+    anyio.EndOfStream,
+    ConnectionError,
+)
 
 
 @dataclass
@@ -47,6 +61,8 @@ class McpManager:
             except Exception as exc:  # noqa: BLE001 - a broken server must not block the rest
                 self._errors[name] = _describe(exc)
         self.catalog = ToolCatalog.build(tools_by_server, tool_config.allow, tool_config.confirm)
+        for conflict in self.catalog.conflicts:
+            logger.warning(conflict)
 
     async def call(self, qualified: str, args: dict[str, Any], timeout: float) -> ToolCallOutcome:
         ref = self.catalog.get(qualified)
@@ -63,8 +79,13 @@ class McpManager:
                 duration_ms=_elapsed_ms(started),
                 unknown=ref.needs_confirm,
             )
-        except Exception as exc:  # noqa: BLE001 - any transport failure becomes a tool error
-            return ToolCallOutcome.failure(_describe(exc), duration_ms=_elapsed_ms(started))
+        except Exception as exc:  # noqa: BLE001 - any failure becomes a tool error
+            unknown = ref.needs_confirm and _is_transport_failure(exc)
+            return ToolCallOutcome.failure(
+                _describe(exc) + (UNKNOWN_OUTCOME if unknown else ""),
+                duration_ms=_elapsed_ms(started),
+                unknown=unknown,
+            )
         return _to_outcome(result, _elapsed_ms(started))
 
     def status(self) -> dict[str, McpServerStatus]:
@@ -90,7 +111,7 @@ class McpManager:
         stack = AsyncExitStack()
         try:
             async with asyncio.timeout(self._connect_timeout_s):
-                read, write, *_ = await stack.enter_async_context(_transport(server))
+                read, write, *_ = await stack.enter_async_context(await _transport(server, stack))
                 session = await stack.enter_async_context(ClientSession(read, write))
                 await session.initialize()
                 listed = await session.list_tools()
@@ -104,13 +125,15 @@ class McpManager:
         return list(listed.tools)
 
 
-def _transport(server: ServerSpec):
+async def _transport(server: ServerSpec, stack: AsyncExitStack):
     if isinstance(server, StdioServer):
         env = {**os.environ, **server.env} if server.env else None
         return stdio_client(
             StdioServerParameters(command=server.command, args=server.args, env=env)
         )
-    client = create_mcp_http_client(headers=server.headers)
+    # streamable_http_client does not own a caller-provided client, so the stack closes it
+    # after the transport (reverse order of entry).
+    client = await stack.enter_async_context(create_mcp_http_client(headers=server.headers))
     return streamable_http_client(server.url, http_client=client)
 
 
@@ -126,8 +149,14 @@ def _to_outcome(result: Any, duration_ms: int) -> ToolCallOutcome:
 def _timeout_message(qualified: str, timeout: float, needs_confirm: bool) -> str:
     message = f"timeout tras {timeout:g} s en {qualified}"
     if needs_confirm:
-        message += "; el resultado es desconocido, no repitas la llamada"
+        message += UNKNOWN_OUTCOME
     return message
+
+
+def _is_transport_failure(exc: BaseException) -> bool:
+    if isinstance(exc, MCPError):
+        return exc.code in TRANSPORT_ERROR_CODES
+    return isinstance(exc, TRANSPORT_EXCEPTIONS)
 
 
 def _describe(exc: BaseException) -> str:
