@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import uuid
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from tony.core.logging import redact
 
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 32 * 1024
@@ -66,6 +70,14 @@ class UnknownType(ProtocolError):
     code = "unknown_type"
 
 
+class BadPayload(ProtocolError):
+    code = "bad_payload"
+
+
+class QueueClosed(Exception):
+    """The socket of this queue is gone: nothing more can be put or taken."""
+
+
 class Envelope(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -100,6 +112,43 @@ class _ClientEnvelope(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class _StrictPayload(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore")
+
+
+class _HelloPayload(_StrictPayload):
+    conversation_id: str | None = None
+    last_seq: int = Field(default=0, ge=0)
+
+
+class _UserTextPayload(_StrictPayload):
+    text: str
+    client_id: str | None = None
+
+
+class _ConfirmPayload(_StrictPayload):
+    confirmation_id: str
+    approved: bool
+    task_id: str | None = None
+
+
+class _CancelPayload(_StrictPayload):
+    task_id: str
+
+
+class _SetModePayload(_StrictPayload):
+    reply_mode: str
+
+
+PAYLOAD_MODELS: dict[str, type[_StrictPayload]] = {
+    HELLO: _HelloPayload,
+    USER_TEXT: _UserTextPayload,
+    CONFIRM: _ConfirmPayload,
+    CANCEL: _CancelPayload,
+    SET_MODE: _SetModePayload,
+}
+
+
 def parse_client_message(text: str) -> ClientMessage:
     size = len(text.encode("utf-8"))
     if size > MAX_MESSAGE_BYTES:
@@ -118,7 +167,11 @@ def parse_client_message(text: str) -> ClientMessage:
         raise NotImplementedType(f"el tipo {envelope.type} está reservado para la entrega de voz")
     if envelope.type not in CLIENT_TYPES:
         raise UnknownType(f"tipo desconocido: {envelope.type}")
-    return ClientMessage(envelope.type, envelope.payload, envelope.seq)
+    try:
+        payload = PAYLOAD_MODELS[envelope.type].model_validate(envelope.payload)
+    except ValidationError as exc:
+        raise BadPayload(f"payload inválido para {envelope.type}: {_brief(exc)}") from None
+    return ClientMessage(envelope.type, payload.model_dump(), envelope.seq)
 
 
 def _brief(exc: Exception) -> str:
@@ -152,9 +205,16 @@ class OutboundQueue:
         self._not_empty = asyncio.Event()
         self._not_full = asyncio.Event()
         self._not_full.set()
+        self._closed = False
 
     def __len__(self) -> int:
         return len(self._items)
+
+    def close(self) -> None:
+        """Wake every blocked producer and consumer; later puts and gets raise QueueClosed."""
+        self._closed = True
+        self._not_full.set()
+        self._not_empty.set()
 
     def prefill(self, envelopes: Iterable[Envelope]) -> None:
         """Seed the queue with replayed envelopes before any live one is published."""
@@ -165,14 +225,18 @@ class OutboundQueue:
     async def put(self, envelope: Envelope) -> None:
         if len(self._items) >= self._capacity:
             self._items = deque(coalesce_deltas(list(self._items)))
-        while len(self._items) >= self._capacity:
+        while len(self._items) >= self._capacity and not self._closed:
             self._not_full.clear()
             await self._not_full.wait()
+        if self._closed:
+            raise QueueClosed
         self._items.append(envelope)
         self._not_empty.set()
 
     async def get(self) -> Envelope:
         while not self._items:
+            if self._closed:
+                raise QueueClosed
             self._not_empty.clear()
             await self._not_empty.wait()
         item = self._items.popleft()
@@ -183,17 +247,30 @@ class OutboundQueue:
 class ConversationStream:
     """Numbers every server envelope of one conversation and keeps the last ones for replay."""
 
-    def __init__(self, conversation_id: str, buffer_size: int = BUFFER_SIZE) -> None:
+    def __init__(
+        self,
+        conversation_id: str,
+        buffer_size: int = BUFFER_SIZE,
+        secrets: Iterable[str] = (),
+    ) -> None:
         self.conversation_id = conversation_id
+        self.stream_id = uuid.uuid4().hex
         self.last_seq = 0
+        self._secrets = list(secrets)
         self._buffer: deque[Envelope] = deque(maxlen=buffer_size)
         self._queue: OutboundQueue | None = None
+        self._publishing = asyncio.Lock()
 
     def attach(self, queue: OutboundQueue) -> None:
         self._queue = queue
 
     def detach(self) -> None:
-        self._queue = None
+        queue, self._queue = self._queue, None
+        if queue is not None:
+            queue.close()
+
+    def redact(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return redact(payload, self._secrets)
 
     async def publish(
         self,
@@ -202,18 +279,20 @@ class ConversationStream:
         task_id: str | None = None,
         message_id: str | None = None,
     ) -> Envelope:
-        self.last_seq += 1
-        envelope = Envelope(
-            type=type_,
-            seq=self.last_seq,
-            conversation_id=self.conversation_id,
-            message_id=message_id,
-            task_id=task_id,
-            payload=payload,
-        )
-        self._buffer.append(envelope)
-        if self._queue is not None:
-            await self._queue.put(envelope)
+        async with self._publishing:
+            self.last_seq += 1
+            envelope = Envelope(
+                type=type_,
+                seq=self.last_seq,
+                conversation_id=self.conversation_id,
+                message_id=message_id,
+                task_id=task_id,
+                payload=self.redact(payload),
+            )
+            self._buffer.append(envelope)
+            if self._queue is not None:
+                with contextlib.suppress(QueueClosed):
+                    await self._queue.put(envelope)
         return envelope
 
     def replay(self, last_seq: int) -> list[Envelope] | None:

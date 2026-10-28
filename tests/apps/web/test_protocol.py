@@ -11,11 +11,14 @@ from tony.apps.web.protocol import (
     MAX_MESSAGE_BYTES,
     PROTOCOL_VERSION,
     BadEnvelope,
+    BadPayload,
     ConversationStream,
     Envelope,
     MessageTooLarge,
     NotImplementedType,
     OutboundQueue,
+    ProtocolError,
+    QueueClosed,
     UnknownType,
     coalesce_deltas,
     parse_client_message,
@@ -80,7 +83,7 @@ def test_unknown_type_is_reported() -> None:
 
 def test_payload_defaults_to_an_empty_object_and_seq_is_optional() -> None:
     message = parse_client_message('{"v": 1, "type": "hello", "conversation_id": null}')
-    assert message.payload == {} and message.seq == 0
+    assert message.payload == {"conversation_id": None, "last_seq": 0} and message.seq == 0
 
 
 async def test_publish_numbers_seq_and_builds_the_envelope_without_none_keys() -> None:
@@ -232,3 +235,122 @@ async def test_stream_feeds_the_attached_queue_only_while_attached() -> None:
 
     assert len(queue) == 1 and (await queue.get()).type == "b"
     assert [e.type for e in stream.replay(0) or []] == ["a", "b", "c"]
+
+
+# --- Review of change 04 ---------------------------------------------------------------
+
+SECRET = "sk-secret-123456"
+
+
+def client_text(type_: str, payload: dict) -> str:
+    return json.dumps(
+        {"v": 1, "type": type_, "seq": 1, "conversation_id": None, "payload": payload}
+    )
+
+
+async def test_finding_2_detach_wakes_a_blocked_publisher_instead_of_hanging() -> None:
+    stream = ConversationStream("c1")
+    queue = OutboundQueue(1)
+    stream.attach(queue)
+    await stream.publish("a", {})
+    blocked = asyncio.ensure_future(stream.publish("b", {}))
+    await asyncio.sleep(0)
+    assert not blocked.done()
+
+    stream.detach()
+
+    envelope = await asyncio.wait_for(blocked, 1)
+    assert envelope.seq == 2 and [e.seq for e in stream.replay(0) or []] == [1, 2]
+    with pytest.raises(QueueClosed):
+        await asyncio.wait_for(queue.put(task(3)), 1)
+    assert (await queue.get()).type == "a"
+    with pytest.raises(QueueClosed):
+        await asyncio.wait_for(queue.get(), 1)
+
+
+async def test_finding_3_concurrent_publishers_keep_seq_order_under_backpressure() -> None:
+    stream = ConversationStream("c1")
+    queue = OutboundQueue(1)
+    stream.attach(queue)
+    await stream.publish("one", {})
+    second = asyncio.ensure_future(stream.publish("two", {}))
+    await asyncio.sleep(0)
+    assert not second.done()
+
+    third = asyncio.ensure_future(stream.publish("three", {}))
+    delivered = [await queue.get()]
+    await asyncio.sleep(0)
+    delivered.append(await asyncio.wait_for(queue.get(), 1))
+    delivered.append(await asyncio.wait_for(queue.get(), 1))
+    await asyncio.wait_for(asyncio.gather(second, third), 1)
+
+    assert [(e.seq, e.type) for e in delivered] == [(1, "one"), (2, "two"), (3, "three")]
+
+
+@pytest.mark.parametrize(
+    ("type_", "payload"),
+    [
+        ("confirm", {"confirmation_id": "c", "approved": "false"}),
+        ("confirm", {"confirmation_id": "c", "approved": 1}),
+        ("confirm", {"approved": True}),
+        ("confirm", {"confirmation_id": 7, "approved": True}),
+        ("hello", {"conversation_id": None, "last_seq": "abc"}),
+        ("hello", {"conversation_id": None, "last_seq": -1}),
+        ("hello", {"conversation_id": None, "last_seq": 1.5}),
+        ("hello", {"conversation_id": 3}),
+        ("user.text", {}),
+        ("user.text", {"text": ["x"]}),
+        ("user.text", {"text": "x", "client_id": 9}),
+        ("cancel", {}),
+        ("set_mode", {"reply_mode": None}),
+    ],
+)
+def test_finding_7_invalid_payloads_are_rejected_before_dispatch(type_: str, payload) -> None:
+    with pytest.raises(BadPayload) as info:
+        parse_client_message(client_text(type_, payload))
+
+    assert info.value.code == "bad_payload" and info.value.close_code is None
+    assert isinstance(info.value, ProtocolError)
+
+
+@pytest.mark.parametrize(
+    ("type_", "payload", "expected"),
+    [
+        ("hello", {}, {"conversation_id": None, "last_seq": 0}),
+        ("hello", {"conversation_id": "c", "last_seq": 0}, {"conversation_id": "c", "last_seq": 0}),
+        (
+            "confirm",
+            {"confirmation_id": "c", "approved": False, "extra": 1},
+            {"confirmation_id": "c", "approved": False, "task_id": None},
+        ),
+        ("user.text", {"text": ""}, {"text": "", "client_id": None}),
+        ("user.text", {"text": "hola", "client_id": "r-1"}, {"text": "hola", "client_id": "r-1"}),
+        ("cancel", {"task_id": "t"}, {"task_id": "t"}),
+        ("set_mode", {"reply_mode": "nope"}, {"reply_mode": "nope"}),
+    ],
+)
+def test_finding_7_valid_payloads_are_normalised(type_: str, payload, expected) -> None:
+    assert parse_client_message(client_text(type_, payload)).payload == expected
+
+
+def test_finding_11_each_stream_instance_has_its_own_stable_stream_id() -> None:
+    first, again = ConversationStream("c1"), ConversationStream("c1")
+
+    assert first.stream_id == first.stream_id and first.stream_id != again.stream_id
+    assert len(first.stream_id) == 32
+
+
+async def test_finding_1_stream_redacts_secrets_before_buffering_and_queueing() -> None:
+    stream = ConversationStream("c1", secrets=[SECRET, "short"])
+    queue = OutboundQueue(10)
+    stream.attach(queue)
+
+    envelope = await stream.publish(
+        "task.needs_confirmation",
+        {"args": {"token": "x", "cmd": f"curl -H {SECRET} short"}, "list": [SECRET]},
+    )
+
+    expected = {"args": {"token": "***", "cmd": "curl -H *** short"}, "list": ["***"]}
+    assert envelope.payload == expected
+    assert (await queue.get()).payload == expected
+    assert (stream.replay(0) or [])[0].payload == expected
