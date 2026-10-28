@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -122,6 +123,7 @@ async def run_chat(
         settings, worker, options.logs_dir, secrets, manager_factory, runner_factory
     )
     orchestrator = Orchestrator(worker_factory, settings.limits)
+    confirm_lock = asyncio.Lock()
     channel = CliChannel(
         worker.name.capitalize(),
         lines,
@@ -129,10 +131,11 @@ async def run_chat(
         settings.limits.confirm_timeout_s,
         out,
         stdout,
+        lock=confirm_lock,
     )
     front_manager = await _front_tools(front, settings, manager_factory)
     front_gate = CliConfirmGate(
-        front.name.capitalize(), settings.limits.confirm_timeout_s, lines, out
+        front.name.capitalize(), settings.limits.confirm_timeout_s, lines, out, lock=confirm_lock
     )
     front_runner = conversation_factory(settings, front_gate, _front_call(front_manager))
     session_log = JsonlEventSink(

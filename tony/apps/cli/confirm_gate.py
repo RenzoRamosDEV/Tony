@@ -20,12 +20,13 @@ class CliConfirmGate:
         timeout_s: float,
         lines: LineSource | None = None,
         out: TextIO | None = None,
+        lock: asyncio.Lock | None = None,
     ) -> None:
         self._agent_name = agent_name
         self._timeout_s = timeout_s
         self._lines = lines or StdinReader()
         self._out = out
-        self._lock = asyncio.Lock()
+        self._lock = lock or asyncio.Lock()
 
     async def confirm(self, request: ConfirmRequest) -> bool:
         async with self._lock:

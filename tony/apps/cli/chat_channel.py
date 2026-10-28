@@ -37,6 +37,7 @@ class CliChannel:
         confirm_timeout_s: float,
         out: TextIO | None = None,
         stdout: TextIO | None = None,
+        lock: asyncio.Lock | None = None,
     ) -> None:
         self._worker_name = worker_name
         self._lines = lines
@@ -44,6 +45,7 @@ class CliChannel:
         self._confirm_timeout_s = confirm_timeout_s
         self._out = out
         self._stdout = stdout
+        self._lock = lock or asyncio.Lock()
 
     async def send(self, message: ChannelMessage) -> None:
         if isinstance(message, AssistantReply):
@@ -66,12 +68,13 @@ class CliChannel:
 
     async def _ask(self, request: NeedsConfirmation) -> None:
         args = json.dumps(request.args, sort_keys=True, ensure_ascii=False)
-        self._err(CONFIRM_PROMPT.format(worker=self._worker_name, tool=request.tool, args=args))
-        try:
-            answer = await asyncio.wait_for(self._lines.readline(), self._confirm_timeout_s)
-        except TimeoutError:
-            self._err(NO_ANSWER.format(timeout=self._confirm_timeout_s))
-            return
+        async with self._lock:
+            self._err(CONFIRM_PROMPT.format(worker=self._worker_name, tool=request.tool, args=args))
+            try:
+                answer = await asyncio.wait_for(self._lines.readline(), self._confirm_timeout_s)
+            except TimeoutError:
+                self._err(NO_ANSWER.format(timeout=self._confirm_timeout_s))
+                return
         approved = answer is not None and answer.strip().lower() in AFFIRMATIVE
         try:
             await self._confirm(request.confirmation_id, approved, request.tool, request.args)

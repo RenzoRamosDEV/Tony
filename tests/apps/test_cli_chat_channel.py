@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 from typing import Any
 
 from tests.fakes.stdin import FakeStdin
 from tony.apps.cli.chat_channel import CliChannel
+from tony.apps.cli.confirm_gate import CliConfirmGate
 from tony.core.channels.ports import (
     AssistantReply,
     AssistantWait,
@@ -14,6 +16,7 @@ from tony.core.channels.ports import (
     Notice,
     TaskProgress,
 )
+from tony.core.mcp import ConfirmRequest
 from tony.core.orchestrator.errors import OrchestratorError
 
 REQUEST = NeedsConfirmation("t1", "c1", "filesystem.move_file", {"source": "a", "destination": "b"})
@@ -94,3 +97,31 @@ async def test_replies_go_to_stdout_and_the_rest_to_stderr() -> None:
 
     assert out.getvalue() == "Hola\n🔊 Informe listo\n# Informe\nSin resumen\n"
     assert err.getvalue() == "Dame un momento.\n· filesystem.read_file\nAviso\n"
+
+
+async def test_front_gate_and_worker_channel_never_show_two_prompts_at_once() -> None:
+    err = io.StringIO()
+    stdin = FakeStdin([])
+    lock = asyncio.Lock()
+    gate = CliConfirmGate("Jarvis", 1, stdin, err, lock=lock)
+    confirm = RecordingConfirm()
+    cli = CliChannel("Viernes", stdin, confirm, 1, err, io.StringIO(), lock=lock)
+    front_request = ConfirmRequest.create("front", "fake.destroy", {})
+
+    front = asyncio.ensure_future(gate.confirm(front_request))
+    await asyncio.sleep(0)
+    worker = asyncio.ensure_future(cli.send(REQUEST))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert err.getvalue().count("¿Confirmas? [s/N]") == 1
+    assert "Jarvis quiere ejecutar fake.destroy" in err.getvalue()
+
+    stdin.feed("s\n")
+    assert await asyncio.wait_for(front, 1) is True
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert err.getvalue().count("¿Confirmas? [s/N]") == 2
+    stdin.feed("\n")
+    await asyncio.wait_for(worker, 1)
+
+    assert confirm.calls == [("c1", False, "filesystem.move_file", REQUEST.args)]
