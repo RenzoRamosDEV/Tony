@@ -115,19 +115,23 @@ class AudioSession:
         while True:
             command = await self._commands.get()
             try:
-                if command is _Command.RESET:
-                    await self._executor.run_serial(VAD_LANE, self._segmenter.reset)
-                    continue
-                if command is _Command.FLUSH:
-                    found = await self._executor.run_serial(VAD_LANE, self._segmenter.flush)
-                else:
-                    found = await self._executor.run_serial(VAD_LANE, self._segmenter.feed, command)
-                    self._pending_samples -= len(command) // FLOAT32_BYTES
+                found = await self._segment(command)
             except Exception as exc:  # noqa: BLE001 - the user learns why, the socket lives on
                 await self._on_error(STT_FAILED, f"{exc.__class__.__name__}: {exc}")
                 continue
+            finally:
+                if isinstance(command, bytes):
+                    self._pending_samples -= len(command) // FLOAT32_BYTES
             for utterance in found:
                 await self._admit(utterance)
+
+    async def _segment(self, command: bytes | _Command) -> list[Utterance]:
+        if command is _Command.RESET:
+            await self._executor.run_serial(VAD_LANE, self._segmenter.reset)
+            return []
+        if command is _Command.FLUSH:
+            return await self._executor.run_serial(VAD_LANE, self._segmenter.flush)
+        return await self._executor.run_serial(VAD_LANE, self._segmenter.feed, command)
 
     async def _admit(self, utterance: Utterance) -> None:
         over_budget = self._pending_samples + utterance.sample_count > self._max_pending_samples
