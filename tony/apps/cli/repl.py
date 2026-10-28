@@ -107,14 +107,14 @@ class ChatRepl:
         self._print(("\n".join(lines) if lines else "(memoria vacía)") + "\n")
 
     async def _cancel(self) -> None:
-        if self._session.active_task_id is None:
+        if not self._session.has_active_task:
             self._err("No hay ninguna tarea activa.\n")
             return
         await self._session.cancel_active()
         self._err("Tarea cancelada.\n")
 
     def _on_sigint(self) -> None:
-        if self._session.active_task_id is not None and not self._cancel_requested:
+        if self._session.has_active_task and not self._cancel_requested:
             self._cancel_requested = True
             self._err(CANCELLING)
             asyncio.ensure_future(self._session.cancel_active())

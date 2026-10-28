@@ -28,7 +28,13 @@ from tony.core.memory.settings import SettingsStore
 from tony.core.orchestrator.clock import Clock, SystemClock
 from tony.core.orchestrator.errors import OrchestratorError
 from tony.core.orchestrator.orchestrator import Orchestrator
-from tony.core.orchestrator.task import TASK_FINISHED, TASK_NEEDS_CONFIRMATION, TASK_PROGRESS
+from tony.core.orchestrator.task import (
+    TASK_CANCELLED,
+    TASK_FINISHED,
+    TASK_NEEDS_CONFIRMATION,
+    TASK_PROGRESS,
+    TASK_RESULT,
+)
 from tony.core.runner import EventSink, TaskRequest, TaskResult
 from tony.core.runner.cancel import USER_REASON
 from tony.core.runner.conversation import ConversationRunner
@@ -42,6 +48,7 @@ from tony.core.runner.reply_mode import (
 )
 
 WAIT_PHRASE_DELAY_S = 3.0
+FRONT_INTERRUPTED_REASON = "front_interrupted"
 SESSION_STARTED = "session.started"
 MISSING_TEXT_NOTICE = "Falta el mensaje después del prefijo {prefix}."
 CHANNEL_NAME = "cli"
@@ -90,7 +97,12 @@ class ChatSession:
         self._catalog = catalog or ToolCatalog.empty()
         self._secrets = list(secrets or [])
         self.conversation_id: str | None = None
-        self.active_task_id: str | None = None
+        self.active_task_ids: set[str] = set()
+        self._supervisors: set[asyncio.Task[None]] = set()
+
+    @property
+    def has_active_task(self) -> bool:
+        return bool(self.active_task_ids)
 
     async def start(self, conversation_id: str) -> None:
         self.conversation_id = conversation_id
@@ -120,14 +132,16 @@ class ChatSession:
         return reply
 
     async def cancel_active(self) -> None:
-        if self.active_task_id is None:
+        if not self.active_task_ids:
             return
-        await self._orchestrator.cancel(self.active_task_id, USER_REASON)
+        for task_id in list(self.active_task_ids):
+            await self._orchestrator.cancel(task_id, USER_REASON)
         await self._runner.interrupt()
 
     async def close(self) -> None:
         await self._runner.close()
         await self._orchestrator.close()
+        await asyncio.gather(*self._supervisors, return_exceptions=True)
 
     async def delegate(self, request: TaskRequest) -> TaskResult:
         try:
@@ -138,19 +152,21 @@ class ChatSession:
                 resumen=f"No se pudo encolar la tarea: {exc.code}",
                 errores=[exc.code],
             )
-        self.active_task_id = task.id
+        self.active_task_ids.add(task.id)
         usage: dict[str, Any] = {}
+        self._record_task(task.id, request, None, usage)
         forwarder = asyncio.ensure_future(self._forward_events(task.id, usage))
         waiter = asyncio.ensure_future(self._wait_phrase_once())
         try:
             result = await self._orchestrator.wait(task.id)
-        except BaseException:
-            forwarder.cancel()
+        except asyncio.CancelledError:
+            self._supervise(self._settle_interrupted(task.id, request, usage, forwarder))
             raise
         finally:
             waiter.cancel()
-            await asyncio.gather(forwarder, waiter, return_exceptions=True)
-            self.active_task_id = None
+            await asyncio.gather(waiter, return_exceptions=True)
+            self.active_task_ids.discard(task.id)
+        await asyncio.gather(forwarder, return_exceptions=True)
         result = self._redacted(result)
         self._record_task(task.id, request, result, usage)
         return result
@@ -163,23 +179,46 @@ class ChatSession:
         self._memory.settings.set_reply_mode(mode)
         return mode
 
+    async def _settle_interrupted(
+        self, task_id: str, request: TaskRequest, usage: dict[str, Any], forwarder: asyncio.Task
+    ) -> None:
+        await self._orchestrator.cancel(task_id, FRONT_INTERRUPTED_REASON)
+        result = await self._orchestrator.wait(task_id)
+        await asyncio.gather(forwarder, return_exceptions=True)
+        self._record_task(task_id, request, self._redacted(result), usage)
+
+    def _supervise(self, coroutine: Any) -> None:
+        supervisor = asyncio.create_task(coroutine)
+        self._supervisors.add(supervisor)
+        supervisor.add_done_callback(self._supervisors.discard)
+
     async def _forward_events(self, task_id: str, usage: dict[str, Any]) -> None:
-        async for event in self._orchestrator.events(task_id):
-            if event.type == TASK_PROGRESS:
-                await self._channel.send(
-                    TaskProgress(task_id, event.payload["tool"], event.payload["step"])
-                )
-            elif event.type == TASK_NEEDS_CONFIRMATION:
-                await self._channel.send(
-                    NeedsConfirmation(
-                        task_id,
-                        event.payload["confirmation_id"],
-                        event.payload["tool"],
-                        event.payload["args"],
+        confirmation: asyncio.Task[None] | None = None
+        try:
+            async for event in self._orchestrator.events(task_id):
+                if event.type == TASK_PROGRESS:
+                    await self._channel.send(
+                        TaskProgress(task_id, event.payload["tool"], event.payload["step"])
                     )
-                )
-            elif event.type == TASK_FINISHED:
-                usage.update(event.payload.get("usage") or {})
+                elif event.type == TASK_NEEDS_CONFIRMATION:
+                    confirmation = asyncio.ensure_future(
+                        self._channel.send(
+                            NeedsConfirmation(
+                                task_id,
+                                event.payload["confirmation_id"],
+                                event.payload["tool"],
+                                event.payload["args"],
+                            )
+                        )
+                    )
+                elif event.type == TASK_FINISHED:
+                    usage.update(event.payload.get("usage") or {})
+                elif event.type in (TASK_CANCELLED, TASK_RESULT) and confirmation is not None:
+                    confirmation.cancel()
+        finally:
+            if confirmation is not None:
+                confirmation.cancel()
+                await asyncio.gather(confirmation, return_exceptions=True)
 
     async def _wait_phrase_once(self) -> None:
         await self._clock.sleep(WAIT_PHRASE_DELAY_S)
@@ -195,7 +234,7 @@ class ChatSession:
         )
 
     def _record_task(
-        self, task_id: str, request: TaskRequest, result: TaskResult, usage: dict[str, Any]
+        self, task_id: str, request: TaskRequest, result: TaskResult | None, usage: dict[str, Any]
     ) -> None:
         assert self.conversation_id is not None
         task = self._orchestrator.tasks[task_id]

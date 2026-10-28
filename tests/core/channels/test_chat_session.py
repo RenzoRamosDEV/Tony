@@ -29,7 +29,7 @@ from tony.core.memory.conversations import ConversationStore
 from tony.core.memory.preferences import PreferencesStore
 from tony.core.memory.settings import SettingsStore
 from tony.core.orchestrator.orchestrator import Orchestrator
-from tony.core.orchestrator.task import TASK_QUEUED, TaskStatus
+from tony.core.orchestrator.task import TASK_CANCELLED, TASK_QUEUED, TaskStatus
 from tony.core.runner import TaskRequest, TaskResult
 
 NOW = datetime(2026, 10, 28, 9, 5, 0, tzinfo=timezone(timedelta(hours=2)))
@@ -70,6 +70,7 @@ class Harness:
         turns: list,
         native: list[str] | None = None,
         secrets: list[str] | None = None,
+        channel: Any | None = None,
     ) -> None:
         self.clock = FakeClock()
         self.factory = FakeWorkerFactory(self.clock)
@@ -77,7 +78,7 @@ class Harness:
             self.factory, Limits(task_timeout_s=300, confirm_timeout_s=60), clock=self.clock
         )
         self.runner = FakeConversationRunner(turns)
-        self.channel = ListChannel()
+        self.channel = channel or ListChannel()
         self.memory = Memory(
             preferences=PreferencesStore(tmp_path / "memory" / "preferences.md"),
             settings=SettingsStore(tmp_path / "memory" / "settings.json"),
@@ -344,7 +345,7 @@ async def test_cancel_active_cancels_the_task_and_interrupts_the_front(tmp_memor
     turn = asyncio.ensure_future(h.session.handle("tarea larga"))
     await h.clock.settle()
     task = next(iter(h.orchestrator.tasks.values()))
-    assert h.session.active_task_id == task.id
+    assert h.session.has_active_task
 
     await h.session.cancel_active()
     reply = await asyncio.wait_for(turn, 1)
@@ -352,7 +353,7 @@ async def test_cancel_active_cancels_the_task_and_interrupts_the_front(tmp_memor
     assert task.status == TaskStatus.CANCELLED
     assert h.runner.interrupts == 1
     assert reply.display_text == "Resultado: Tarea cancelada por el usuario."
-    assert h.session.active_task_id is None
+    assert not h.session.has_active_task
 
 
 async def test_cancel_active_without_a_task_is_a_no_op(tmp_memory: Path) -> None:
@@ -413,3 +414,88 @@ async def test_secrets_are_redacted_from_persisted_copies_and_the_front_result(
     assert json.loads(result_json)["datos"] == {"clave": "***"}
     contents = [m.content for m in h.memory.conversations.recent_messages(conversation)]
     assert contents == ["usa ***", "Resultado: token *** listo"]
+
+
+async def test_cancel_active_cancels_every_task_of_the_turn(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [])
+    await h.start()
+    h.factory.scripts["a"] = [("sleep", 100)]
+    h.factory.scripts["b"] = [("sleep", 100)]
+    first = asyncio.ensure_future(h.session.delegate(TaskRequest(objetivo="a")))
+    second = asyncio.ensure_future(h.session.delegate(TaskRequest(objetivo="b")))
+    await h.clock.settle()
+    a, b = h.orchestrator.tasks.values()
+    assert (a.status, b.status) == (TaskStatus.RUNNING, TaskStatus.QUEUED)
+    assert h.session.has_active_task
+
+    await h.session.cancel_active()
+    results = await asyncio.wait_for(asyncio.gather(first, second), 1)
+
+    assert (a.status, b.status) == (TaskStatus.CANCELLED, TaskStatus.CANCELLED)
+    assert [r.status for r in results] == ["cancelled", "cancelled"]
+    assert not h.session.has_active_task
+
+
+def task_row(h: Harness, task_id: str) -> tuple[str, str | None]:
+    with sqlite3.connect(h.memory.conversations.path) as connection:
+        return connection.execute(
+            "SELECT status, result_json FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+
+
+async def test_cancelled_delegate_handler_cancels_the_task_and_still_records_it(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [])
+    await h.start()
+    h.factory.scripts["a"] = [("sleep", 100)]
+    handler = asyncio.ensure_future(h.session.delegate(TaskRequest(objetivo="a")))
+    await h.clock.settle()
+    task = next(iter(h.orchestrator.tasks.values()))
+    assert task_row(h, task.id) == ("queued", None)
+
+    handler.cancel()
+    await asyncio.gather(handler, return_exceptions=True)
+    await h.clock.settle()
+
+    assert task.status == TaskStatus.CANCELLED
+    assert task.finished.is_set()
+    assert (TASK_CANCELLED, {"reason": "front_interrupted"}) in h.factory.logs[task.id].events
+    status, result_json = task_row(h, task.id)
+    assert status == "cancelled"
+    assert json.loads(result_json)["status"] == "cancelled"
+    assert not h.session.has_active_task
+
+
+class BlockingConfirmChannel(ListChannel):
+    """Reads the [s/N] answer forever, like a terminal nobody types into."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancelled_reads = 0
+
+    async def send(self, message) -> None:
+        await super().send(message)
+        if isinstance(message, NeedsConfirmation):
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled_reads += 1
+                raise
+
+
+async def test_cancelling_during_a_confirmation_releases_delegate_promptly(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [delegating("escribir")], channel=BlockingConfirmChannel())
+    h.factory.scripts["escribir"] = [("confirm", "fs.write", {"path": "a"})]
+    await h.start()
+    turn = asyncio.ensure_future(h.session.handle("escribe"))
+    await h.clock.settle()
+    assert len(h.channel.of_type(NeedsConfirmation)) == 1
+
+    await h.session.cancel_active()
+    reply = await asyncio.wait_for(turn, 1)
+
+    assert reply.display_text.startswith("Resultado: Tarea cancelada")
+    assert h.channel.cancelled_reads == 1
