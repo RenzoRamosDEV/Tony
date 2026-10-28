@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
@@ -14,7 +16,7 @@ from tony.core.orchestrator.ports import Worker
 from tony.core.orchestrator.task import Task
 from tony.core.runner import AgentRunner, EventSink
 from tony.core.runner.cancel import CancelToken
-from tony.core.runner.claude_sdk import ClaudeSdkRunner
+from tony.core.runner.claude_sdk import CLEANUP_BUDGET_S, ClaudeSdkRunner
 from tony.core.runner.proxy import ToolCaller
 
 
@@ -84,7 +86,7 @@ class SdkWorkerFactory:
         self._secrets = [*secrets, *spec.secrets]
         self._manager_factory = manager_factory
         self._runner_factory = runner_factory
-        self._manager: ToolManager | None = None
+        self._owner: _ManagerOwner | None = None
         self.warnings = [w for w in [role_mismatch_warning(spec, "worker")] if w]
 
     def open_log(self, task_id: str) -> JsonlEventSink:
@@ -99,13 +101,45 @@ class SdkWorkerFactory:
         return Worker(runner=runner, spec=self._spec, catalog=manager.catalog)
 
     async def close(self) -> None:
-        if self._manager is not None:
-            await self._manager.stop()
-            self._manager = None
+        owner, self._owner = self._owner, None
+        if owner is not None:
+            await owner.stop()
 
     async def _started_manager(self) -> ToolManager:
-        if self._manager is None:
-            manager = self._manager_factory(self._settings)
-            await manager.start(self._spec.tools)
-            self._manager = manager
-        return self._manager
+        if self._owner is None:
+            self._owner = _ManagerOwner(self._manager_factory, self._settings, self._spec.tools)
+        try:
+            return await self._owner.manager()
+        except BaseException:
+            self._owner = None
+            raise
+
+
+class _ManagerOwner:
+    """One long-lived task starts and stops the manager: MCP sessions bind their cancel scopes
+    to the task that opened them, so closing from another task raises inside anyio."""
+
+    def __init__(
+        self, manager_factory: ManagerFactory, settings: TonySettings, tools: ToolConfig
+    ) -> None:
+        self._ready: asyncio.Future[ToolManager] = asyncio.get_running_loop().create_future()
+        self._stop = asyncio.Event()
+        self._task = asyncio.create_task(self._own(manager_factory(settings), tools))
+
+    async def manager(self) -> ToolManager:
+        return await self._ready
+
+    async def stop(self) -> None:
+        self._stop.set()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._task, CLEANUP_BUDGET_S)
+
+    async def _own(self, manager: ToolManager, tools: ToolConfig) -> None:
+        try:
+            await manager.start(tools)
+        except BaseException as exc:
+            self._ready.set_exception(exc)
+            return
+        self._ready.set_result(manager)
+        await self._stop.wait()
+        await manager.stop()

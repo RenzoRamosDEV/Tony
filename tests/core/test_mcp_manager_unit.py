@@ -164,3 +164,23 @@ async def test_qualified_name_conflicts_are_logged_as_warnings(
 
     assert manager.catalog.qualified_names() == ["a.b.c"]
     assert [r.getMessage() for r in caplog.records] == list(manager.catalog.conflicts)
+
+
+async def test_stop_logs_a_warning_when_a_connection_refuses_to_close(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class RefusingSession(FakeSession):
+        async def __aexit__(self, *exc_info: Any) -> None:
+            raise RuntimeError("Attempted to exit cancel scope in a different task")
+
+    install_fakes(monkeypatch, {"fs": RefusingSession([mcp_tool("read")])})
+    manager = McpManager()
+    await manager.start(ToolConfig(mcpServers={"fs": stdio("fs")}))
+
+    with caplog.at_level(logging.WARNING, logger="tony.core.mcp.manager"):
+        await manager.stop()
+
+    assert manager.status() == {}
+    assert [r.getMessage() for r in caplog.records] == [
+        "error al cerrar el servidor MCP 'fs': Attempted to exit cancel scope in a different task"
+    ]

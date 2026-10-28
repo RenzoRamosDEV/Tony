@@ -101,11 +101,11 @@ class McpManager:
     async def stop(self) -> None:
         connections, self._connections = self._connections, {}
         self.catalog = ToolCatalog.empty()
-        for connection in reversed(list(connections.values())):
+        for name, connection in reversed(list(connections.items())):
             try:
                 await connection.stack.aclose()
-            except Exception:  # noqa: BLE001 - closing must never raise
-                pass
+            except Exception as exc:  # noqa: BLE001 - closing must never raise
+                logger.warning("error al cerrar el servidor MCP '%s': %s", name, _describe(exc))
 
     async def _connect(self, name: str, server: ServerSpec) -> list[Any]:
         stack = AsyncExitStack()

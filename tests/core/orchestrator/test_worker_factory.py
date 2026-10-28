@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+
+import pytest
 
 from tests.apps.cli_helpers import FakeManager
 from tests.fakes.gates import AutoConfirmGate
@@ -121,3 +124,66 @@ def test_factory_exposes_its_role_warning(tmp_path: Path) -> None:
     assert factory.warnings == [
         "Aviso: el agente 'jarvis' tiene role 'front' pero se usa como 'worker'"
     ]
+
+
+class TaskRecordingManager(FakeManager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started_in: asyncio.Task | None = None
+        self.stopped_in: asyncio.Task | None = None
+
+    async def start(self, tool_config, server_filter=None) -> None:
+        self.started_in = asyncio.current_task()
+        await super().start(tool_config, server_filter)
+
+    async def stop(self) -> None:
+        self.stopped_in = asyncio.current_task()
+        await super().stop()
+
+
+async def test_manager_is_started_and_stopped_by_the_same_task(tmp_path: Path) -> None:
+    manager = TaskRecordingManager()
+    factory = SdkWorkerFactory(
+        load_settings(None),
+        spec(),
+        logs_dir=tmp_path,
+        secrets=[],
+        manager_factory=lambda settings: manager,
+        runner_factory=Recorder().runner_factory,
+    )
+
+    async def first_task() -> None:
+        await factory.build_worker(
+            Task("t1", TaskRequest(objetivo="a")), ListEventSink(), CancelToken(), AutoConfirmGate(True)
+        )
+
+    await asyncio.create_task(first_task())
+    await asyncio.wait_for(factory.close(), 1)
+
+    assert manager.stopped is True
+    assert manager.started_in is not None
+    assert manager.started_in is manager.stopped_in
+    assert manager.started_in is not asyncio.current_task()
+
+
+async def test_manager_start_failure_fails_the_build_and_leaves_nothing_to_close(
+    tmp_path: Path,
+) -> None:
+    class BrokenManager(FakeManager):
+        async def start(self, tool_config, server_filter=None) -> None:
+            raise RuntimeError("npx missing")
+
+    factory = SdkWorkerFactory(
+        load_settings(None),
+        spec(),
+        logs_dir=tmp_path,
+        secrets=[],
+        manager_factory=lambda settings: BrokenManager(),
+        runner_factory=Recorder().runner_factory,
+    )
+
+    with pytest.raises(RuntimeError, match="npx missing"):
+        await factory.build_worker(
+            Task("t1", TaskRequest(objetivo="a")), ListEventSink(), CancelToken(), AutoConfirmGate(True)
+        )
+    await asyncio.wait_for(factory.close(), 1)

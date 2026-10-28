@@ -18,7 +18,7 @@ from tony.core.orchestrator.confirm import (
 )
 from tony.core.orchestrator.errors import UNKNOWN_TASK, OrchestratorError
 from tony.core.orchestrator.events import TaskEventBus, TaskEventSink
-from tony.core.orchestrator.ports import TaskLog, Worker, WorkerFactory
+from tony.core.orchestrator.ports import TaskLog, WorkerFactory
 from tony.core.orchestrator.queue import TaskQueue
 from tony.core.orchestrator.state import transition
 from tony.core.orchestrator.task import (
@@ -35,6 +35,7 @@ from tony.core.orchestrator.task import (
 )
 from tony.core.runner import TaskRequest, TaskResult
 from tony.core.runner.cancel import NOT_CONFIRMED_REASON, USER_REASON, CancelToken
+from tony.core.runner.claude_sdk import CLEANUP_BUDGET_S
 from tony.core.runner.results import error_result, external_cancelled_result, timeout_result
 
 MAX_QUEUED = 10
@@ -204,29 +205,41 @@ class Orchestrator:
             transition(task, TaskStatus.RUNNING)
             task.started_at = self._clock.monotonic()
             ctx.sink.emit(TASK_RUNNING, {})
-        try:
-            worker = await self._factory.build_worker(
-                task, ctx.sink, ctx.token, OrchestratorConfirmGate(self, task.id)
-            )
-            result = await self._run_until_deadline(ctx, worker)
-        except Exception as exc:  # noqa: BLE001 - a broken worker fails the task, not Tony
-            result = error_result(str(exc) or exc.__class__.__name__, [])
-        await self._finish(ctx, result)
+        await self._finish(ctx, await self._supervise(ctx))
 
-    async def _run_until_deadline(self, ctx: _TaskContext, worker: Worker) -> TaskResult | None:
-        run = asyncio.ensure_future(
-            worker.runner.run(worker.spec, ctx.task.request, worker.catalog, ctx.sink)
-        )
+    async def _supervise(self, ctx: _TaskContext) -> TaskResult | None:
+        run = asyncio.ensure_future(self._build_and_run(ctx))
         deadline = asyncio.ensure_future(self._clock.sleep(self._limits.task_timeout_s))
+        cancelled = asyncio.ensure_future(ctx.token.wait())
         try:
-            done, _ = await asyncio.wait({run, deadline}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {run, deadline, cancelled}, return_when=asyncio.FIRST_COMPLETED
+            )
         finally:
             deadline.cancel()
-        if run in done:
-            return run.result()
-        await self._expire(ctx)
-        late = await asyncio.gather(run, return_exceptions=True)
-        return late[0] if isinstance(late[0], TaskResult) else None
+            cancelled.cancel()
+        if run not in done:
+            if deadline in done:
+                await self._expire(ctx)
+            await self._abandon_after_budget(run)
+        return _result_of(run)
+
+    async def _build_and_run(self, ctx: _TaskContext) -> TaskResult:
+        task = ctx.task
+        worker = await self._factory.build_worker(
+            task, ctx.sink, ctx.token, OrchestratorConfirmGate(self, task.id)
+        )
+        return await worker.runner.run(worker.spec, task.request, worker.catalog, ctx.sink)
+
+    async def _abandon_after_budget(self, run: asyncio.Future[TaskResult]) -> None:
+        budget = asyncio.ensure_future(self._clock.sleep(CLEANUP_BUDGET_S))
+        try:
+            await asyncio.wait({run, budget}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            budget.cancel()
+        if not run.done():
+            run.cancel()
+            await asyncio.gather(run, return_exceptions=True)
 
     async def _expire(self, ctx: _TaskContext) -> None:
         task = ctx.task
@@ -261,3 +274,13 @@ class Orchestrator:
         if status == TaskStatus.TIMEOUT:
             return timeout_result(self._limits.task_timeout_s, [])
         return external_cancelled_result(ctx.token.reason, [])
+
+
+def _result_of(run: asyncio.Future[TaskResult]) -> TaskResult | None:
+    if run.cancelled():
+        return None
+    exc = run.exception()
+    if exc is not None:
+        return error_result(str(exc) or exc.__class__.__name__, [])
+    result = run.result()
+    return result if isinstance(result, TaskResult) else None

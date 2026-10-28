@@ -12,7 +12,7 @@ from tests.fakes.worker_factory import FakeWorkerFactory
 from tony.core.config import Limits
 from tony.core.mcp import ToolCallOutcome
 from tony.core.orchestrator.errors import OrchestratorError
-from tony.core.orchestrator.orchestrator import Orchestrator
+from tony.core.orchestrator.orchestrator import CLEANUP_BUDGET_S, Orchestrator
 from tony.core.orchestrator.task import (
     TASK_CANCELLED,
     TASK_PROGRESS,
@@ -311,3 +311,65 @@ async def test_close_cancels_active_tasks_and_closes_the_factory(h: Harness) -> 
     assert h.factory.closed is True
     assert task.status == TaskStatus.CANCELLED
     assert task.finished.is_set()
+
+
+class StuckRunner:
+    """Ignores the cancel token and never returns."""
+
+    async def run(self, spec, request, tools, events) -> TaskResult:
+        events.emit("task.started", {"agent": spec.name, "objetivo": request.objetivo})
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+async def test_deadline_publishes_timeout_and_frees_the_queue_even_if_the_runner_never_ends(
+    h: Harness,
+) -> None:
+    h.factory.custom_runners["stuck"] = StuckRunner()
+    stuck = h.submit("stuck")
+    following = h.submit("next", [])
+    await h.clock.settle()
+
+    await h.clock.advance(300)
+    assert stuck.status == TaskStatus.TIMEOUT
+    await h.clock.advance(CLEANUP_BUDGET_S)
+
+    result = await asyncio.wait_for(h.orchestrator.wait(stuck.id), 1)
+    assert result.status == "timeout"
+    assert stuck.finished.is_set()
+    assert h.orchestrator_events(stuck.id)[-1][0] == TASK_RESULT
+    assert following.status == TaskStatus.DONE
+    await asyncio.wait_for(h.orchestrator.close(), 1)
+
+
+async def test_deadline_counts_from_running_and_covers_the_worker_build(h: Harness) -> None:
+    async def never_build(task, events, cancel_token, gate):
+        await asyncio.Event().wait()
+
+    h.factory.build_worker = never_build  # type: ignore[method-assign]
+    task = h.submit("a")
+    await h.clock.settle()
+    assert task.started_at == 0
+
+    await h.clock.advance(300)
+    assert task.status == TaskStatus.TIMEOUT
+    await h.clock.advance(CLEANUP_BUDGET_S)
+
+    result = await asyncio.wait_for(h.orchestrator.wait(task.id), 1)
+    assert result.status == "timeout"
+    assert task.finished_at == 300 + CLEANUP_BUDGET_S
+
+
+async def test_cancelled_task_whose_runner_never_returns_settles_after_the_budget(
+    h: Harness,
+) -> None:
+    h.factory.custom_runners["stuck"] = StuckRunner()
+    task = h.submit("stuck")
+    await h.clock.settle()
+
+    await h.orchestrator.cancel(task.id, "user")
+    assert not task.finished.is_set()
+    await h.clock.advance(CLEANUP_BUDGET_S)
+
+    result = await asyncio.wait_for(h.orchestrator.wait(task.id), 1)
+    assert result.status == "cancelled"
