@@ -14,30 +14,38 @@ AFFIRMATIVE = {"s", "si", "sí"}
 
 class LineSource(Protocol):
     async def readline(self) -> str | None:
-        """Next line typed after this call; None once the input is exhausted."""
+        """Next line of input; None once it is exhausted."""
         ...
 
 
 class StdinLines:
     """Lines from stdin pumped by one daemon thread, so waiting is cancellable.
 
-    Lines queued before a read starts were typed before the current prompt and are
-    discarded; a daemon thread never keeps the interpreter alive after a timeout.
+    When a read is abandoned (the confirmation timed out), the answer that arrives
+    late belongs to that stale prompt: it is discarded before the next read. A daemon
+    thread never keeps the interpreter alive after a timeout.
     """
 
     def __init__(self, stream: TextIO | None = None) -> None:
         self._stream = stream
         self._queue: asyncio.Queue[str | None] | None = None
         self._eof = False
+        self._abandoned = False
 
     async def readline(self) -> str | None:
         if self._eof:
             return None
         queue = self._start_pump()
-        while not queue.empty():
-            if queue.get_nowait() is None:
-                return self._end()
-        line = await queue.get()
+        if self._abandoned:
+            self._abandoned = False
+            while not queue.empty():
+                if queue.get_nowait() is None:
+                    return self._end()
+        try:
+            line = await queue.get()
+        except asyncio.CancelledError:
+            self._abandoned = True
+            raise
         return self._end() if line is None else line
 
     def _end(self) -> None:
