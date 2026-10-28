@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from tony.apps.web.ack_cache import AckCache
 from tony.apps.web.audio_ws import AUDIO_BACKPRESSURE, AudioSession
 from tony.apps.web.confirmations import ConfirmationRouter, InvalidConfirmation, WebConfirmGate
 from tony.apps.web.echo import is_echo
@@ -111,6 +112,7 @@ class ConversationHub:
         self.turn: asyncio.Task[None] | None = None
         self.audio: AudioSession | None = None
         self.playback = PlaybackWindow(clock.monotonic)
+        self.acks: AckCache | None = None
         self._echo_reference = ""
         self._interrupted_turn: asyncio.Task[None] | None = None
         self._emitter: asyncio.Task[None] | None = None
@@ -249,6 +251,8 @@ class ConversationHub:
             await self._error(self.socket, "audio_in_progress", AUDIO_IN_PROGRESS)
             return
         await self._cancel_speech()
+        if self.acks is not None:
+            self.acks.warm()
         if self.audio is not None:
             self.audio.open()
             return
@@ -419,6 +423,8 @@ class ConversationHub:
             try:
                 await self._close_conversation()
             finally:
+                if self.acks is not None:
+                    await self.acks.aclose()
                 self.voice.close()
 
     async def _silence_outbound(self) -> None:
@@ -464,13 +470,18 @@ class ConversationHub:
         if not voice.available or voice.registry is None:
             return None
         registry = voice.registry
+        tts_loader = lambda: registry.get_tts(registry.tts_alias)  # noqa: E731
+        if self.acks is None:
+            phrases = self.runtime.settings.voice.acknowledgements
+            self.acks = AckCache(phrases, tts_loader, voice.executor, registry.tts_voice)
         return SpeechStreamer(
             stream,
-            lambda: registry.get_tts(registry.tts_alias),
+            tts_loader,
             voice.executor,
             registry.tts_voice,
             self.runtime,
             playback,
+            self.acks,
         )
 
     async def _close_conversation(self) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,9 @@ from starlette.websockets import WebSocketDisconnect
 
 from tests.apps.web.helpers import (
     FakeVoice,
+    advance,
     build_test_app,
+    delegating,
     drain_mixed,
     drain_until,
     hello,
@@ -350,3 +353,51 @@ def test_the_first_spoken_piece_is_cut_at_the_first_clause(tmp_path: Path) -> No
             drain_mixed(ws, "tts.end")
 
     assert tts.sentences == ["Buenas tardes,", "señor.", "Todo en orden."]
+
+
+def test_a_spoken_delegation_is_acknowledged_at_once_from_the_cache(tmp_path: Path) -> None:
+    tts = FakeTts()
+    scripts = {"larga": [("sleep", 10)]}
+    with build_test_app(
+        tmp_path, turns=[TWO, delegating("larga")], scripts=scripts, voice=voice(tts)
+    ) as client:
+        with open_chat(client) as (ws, _):
+            send(ws, "audio.start", {"sample_rate": 16000, "channels": 1, "format": "f32"})
+            send(ws, "user.text", {"text": "/v hora"})
+            drain_mixed(ws, "tts.end")
+            acks = client.app.state.hub.acks
+            for _ in range(100):
+                if acks is not None and acks.ready:
+                    break
+                settle(client)
+                time.sleep(0.01)
+            synthesized = list(tts.sentences)
+            send(ws, "user.text", {"text": "/v tarea larga"})
+            before = drain_mixed(ws, "bin")
+            advance(client, 10)
+            after = drain_mixed(ws, "tts.end")
+
+    order = types(before)
+    assert "assistant.final" not in order
+    assert order.index("tts.start") < order.index("tts.chunk.meta")
+    assert tts.sentences[: len(synthesized)] == synthesized
+    assert "Un momento, señor." not in tts.sentences[len(synthesized) :]
+    metas = [m for m in before + after if isinstance(m, dict) and m["type"] == "tts.chunk.meta"]
+    assert [m["payload"]["seq"] for m in metas] == list(range(len(metas)))
+    assert len({m["message_id"] for m in metas}) == 1
+    final = next(m for m in after if isinstance(m, dict) and m["type"] == "assistant.final")
+    assert final["message_id"] == metas[0]["message_id"]
+
+
+def test_a_typed_delegation_is_not_acknowledged(tmp_path: Path) -> None:
+    scripts = {"larga": [("sleep", 10)]}
+    with build_test_app(
+        tmp_path, turns=[delegating("larga")], scripts=scripts, voice=voice()
+    ) as client:
+        with open_chat(client) as (ws, _):
+            send(ws, "user.text", {"text": "/t tarea larga"})
+            drain_mixed(ws, "task.running")
+            advance(client, 10)
+            seen = drain_mixed(ws, "assistant.final")
+
+    assert not any(t.startswith("tts.") for t in types(seen))

@@ -150,7 +150,7 @@ class ChatSession:
             return None
         mode, message = accepted
         reply_id = uuid.uuid4().hex
-        in_flight = self._turn = _TurnInFlight(reply_id)
+        in_flight = self._turn = _TurnInFlight(reply_id, mode.mode)
         try:
             turn = await self._runner.turn(
                 self._prompt_for(message, mode, modality),
@@ -266,7 +266,7 @@ class ChatSession:
             )
         self.active_task_ids.add(task.id)
         if self._turn is not None:
-            await self._channel.send(DelegationStarted(self._turn.reply_id))
+            await self._channel.send(DelegationStarted(self._turn.reply_id, self._turn.mode))
         usage: dict[str, Any] = {}
         self._record_task(task.id, request, None, usage)
         forwarder = asyncio.ensure_future(self._forward_events(task.id, usage))
@@ -398,6 +398,7 @@ class ChatSession:
 @dataclass
 class _TurnInFlight:
     reply_id: str
+    mode: str
     display: list[str] = field(default_factory=list)
     interrupted: bool = False
 

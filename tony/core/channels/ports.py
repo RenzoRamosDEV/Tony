@@ -42,6 +42,7 @@ class DelegationStarted:
     """The front handed a task to the worker while composing the reply `message_id`."""
 
     message_id: str
+    mode: str
 
 
 @dataclass(frozen=True)

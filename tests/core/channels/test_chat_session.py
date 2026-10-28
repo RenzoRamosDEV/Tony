@@ -1026,4 +1026,4 @@ async def test_delegate_announces_the_delegation_before_waiting(tmp_memory: Path
 
     await h.clock.advance(101)
     reply = await asyncio.wait_for(turn, 1)
-    assert started == [DelegationStarted(reply.message_id)]
+    assert started == [DelegationStarted(reply.message_id, "voice")]

@@ -24,6 +24,7 @@ from tony.core.channels.ports import (
     AssistantSpeechDelta,
     AssistantWait,
     ChannelMessage,
+    DelegationStarted,
     NeedsConfirmation,
     Notice,
     TaskEvent,
@@ -219,6 +220,9 @@ class WebChannel:
         elif isinstance(message, AssistantSpeechDelta):
             if self.speech is not None:
                 self.speech.on_delta(message.message_id, message.text)
+        elif isinstance(message, DelegationStarted):
+            if self.speech is not None:
+                self.speech.acknowledge(message.message_id, message.mode)
         elif isinstance(message, AssistantWait):
             await self._stream.publish(ASSISTANT_WAIT, {"text": message.text})
         elif isinstance(message, AssistantReply):

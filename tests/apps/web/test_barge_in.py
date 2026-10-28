@@ -19,6 +19,7 @@ from tests.apps.web.helpers import (
 )
 from tests.fakes.conversation import BLOCK_UNTIL_INTERRUPT
 from tests.fakes.voice import FULL_SCALE_RMS, FakeStt, FakeTts, FakeVad
+from tony.core.config import VoiceSettings
 from tony.core.voice.ports import VAD_WINDOW_SAMPLES
 
 AUDIO_START = {"sample_rate": 16000, "channels": 1, "format": "f32"}
@@ -30,15 +31,19 @@ WINDOW_MS = 32
 
 
 class GatedTts(FakeTts):
-    """Synthesizes the first piece, then holds every other one until released."""
+    """Synthesizes the acknowledgements and the first piece of a reply, then holds every other
+    piece until released."""
 
     def __init__(self) -> None:
         super().__init__()
         self.gate = threading.Event()
+        self.pieces = 0
 
     def synthesize(self, text: str, voice: str):
-        if self.sentences:
-            self.gate.wait(timeout=5)
+        if text not in VoiceSettings().acknowledgements:
+            if self.pieces:
+                self.gate.wait(timeout=5)
+            self.pieces += 1
         return super().synthesize(text, voice)
 
 

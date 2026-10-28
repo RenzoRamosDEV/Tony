@@ -68,7 +68,7 @@ class SpeechPipeline:
         self._events = events
         self._segmenter = segmenter or SentenceSegmenter()
         self._sanitize = sanitize
-        self._queue: asyncio.Queue[tuple[str, CutKind] | None] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[str | list[AudioChunk], CutKind] | None] = asyncio.Queue()
         self._consumer: asyncio.Task[None] | None = None
         self._stop = threading.Event()
         self._stats = SpeechStats()
@@ -83,6 +83,10 @@ class SpeechPipeline:
     def feed(self, text: str) -> None:
         for piece in self._segmenter.feed(text):
             self._enqueue(piece)
+
+    def feed_audio(self, chunks: list[AudioChunk]) -> None:
+        """Queue audio synthesized beforehand as a whole sentence (an acknowledgement)."""
+        self._put((list(chunks), "sentence"))
 
     async def finish(self) -> None:
         rest = self._segmenter.flush()
@@ -106,9 +110,12 @@ class SpeechPipeline:
         await self._sink.cancelled()
 
     def _enqueue(self, piece: Piece) -> None:
+        self._put((self._sanitize(piece), piece.kind))
+
+    def _put(self, item: tuple[str | list[AudioChunk], CutKind]) -> None:
         if self._finished or self._stop.is_set():
             return
-        self._queue.put_nowait((self._sanitize(piece), piece.kind))
+        self._queue.put_nowait(item)
         if self._consumer is None:
             self._consumer = asyncio.create_task(self._consume())
 
@@ -121,9 +128,13 @@ class SpeechPipeline:
             return
         await self._sink.start()
         while (item := await self._queue.get()) is not None:
-            sentence, kind = item
+            content, kind = item
             try:
-                chunks = await self._executor.run_serial(TTS_LANE, self._synthesize, tts, sentence)
+                chunks = (
+                    content
+                    if isinstance(content, list)
+                    else await self._executor.run_serial(TTS_LANE, self._synthesize, tts, content)
+                )
                 chunks = with_pause(chunks, kind)
             except Exception as exc:  # noqa: BLE001 - same degradation, after some audio
                 await self._sink.failed(f"{exc.__class__.__name__}: {exc}")

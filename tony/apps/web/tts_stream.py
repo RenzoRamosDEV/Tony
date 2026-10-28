@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
+from tony.apps.web.ack_cache import AckCache
 from tony.apps.web.playback_window import PlaybackWindow
 from tony.apps.web.protocol import (
     ERROR,
@@ -82,8 +83,10 @@ class SpeechStreamer:
         voice: str,
         events: EventSink,
         playback: PlaybackWindow | None = None,
+        acks: AckCache | None = None,
     ) -> None:
         self._stream = stream
+        self._acks = acks
         self._tts_loader = tts_loader
         self._executor = executor
         self._voice = voice
@@ -92,10 +95,24 @@ class SpeechStreamer:
         self._pipelines: dict[str, SpeechPipeline] = {}
         self._finishers: set[asyncio.Task[None]] = set()
         self._spoken: dict[str, str] = {}
+        self._streamed: set[str] = set()
 
     def on_delta(self, message_id: str, text: str) -> None:
+        self._streamed.add(message_id)
         self._remember_spoken(message_id, text)
         self._pipeline_for(message_id).feed(text)
+
+    def acknowledge(self, message_id: str, mode: str) -> None:
+        """A spoken reply delegated a task: play a cached acknowledgement as its first piece,
+        unless the cache is not ready yet or the reply already has audio of its own."""
+        if self._acks is None or mode not in SPOKEN_MODES or message_id in self._pipelines:
+            return
+        self._acks.warm()
+        acknowledgement = self._acks.next()
+        if acknowledgement is not None:
+            phrase, audio = acknowledgement
+            self._remember_spoken(message_id, phrase + " ")
+            self._pipeline_for(message_id).feed_audio(audio)
 
     def start(self, reply: AssistantReply) -> None:
         """Speak a reply in voice/both: at once from its full text, or finishing streamed deltas.
@@ -104,7 +121,7 @@ class SpeechStreamer:
         """
         if reply.mode not in SPOKEN_MODES or reply.message_id is None:
             return
-        streamed = reply.message_id in self._pipelines
+        streamed = reply.message_id in self._streamed
         if reply.interrupted and not streamed:
             return
         pipeline = self._pipeline_for(reply.message_id)
@@ -176,3 +193,4 @@ class SpeechStreamer:
             await pipeline.finish()
         finally:
             self._pipelines.pop(message_id, None)
+            self._streamed.discard(message_id)
