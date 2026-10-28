@@ -448,19 +448,25 @@ async def test_finding_8_a_child_that_never_ends_is_cancelled_after_the_drain_bu
     tmp_path: Path,
 ) -> None:
     h = RedactingHarness(tmp_path)
-    h.orchestrator.open_streams["s-2"] = asyncio.Event()
-    h.orchestrator.scripted["s-2"] = [bus_event("s-2", "task.queued", {"objetivo": "l"}, "t-9")]
+    for child in ("s-2", "o-2"):
+        h.orchestrator.open_streams[child] = asyncio.Event()
+        h.orchestrator.scripted[child] = [bus_event(child, "task.queued", {"objetivo": "l"})]
     await h.channel.send(event("t-9", "task.queued", {"objetivo": "padre"}))
     await h.channel.send(event("t-9", "subtask.started", {"task_id": "s-2", "agent": "i"}))
+    await h.channel.send(event("o-1", "task.queued", {"objetivo": "otra raíz"}))
+    await h.channel.send(event("o-1", "subtask.started", {"task_id": "o-2", "agent": "i"}))
     await h.clock.settle()
     finishing = asyncio.ensure_future(h.channel.send(event("t-9", "task.result", {"status": "ok"})))
     await h.clock.advance(DRAIN_TIMEOUT_S - 1)
-    assert not finishing.done() and h.channel.streamer.active_subscriptions == 1
+    assert not finishing.done() and h.channel.streamer.active_subscriptions == 2
 
     await h.clock.advance(1)
 
-    assert finishing.done() and h.channel.streamer.active_subscriptions == 0
+    assert finishing.done() and h.channel.streamer.active_subscriptions == 1
     assert ("task.queued", "s-2") in [(e.type, e.task_id) for e in h.published()]
+    h.orchestrator.open_streams["o-2"].set()
+    await h.clock.settle()
+    assert h.channel.streamer.active_subscriptions == 0
 
 
 async def test_finding_14_user_accepted_echoes_the_client_id_of_that_turn_only(tmp_path) -> None:
