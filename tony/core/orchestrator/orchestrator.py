@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -43,6 +44,7 @@ from tony.core.runner.results import error_result, external_cancelled_result, ti
 MAX_QUEUED = 10
 TIMEOUT_REASON = "timeout"
 SHUTDOWN_REASON = "shutdown"
+logger = logging.getLogger(__name__)
 
 
 class _TaskContext:
@@ -221,14 +223,22 @@ class Orchestrator:
 
     async def _run_task(self, ctx: _TaskContext) -> None:
         task = ctx.task
+        if not await self._mark_running(ctx):
+            # Cancelled in cascade before starting: its result still has to be published.
+            await self._finish(ctx, None)
+            return
+        self._emit_to_parent(task, SUBTASK_STARTED, {"task_id": task.id, "agent": task.agent})
+        await self._finish(ctx, await self._supervise(ctx))
+
+    async def _mark_running(self, ctx: _TaskContext) -> bool:
+        task = ctx.task
         async with task.lock:
             if task.final:
-                return
+                return False
             transition(task, TaskStatus.RUNNING)
             task.started_at = self._clock.monotonic()
             ctx.sink.emit(TASK_RUNNING, {})
-        self._emit_to_parent(task, SUBTASK_STARTED, {"task_id": task.id, "agent": task.agent})
-        await self._finish(ctx, await self._supervise(ctx))
+            return True
 
     async def _supervise(self, ctx: _TaskContext) -> TaskResult | None:
         run = asyncio.ensure_future(self._build_and_run(ctx))
@@ -314,11 +324,17 @@ class Orchestrator:
             task.finished_at = self._clock.monotonic()
             ctx.sink.emit(TASK_RESULT, {"result": result.model_dump()})
         ctx.log.close()
-        await self._factory.release(task.id)
-        self._emit_to_parent(task, SUBTASK_FINISHED, {"task_id": task.id, "status": task.status})
-        task.finished.set()
-        self._queue.release(task)
-        self._pump()
+        try:
+            await self._factory.release(task.id)
+        except Exception as exc:  # noqa: BLE001 - a failed cleanup must not block the task
+            logger.warning("error al liberar los recursos de la tarea %s: %s", task.id, exc)
+        finally:
+            self._emit_to_parent(
+                task, SUBTASK_FINISHED, {"task_id": task.id, "status": task.status}
+            )
+            task.finished.set()
+            self._queue.release(task)
+            self._pump()
 
     def _settled_result(self, ctx: _TaskContext, runner_result: TaskResult | None) -> TaskResult:
         status = ctx.task.status

@@ -217,3 +217,22 @@ async def test_composite_caller_routes_by_the_server_prefix_only() -> None:
     assert (await composite("fetchx.fetch", {}, 1)).content == "parent"
     assert (await composite("fs.read_file", {}, 1)).content == "parent"
     assert calls == [("own", "fetch.fetch"), ("parent", "fetchx.fetch"), ("parent", "fs.read_file")]
+
+
+async def test_close_logs_a_failing_child_manager_stop_instead_of_raising(caplog) -> None:
+    recorder, manager = Recorder(), parent_manager()
+    spec = child(ToolConfig(mcpServers={"fetch": FETCH}))
+    worker, *_ = await build(recorder, parent(), spec, manager)
+    own = recorder.managers[0]
+
+    async def broken_stop() -> None:
+        own.stopped = True
+        raise RuntimeError("stop roto")
+
+    own.stop = broken_stop  # type: ignore[method-assign]
+
+    with caplog.at_level("WARNING"):
+        await worker.close()
+
+    assert own.stopped is True
+    assert any("stop roto" in r.message and "investigador" in r.message for r in caplog.records)

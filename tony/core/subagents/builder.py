@@ -89,18 +89,22 @@ class SubagentWorkerBuilder:
         runner = self._runner_factory(
             self._settings, task_id, gate, call, token, SkillToolHandlers(child)
         )
-        return ChildWorker(runner, child, catalog, _closer(owner))
+        return ChildWorker(runner, child, catalog, _closer(owner, child.name))
 
 
 def _own_config(policy: ChildPolicy) -> ToolConfig:
     return ToolConfig(mcpServers=policy.servers, allow=policy.allow_child, confirm=policy.confirm)
 
 
-def _closer(owner: ManagerOwner | None) -> Callable[[], Awaitable[None]]:
+def _closer(owner: ManagerOwner | None, child_name: str) -> Callable[[], Awaitable[None]]:
     async def close() -> None:
         nonlocal owner
         pending, owner = owner, None
-        if pending is not None:
+        if pending is None:
+            return
+        try:
             await pending.stop()
+        except Exception as exc:  # noqa: BLE001 - closing a child's servers never raises
+            logger.warning("error al cerrar los servidores del subagente %s: %s", child_name, exc)
 
     return close

@@ -315,3 +315,54 @@ async def test_cancel_token_of_the_child_is_distinct_from_the_parent(h: Harness)
     await h.clock.advance(3)
     assert parent.status == TaskStatus.CANCELLED
     assert h.factory.runners[parent.id].results[0].status == "cancelled"
+
+
+# --- children cancelled before they start, and release failures (review of change 03) ---------
+
+
+async def test_child_cancelled_in_cascade_before_starting_still_gets_a_result(h: Harness) -> None:
+    results: list[TaskResult] = []
+
+    class CancellingParent:
+        def __init__(self, task: Task) -> None:
+            self.task = task
+
+        async def run(self, spec, request, tools, events: EventSink) -> TaskResult:
+            child = h.orchestrator.submit_subtask(self.task.id, CHILD, TaskRequest(objetivo="c1"))
+            await h.orchestrator.cancel(self.task.id, "user")
+            results.append(await asyncio.wait_for(h.orchestrator.wait(child.id), 1))
+            return OK
+
+    h.factory.runner_builders["p"] = lambda task, token, gate: CancellingParent(task)
+    parent = h.orchestrator.submit(TaskRequest(objetivo="p"))
+    stream = asyncio.ensure_future(h.collect(parent.id))
+    await h.clock.settle()
+    child = h.child(parent)
+
+    assert results and results[0].status == "cancelled"
+    assert child.status == TaskStatus.CANCELLED and child.finished.is_set()
+    assert child.result is not None and child.result.status == "cancelled"
+    assert h.log(child.id, "task.result") == [{"result": child.result.model_dump()}]
+    assert child.id not in h.factory.built
+    parent_events = [(e.type, e.payload) for e in await asyncio.wait_for(stream, 1)]
+    assert (SUBTASK_FINISHED, {"task_id": child.id, "status": "cancelled"}) in parent_events
+
+
+async def test_release_failure_is_logged_and_never_blocks_finishing(h: Harness, caplog) -> None:
+    async def failing_release(task_id: str) -> None:
+        h.factory.released.append(task_id)
+        raise RuntimeError("stop roto")
+
+    h.factory.release = failing_release  # type: ignore[method-assign]
+    parent = h.parent("p", ["c1"])
+    following = h.orchestrator.submit(TaskRequest(objetivo="siguiente"))
+
+    with caplog.at_level("WARNING"):
+        result = await asyncio.wait_for(h.orchestrator.wait(parent.id), 1)
+        await asyncio.wait_for(h.orchestrator.wait(following.id), 1)
+
+    child = h.child(parent)
+    assert result.status == "ok" and child.finished.is_set() and parent.finished.is_set()
+    assert following.status == TaskStatus.DONE
+    assert h.factory.released == [child.id, parent.id, following.id]
+    assert any("stop roto" in r.message and child.id in r.message for r in caplog.records)
