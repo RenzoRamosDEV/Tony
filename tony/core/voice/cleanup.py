@@ -53,8 +53,8 @@ def strip_markdown(text: str) -> tuple[str, bool]:
 
 def speech_text_for(display_text: str, speech_text: str | None) -> SpeechText:
     if speech_text is not None and speech_text.strip():
-        return SpeechText(_spoken_mask(speech_text), truncated=False, stripped=False)
-    text, stripped = strip_markdown(_spoken_mask(display_text))
+        return SpeechText(spoken_mask(speech_text), truncated=False, stripped=False)
+    text, stripped = strip_markdown(spoken_mask(display_text))
     truncated = len(text) > MAX_SPEECH_CHARS
     if truncated:
         text = text[:MAX_SPEECH_CHARS].rsplit(" ", 1)[0]
@@ -63,5 +63,6 @@ def speech_text_for(display_text: str, speech_text: str | None) -> SpeechText:
     return SpeechText(text, truncated=truncated, stripped=stripped)
 
 
-def _spoken_mask(text: str) -> str:
+def spoken_mask(text: str) -> str:
+    """A redacted secret is read as words, never as asterisks."""
     return text.replace(MASK, SPOKEN_MASK)

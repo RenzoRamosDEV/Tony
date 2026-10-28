@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,6 +13,7 @@ from tony.core.voice.ports import AudioChunk, SpeechSink, Tts
 from tony.core.voice.segmenter import SentenceSegmenter
 
 TTS_EVENT = "tts"
+TTS_LANE = "tts"
 TtsLoader = Callable[[], Tts]
 
 
@@ -48,6 +48,7 @@ class SpeechPipeline:
         sink: SpeechSink,
         events: EventSink,
         segmenter: SentenceSegmenter | None = None,
+        sanitize: Callable[[str], str] = str,
     ) -> None:
         self._tts_loader = tts_loader
         self._executor = executor
@@ -55,6 +56,7 @@ class SpeechPipeline:
         self._sink = sink
         self._events = events
         self._segmenter = segmenter or SentenceSegmenter()
+        self._sanitize = sanitize
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._consumer: asyncio.Task[None] | None = None
         self._stop = threading.Event()
@@ -95,13 +97,13 @@ class SpeechPipeline:
     def _enqueue(self, sentence: str) -> None:
         if self._finished or self._stop.is_set():
             return
-        self._queue.put_nowait(sentence)
+        self._queue.put_nowait(self._sanitize(sentence))
         if self._consumer is None:
             self._consumer = asyncio.create_task(self._consume())
 
     async def _consume(self) -> None:
         try:
-            tts = await self._executor.run(self._tts_loader)
+            tts = await self._executor.run_serial(TTS_LANE, self._tts_loader)
         except Exception as exc:  # noqa: BLE001 - a broken engine degrades the reply to text
             await self._sink.failed(f"{exc.__class__.__name__}: {exc}")
             self._settle(cancelled=True)
@@ -109,7 +111,7 @@ class SpeechPipeline:
         await self._sink.start()
         while (sentence := await self._queue.get()) is not None:
             try:
-                chunks = await self._executor.run(self._synthesize, tts, sentence)
+                chunks = await self._executor.run_serial(TTS_LANE, self._synthesize, tts, sentence)
             except Exception as exc:  # noqa: BLE001 - same degradation, after some audio
                 await self._sink.failed(f"{exc.__class__.__name__}: {exc}")
                 self._settle(cancelled=True)
@@ -124,8 +126,13 @@ class SpeechPipeline:
         await self._sink.end()
 
     def _synthesize(self, tts: Tts, sentence: str) -> list[AudioChunk]:
-        stream = tts.synthesize(sentence, self._voice)
-        return list(itertools.takewhile(lambda _: not self._stop.is_set(), stream))
+        chunks: list[AudioChunk] = []
+        if self._stop.is_set():
+            return chunks
+        stream = iter(tts.synthesize(sentence, self._voice))
+        while not self._stop.is_set() and (chunk := next(stream, None)) is not None:
+            chunks.append(chunk)
+        return chunks
 
     def _settle(self, cancelled: bool) -> None:
         self._finished = True

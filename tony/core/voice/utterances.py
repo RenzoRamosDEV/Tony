@@ -12,8 +12,9 @@ WINDOW_BYTES = VAD_WINDOW_SAMPLES * FLOAT32_BYTES
 
 
 class UtteranceAssembler:
-    """Closes an utterance after `end_silence_ms` of silence, drops ones shorter than
-    `min_speech_ms` and force-cuts at `max_utterance_ms`; trailing silence is trimmed."""
+    """Closes an utterance after `end_silence_ms` of silence, drops ones with less than
+    `min_speech_ms` of speech and force-cuts at `max_utterance_ms` of total duration;
+    trailing silence is trimmed."""
 
     def __init__(
         self,
@@ -43,10 +44,10 @@ class UtteranceAssembler:
             self._speech_windows += 1
             self._last_speech_index = len(self._windows) - 1
             self._trailing_silence_ms = 0
-            if self._speech_windows * self._window_ms >= self._max_utterance_ms:
-                return self._close()
-            return []
-        self._trailing_silence_ms += self._window_ms
+        else:
+            self._trailing_silence_ms += self._window_ms
+        if self.pending_ms >= self._max_utterance_ms:
+            return self._close()
         if self._trailing_silence_ms >= self._end_silence_ms:
             return self._close()
         return []
@@ -54,13 +55,17 @@ class UtteranceAssembler:
     def flush(self) -> list[Utterance]:
         return self._close()
 
-    def _close(self) -> list[Utterance]:
-        speech = self._windows[: self._last_speech_index + 1]
+    def reset(self) -> None:
         self._windows = []
         self._speech_windows = 0
         self._last_speech_index = -1
         self._trailing_silence_ms = 0
-        if len(speech) * self._window_ms < self._min_speech_ms:
+
+    def _close(self) -> list[Utterance]:
+        speech = self._windows[: self._last_speech_index + 1]
+        speech_ms = self._speech_windows * self._window_ms
+        self.reset()
+        if speech_ms < self._min_speech_ms:
             return []
         return [Utterance(pcm=b"".join(speech), duration_ms=len(speech) * self._window_ms)]
 
@@ -91,3 +96,9 @@ class VadSegmenter:
         self._remainder = b""
         self._vad.reset()
         return self._assembler.flush()
+
+    def reset(self) -> None:
+        """Start a new capture: drop the partial utterance and the VAD's recurrent state."""
+        self._remainder = b""
+        self._assembler.reset()
+        self._vad.reset()

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Iterator
 
 import pytest
 
 from tests.fakes.sinks import ListEventSink
-from tests.fakes.voice import FakeTts, ListSpeechSink
+from tests.fakes.voice import FakeTts, ListSpeechSink, sine_chunk
 from tony.core.voice.executor import VoiceExecutor
 from tony.core.voice.pipeline import TTS_EVENT, SpeechPipeline
 from tony.core.voice.ports import AudioChunk, Tts
@@ -154,3 +155,71 @@ async def test_sentences_never_synthesize_concurrently(executor) -> None:
     assert tts.peak_running == 1
     assert [index for _, index, _ in sink.chunks] == [i // 2 for i in range(10)]
     assert [seq for seq, _, _ in sink.chunks] == list(range(10))
+
+
+class BlockingTts(FakeTts):
+    """Blocks inside `synthesize` until `release`, like a native inference that ignores cancel."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.gate = threading.Event()
+        self.log: list[str] = []
+
+    def synthesize(self, text: str, voice: str) -> Iterator[AudioChunk]:
+        self.log.append(f"enter {text}")
+        self.entered.set()
+        self.gate.wait(timeout=5)
+        self.log.append(f"exit {text}")
+        return super().synthesize(text, voice)
+
+
+async def test_review05_finding_7_next_synthesis_waits_for_the_cancelled_one_to_return(
+    executor,
+) -> None:
+    tts = BlockingTts()
+    first, _, _ = pipeline(executor, tts)
+    second, second_sink, _ = pipeline(executor, tts)
+
+    first.feed("Primera frase.")
+    finishing = asyncio.ensure_future(first.finish())
+    await asyncio.get_running_loop().run_in_executor(None, tts.entered.wait)
+    await first.cancel()
+    await asyncio.gather(finishing, return_exceptions=True)
+    second.feed("Segunda frase.")
+    done = asyncio.ensure_future(second.finish())
+    await asyncio.sleep(0.05)
+    before_release = list(tts.log)
+    tts.gate.set()
+    await asyncio.wait_for(done, 2)
+
+    assert before_release == ["enter Primera frase."]
+    assert tts.log == [
+        "enter Primera frase.",
+        "exit Primera frase.",
+        "enter Segunda frase.",
+        "exit Segunda frase.",
+    ]
+    assert second_sink.types()[-1] == "end"
+
+
+class CountingTts(FakeTts):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pulled = 0
+
+    def synthesize(self, text: str, voice: str) -> Iterator[AudioChunk]:
+        self.sentences.append(text)
+        for _ in range(3):
+            self.pulled += 1
+            yield sine_chunk()
+
+
+async def test_review05_finding_7_a_stopped_pipeline_pulls_no_chunk_at_all(executor) -> None:
+    tts = CountingTts()
+    speech, _, _ = pipeline(executor, tts)
+
+    speech._stop.set()
+    chunks = await executor.run(speech._synthesize, tts, "Una frase.")
+
+    assert chunks == [] and tts.pulled == 0

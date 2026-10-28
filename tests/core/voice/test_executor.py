@@ -76,3 +76,35 @@ async def test_close_does_not_wait_for_pending_work() -> None:
 
     assert elapsed < 0.1
     await asyncio.gather(pending, return_exceptions=True)
+
+
+async def test_review05_finding_7_a_lane_stays_busy_until_its_cancelled_work_really_ends() -> None:
+    executor = VoiceExecutor()
+    started, release = threading.Event(), threading.Event()
+    order: list[str] = []
+
+    def blocked() -> None:
+        started.set()
+        release.wait(timeout=5)
+        order.append("first ended")
+
+    def second() -> None:
+        order.append("second started")
+
+    try:
+        first = asyncio.ensure_future(executor.run_serial("tts", blocked))
+        await asyncio.get_running_loop().run_in_executor(None, started.wait)
+        first.cancel()
+        await asyncio.gather(first, return_exceptions=True)
+        follower = asyncio.ensure_future(executor.run_serial("tts", second))
+        other_lane = await asyncio.wait_for(executor.run(lambda: "stt"), 1)
+        await asyncio.sleep(0.05)
+        waiting = list(order)
+        release.set()
+        await asyncio.wait_for(follower, 1)
+    finally:
+        executor.close()
+
+    assert other_lane == "stt"
+    assert waiting == []
+    assert order == ["first ended", "second started"]

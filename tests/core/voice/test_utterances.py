@@ -222,3 +222,53 @@ def test_two_utterances_in_one_feed_are_both_returned() -> None:
     utterances = segmenter.feed(pcm)
 
     assert [u.duration_ms for u in utterances] == [3 * WINDOW_MS, 4 * WINDOW_MS]
+
+
+def test_review05_finding_13_minimum_counts_speech_windows_not_inner_silence() -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS)
+
+    emitted = assembler.push(SPEECH, True)
+    for _ in range(20):
+        emitted += assembler.push(SILENCE, False)
+    emitted += assembler.push(SPEECH, True)
+    emitted += assembler.flush()
+
+    assert emitted == []
+
+
+def test_review05_finding_13_maximum_counts_the_total_duration_including_inner_silence() -> None:
+    assembler = UtteranceAssembler(window_ms=WINDOW_MS, max_utterance_ms=30_000)
+    emitted: list = []
+    pushed = 0
+
+    while not emitted and pushed < 2_000:
+        emitted += assembler.push(SPEECH, pushed % 2 == 0)
+        pushed += 1
+
+    assert len(emitted) == 1
+    assert pushed == windows(30_000)
+    assert emitted[0].duration_ms <= 30_000
+
+
+class SpyVad:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def classify(self, window: bytes) -> bool:
+        self.calls.append("classify")
+        return True
+
+    def reset(self) -> None:
+        self.calls.append("reset")
+
+
+def test_review05_finding_14_reset_forgets_the_partial_utterance_and_resets_the_vad() -> None:
+    vad = SpyVad()
+    segmenter = VadSegmenter(vad)
+
+    segmenter.feed(SPEECH * 3 + SPEECH[:100])
+    segmenter.reset()
+    after = segmenter.flush()
+
+    assert vad.calls[:4] == ["classify"] * 3 + ["reset"]
+    assert after == []
