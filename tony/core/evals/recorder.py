@@ -52,6 +52,7 @@ class RecordingConversationRunner:
         resume: str | None = None,
     ) -> None:
         self._handlers = _RecordingHandlers(handlers)
+        self._truncate()
         await self._inner.open(spec, catalog, self._handlers, events, resume=resume)
 
     async def turn(self, prompt: str) -> FrontTurn:
@@ -76,8 +77,12 @@ class RecordingConversationRunner:
     async def close(self) -> None:
         await self._inner.close()
 
-    def _write(self, line: dict[str, Any]) -> None:
+    def _truncate(self) -> None:
+        # One run per file: a re-recorded conversation replaces the previous run.
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text("", encoding="utf-8")
+
+    def _write(self, line: dict[str, Any]) -> None:
         with self._path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(line, ensure_ascii=False) + "\n")
 

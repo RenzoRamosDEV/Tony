@@ -114,3 +114,22 @@ async def test_open_forwards_catalog_and_resume_and_writes_into_nested_dirs(tmp_
     assert inner.resumes == ["s-1"] and inner.opened == [SPEC]
     text = (tmp_path / "a" / "b" / "r.jsonl").read_text(encoding="utf-8")
     assert '"user": "hola ñ"' in text and "\\u00f1" not in text
+
+
+async def test_reopening_the_recorder_replaces_the_previous_run(tmp_path: Path) -> None:
+    from tony.core.evals.replay import ReplayConversationRunner
+
+    path = tmp_path / "runs" / "listar-notas.jsonl"
+    first = RecordingConversationRunner(FakeConversationRunner(["primera", "x"]), path)
+    await first.open(SPEC, ToolCatalog.empty(), Handlers(), ListEventSink())
+    await first.turn("hola")
+    await first.turn("otra")
+    second = RecordingConversationRunner(FakeConversationRunner(["segunda"]), path)
+    await second.open(SPEC, ToolCatalog.empty(), Handlers(), ListEventSink())
+    await second.turn("hola")
+
+    lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert [(line["turn"], line["reply"]["display_text"]) for line in lines] == [(1, "segunda")]
+    replay = ReplayConversationRunner(path)
+    await replay.open(SPEC, ToolCatalog.empty(), Handlers(), ListEventSink())
+    assert (await replay.turn("hola")).text == "segunda"
