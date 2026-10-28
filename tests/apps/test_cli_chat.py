@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +14,10 @@ from tests.apps.cli_helpers import FakeManager, write_agent
 from tests.fakes.conversation import FakeConversationRunner
 from tests.fakes.scripted_runner import ScriptedRunner
 from tests.fakes.stdin import FakeStdin
+from tony.apps.cli import chat as chat_app
 from tony.apps.cli import main
 from tony.core.memory.conversations import ConversationStore
-from tony.core.runner import TaskRequest
+from tony.core.runner import TaskRequest, TaskResult
 
 runner = CliRunner()
 
@@ -323,6 +325,42 @@ def test_prefix_without_text_warns_without_a_turn(cli) -> None:
 
     assert "/t" in result.stderr
     assert cli["conversations"][0].prompts == []
+
+
+def test_worker_secrets_from_the_environment_are_redacted_everywhere(
+    cli, tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("WORKER_TOKEN", "env-token-secret-123")
+    tool_dir = tmp_repo / "agents" / "viernes" / "tool"
+    tool_dir.mkdir()
+    (tool_dir / "tool.json").write_text(
+        json.dumps(
+            {"mcpServers": {"api": {"url": "https://x", "headers": {"X": "${WORKER_TOKEN}"}}}}
+        ),
+        encoding="utf-8",
+    )
+    sinks: list[Any] = []
+    real_sink = chat_app.JsonlEventSink
+
+    def recording_sink(logs_dir, task_id, secrets):
+        sinks.append(list(secrets))
+        return real_sink(logs_dir, task_id, secrets)
+
+    monkeypatch.setattr(chat_app, "JsonlEventSink", recording_sink)
+    cli["turns"] = [delegating]
+    cli["script"] = [("result", TaskResult(status="ok", resumen="vale env-token-secret-123"))]
+    cli["stdin"] = ["lista\n", "/salir\n"]
+
+    result = invoke()
+
+    assert "Resultado: vale ***" in result.stdout
+    assert "env-token-secret-123" in sinks[0]
+    rows = (
+        sqlite3.connect("memory/conversations.sqlite")
+        .execute("SELECT result_json FROM tasks")
+        .fetchall()
+    )
+    assert "env-token-secret-123" not in rows[0][0]
 
 
 def test_front_text_is_logged_in_a_chat_jsonl(cli) -> None:

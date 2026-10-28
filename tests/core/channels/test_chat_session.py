@@ -30,7 +30,7 @@ from tony.core.memory.preferences import PreferencesStore
 from tony.core.memory.settings import SettingsStore
 from tony.core.orchestrator.orchestrator import Orchestrator
 from tony.core.orchestrator.task import TASK_QUEUED, TaskStatus
-from tony.core.runner import TaskRequest
+from tony.core.runner import TaskRequest, TaskResult
 
 NOW = datetime(2026, 10, 28, 9, 5, 0, tzinfo=timezone(timedelta(hours=2)))
 ALL_NATIVE = ["delegate", "remember", "set_reply_mode"]
@@ -64,7 +64,13 @@ def delegating(objetivo: str):
 
 
 class Harness:
-    def __init__(self, tmp_path: Path, turns: list, native: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        turns: list,
+        native: list[str] | None = None,
+        secrets: list[str] | None = None,
+    ) -> None:
         self.clock = FakeClock()
         self.factory = FakeWorkerFactory(self.clock)
         self.orchestrator = Orchestrator(
@@ -88,6 +94,7 @@ class Harness:
             self.settings,
             clock=self.clock,
             now=lambda: NOW,
+            secrets=secrets or [],
         )
 
     async def start(self) -> str:
@@ -379,3 +386,30 @@ async def test_close_closes_the_front_and_the_orchestrator(tmp_memory: Path) -> 
 
     assert h.runner.closed is True
     assert h.factory.closed is True
+
+
+async def test_secrets_are_redacted_from_persisted_copies_and_the_front_result(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [delegating("lista supersecreto")], secrets=["supersecreto"])
+    h.factory.scripts["lista supersecreto"] = [
+        (
+            "result",
+            TaskResult(
+                status="ok", resumen="token supersecreto listo", datos={"clave": "supersecreto"}
+            ),
+        )
+    ]
+    conversation = await h.start()
+
+    reply = await h.session.handle("usa supersecreto")
+
+    assert reply.display_text == "Resultado: token *** listo"
+    with sqlite3.connect(h.memory.conversations.path) as connection:
+        request_json, result_json = connection.execute(
+            "SELECT request_json, result_json FROM tasks"
+        ).fetchone()
+    assert "supersecreto" not in request_json + result_json
+    assert json.loads(result_json)["datos"] == {"clave": "***"}
+    contents = [m.content for m in h.memory.conversations.recent_messages(conversation)]
+    assert contents == ["usa ***", "Resultado: token *** listo"]

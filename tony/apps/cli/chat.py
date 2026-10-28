@@ -138,9 +138,8 @@ async def run_chat(
         front.name.capitalize(), settings.limits.confirm_timeout_s, lines, out, lock=confirm_lock
     )
     front_runner = conversation_factory(settings, front_gate, _front_call(front_manager))
-    session_log = JsonlEventSink(
-        options.logs_dir, f"chat-{conversation_id}", [*secrets, *front.secrets]
-    )
+    all_secrets = [*secrets, *front.secrets, *worker.secrets]
+    session_log = JsonlEventSink(options.logs_dir, f"chat-{conversation_id}", all_secrets)
     session = ChatSession(
         front,
         front_runner,
@@ -150,6 +149,7 @@ async def run_chat(
         settings,
         events=session_log,
         catalog=front_manager.catalog if front_manager else ToolCatalog.empty(),
+        secrets=all_secrets,
     )
     try:
         await session.start(conversation_id)

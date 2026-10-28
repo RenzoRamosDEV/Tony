@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from pydantic import BaseModel
+
 from tony.core.channels.ports import (
     AssistantReply,
     AssistantWait,
@@ -18,6 +20,7 @@ from tony.core.channels.ports import (
 )
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
+from tony.core.logging import redact
 from tony.core.mcp import ToolCatalog
 from tony.core.memory.conversations import ConversationStore
 from tony.core.memory.preferences import PreferencesStore
@@ -73,6 +76,7 @@ class ChatSession:
         now: Callable[[], datetime] = local_now,
         events: EventSink | None = None,
         catalog: ToolCatalog | None = None,
+        secrets: list[str] | None = None,
     ) -> None:
         self._front = front
         self._runner = runner
@@ -84,6 +88,7 @@ class ChatSession:
         self._now = now
         self._events = events or _NullSink()
         self._catalog = catalog or ToolCatalog.empty()
+        self._secrets = list(secrets or [])
         self.conversation_id: str | None = None
         self.active_task_id: str | None = None
 
@@ -146,6 +151,7 @@ class ChatSession:
             waiter.cancel()
             await asyncio.gather(forwarder, waiter, return_exceptions=True)
             self.active_task_id = None
+        result = self._redacted(result)
         self._record_task(task.id, request, result, usage)
         return result
 
@@ -179,9 +185,14 @@ class ChatSession:
         await self._clock.sleep(WAIT_PHRASE_DELAY_S)
         await self._channel.send(AssistantWait(self._front.wait_phrase))
 
+    def _redacted[M: BaseModel](self, model: M) -> M:
+        return model.model_validate(redact(model.model_dump(), self._secrets))
+
     def _store_message(self, role: str, content: str, reply_mode: str | None) -> None:
         assert self.conversation_id is not None, "start() must run before handle()"
-        self._memory.conversations.add_message(self.conversation_id, role, content, reply_mode)
+        self._memory.conversations.add_message(
+            self.conversation_id, role, redact(content, self._secrets), reply_mode
+        )
 
     def _record_task(
         self, task_id: str, request: TaskRequest, result: TaskResult, usage: dict[str, Any]
@@ -192,7 +203,7 @@ class ChatSession:
             task_id,
             self.conversation_id,
             status=task.status.value,
-            request=request,
+            request=self._redacted(request),
             result=result,
             tokens_in=int(usage.get("input_tokens", 0) or 0),
             tokens_out=int(usage.get("output_tokens", 0) or 0),
