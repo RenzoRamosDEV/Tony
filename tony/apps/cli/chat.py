@@ -13,6 +13,7 @@ from typing import TextIO
 from tony.apps.cli.chat_channel import CliChannel
 from tony.apps.cli.confirm_gate import CliConfirmGate
 from tony.apps.cli.repl import ChatRepl
+from tony.apps.cli.stdin_dispatcher import StdinDispatcher
 from tony.apps.cli.stdin_reader import LineSource, StdinReader
 from tony.core.channels.session import CHANNEL_NAME, ChatSession, Memory
 from tony.core.config import ConfigError, TonySettings, dotenv_secrets, load_env, load_settings
@@ -117,7 +118,7 @@ async def run_chat(
     front, worker, warnings = load_roles(settings, options.agents_dir, load_env(dotenv_path))
     for warning in warnings:
         err.write(warning + "\n")
-    lines = lines or StdinReader()
+    stdin = StdinDispatcher(lines or StdinReader(), out)
     memory = open_memory(options.memory_dir, settings.limits.memory_max_lines)
     conversation_id = select_conversation(memory, options.new_conversation)
     worker_factory = SdkWorkerFactory(
@@ -127,7 +128,7 @@ async def run_chat(
     confirm_lock = asyncio.Lock()
     channel = CliChannel(
         worker.name.capitalize(),
-        lines,
+        stdin.answers,
         orchestrator.confirm,
         settings.limits.confirm_timeout_s,
         out,
@@ -136,7 +137,11 @@ async def run_chat(
     )
     front_manager = await _front_tools(front, settings, manager_factory)
     front_gate = CliConfirmGate(
-        front.name.capitalize(), settings.limits.confirm_timeout_s, lines, out, lock=confirm_lock
+        front.name.capitalize(),
+        settings.limits.confirm_timeout_s,
+        stdin.answers,
+        out,
+        lock=confirm_lock,
     )
     front_runner = conversation_factory(settings, front_gate, _front_call(front_manager))
     all_secrets = [*secrets, *front.secrets, *worker.secrets]
@@ -159,7 +164,7 @@ async def run_chat(
             stack.push_async_callback(front_manager.stop)
         stack.push_async_callback(session.close)
         await session.start(conversation_id)
-        return await ChatRepl(session, lines, memory, settings, out, stdout).run()
+        return await ChatRepl(session, stdin, memory, settings, out, stdout).run()
 
 
 async def _front_tools(

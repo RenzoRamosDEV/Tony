@@ -8,7 +8,7 @@ import signal
 import sys
 from typing import TextIO
 
-from tony.apps.cli.stdin_reader import LineSource
+from tony.apps.cli.stdin_dispatcher import StdinDispatcher
 from tony.core.channels.session import ChatSession, Memory
 from tony.core.config import REPLY_MODES, TonySettings
 from tony.core.runner.reply_mode import strip_prefix
@@ -23,7 +23,7 @@ class ChatRepl:
     def __init__(
         self,
         session: ChatSession,
-        lines: LineSource,
+        lines: StdinDispatcher,
         memory: Memory,
         settings: TonySettings,
         out: TextIO | None = None,
@@ -72,7 +72,7 @@ class ChatRepl:
         if prefix is None and text.startswith("/"):
             return await self._command(text)
         self._cancel_requested = False
-        await self._session.handle(text)
+        await self._lines.during(self._session.handle(text), self._cancel)
         return True
 
     async def _command(self, text: str) -> bool:

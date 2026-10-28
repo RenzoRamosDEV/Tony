@@ -15,6 +15,7 @@ import pytest
 from tests.core.channels.test_chat_session import Harness, delegating
 from tests.fakes.stdin import FakeStdin
 from tony.apps.cli.repl import ChatRepl
+from tony.apps.cli.stdin_dispatcher import StdinDispatcher
 from tony.core.orchestrator.task import TaskStatus
 from tony.core.runner import TaskResult
 
@@ -26,7 +27,7 @@ def send_sigint() -> None:
 def make_repl(h: Harness, stdin: FakeStdin, out: io.StringIO, close_timeout_s: float = 0.2):
     return ChatRepl(
         h.session,
-        stdin,
+        StdinDispatcher(stdin, out),
         h.memory,
         h.settings,
         out=out,
@@ -115,3 +116,29 @@ async def test_turn_error_still_closes_the_session(tmp_path: Path) -> None:
 
     assert h.runner.closed is True
     assert h.factory.closed is True
+
+
+async def test_cancel_command_typed_during_a_task_cancels_it(tmp_path: Path) -> None:
+    h = Harness(tmp_path, [delegating("larga")])
+    h.factory.scripts["larga"] = [("sleep", 100)]
+    await h.start()
+    stdin = FakeStdin(["tarea larga\n"])
+    out = io.StringIO()
+    repl = make_repl(h, stdin, out)
+    running = asyncio.ensure_future(repl.run())
+    await h.clock.settle()
+    task = next(iter(h.orchestrator.tasks.values()))
+    assert task.status == TaskStatus.RUNNING
+
+    stdin.feed("hola\n")
+    await h.clock.settle()
+    assert "Espera a que termine la tarea." in out.getvalue()
+    assert task.status == TaskStatus.RUNNING
+
+    stdin.feed("/cancel\n")
+    await h.clock.settle()
+
+    assert task.status == TaskStatus.CANCELLED
+    assert "Tarea cancelada." in out.getvalue()
+    stdin.feed("/salir\n")
+    assert await asyncio.wait_for(running, 1) == 0

@@ -20,6 +20,9 @@ from tony.core.memory.conversations import ConversationStore
 from tony.core.runner import TaskRequest, TaskResult
 
 runner = CliRunner()
+# A person cannot type the next line before the turn ends; the dispatcher refuses lines typed
+# while a task runs, so scripted input pauses where a terminal user would wait.
+TYPING_PAUSE = 0.2
 
 
 def write_front(agents_dir: Path, name: str = "jarvis", role: str = "front") -> None:
@@ -176,7 +179,7 @@ def test_voice_reply_is_degraded_to_text_with_speaker_line(cli, tmp_repo: Path) 
 def test_progress_is_shown_as_a_dim_line_on_stderr(cli) -> None:
     cli["turns"] = [delegating]
     cli["script"] = [("tool", "filesystem.read_file", {"path": "a.md"})]
-    cli["stdin"] = ["lee a.md\n", "/salir\n"]
+    cli["stdin"] = ["lee a.md\n", TYPING_PAUSE, "/salir\n"]
 
     result = invoke()
 
@@ -196,7 +199,7 @@ PROMPT = (
 def test_affirmative_answer_approves_the_tool(cli, answer: str) -> None:
     cli["turns"] = [delegating]
     cli["script"] = CONFIRM_SCRIPT
-    cli["stdin"] = ["mueve\n", answer, "/salir\n"]
+    cli["stdin"] = ["mueve\n", TYPING_PAUSE, answer, TYPING_PAUSE, "/salir\n"]
 
     result = invoke()
 
@@ -209,7 +212,7 @@ def test_affirmative_answer_approves_the_tool(cli, answer: str) -> None:
 def test_other_answers_reject_and_cancel_the_task(cli, answer: str) -> None:
     cli["turns"] = [delegating]
     cli["script"] = CONFIRM_SCRIPT
-    cli["stdin"] = ["mueve\n", answer, "/salir\n"]
+    cli["stdin"] = ["mueve\n", TYPING_PAUSE, answer, TYPING_PAUSE, "/salir\n"]
 
     result = invoke()
 
@@ -349,7 +352,7 @@ def test_worker_secrets_from_the_environment_are_redacted_everywhere(
     monkeypatch.setattr(chat_app, "JsonlEventSink", recording_sink)
     cli["turns"] = [delegating]
     cli["script"] = [("result", TaskResult(status="ok", resumen="vale env-token-secret-123"))]
-    cli["stdin"] = ["lista\n", "/salir\n"]
+    cli["stdin"] = ["lista\n", TYPING_PAUSE, "/salir\n"]
 
     result = invoke()
 
