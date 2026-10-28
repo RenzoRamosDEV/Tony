@@ -203,3 +203,20 @@ def test_missing_agents_dir_or_invalid_config_exit_2(cli, tmp_path: Path) -> Non
     (cli.parent / "config" / "tony.yaml").write_text("reply_mode: loud\n", encoding="utf-8")
     invalid = invoke()
     assert invalid.exit_code == 2 and "reply_mode" in invalid.stderr
+
+
+def test_show_redacts_secrets_that_only_a_subagent_uses(cli) -> None:
+    fetch = {"command": "x", "env": {"PASSWORD": "${CHILD_PASSWORD}"}}
+    (cli / "viernes" / "subagents" / "investigador" / "tool").mkdir()
+    (cli / "viernes" / "subagents" / "investigador" / "tool" / "tool.json").write_text(
+        json.dumps({"mcpServers": {"fetch": fetch}}), encoding="utf-8"
+    )
+    with (cli.parent / "config" / ".env").open("a", encoding="utf-8") as env:
+        env.write("CHILD_PASSWORD=clave-larga-del-hijo\n")
+
+    result = invoke("show", "viernes")
+
+    assert result.exit_code == 0, result.output
+    assert "clave-larga-del-hijo" not in result.stdout
+    env = yaml.safe_load(result.stdout)["subagents"]["investigador"]["tools"]["mcpServers"]["fetch"]
+    assert env["env"]["PASSWORD"] == "***"

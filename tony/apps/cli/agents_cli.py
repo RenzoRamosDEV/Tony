@@ -103,7 +103,7 @@ def _note(text: str) -> list[str]:
 
 
 def spec_to_yaml(spec: AgentSpec) -> str:
-    data = redact(spec_to_dict(spec), spec.secrets)
+    data = redact(spec_to_dict(spec), spec.all_secrets())
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
 
