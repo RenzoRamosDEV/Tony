@@ -5,7 +5,7 @@
     - user: Hola, Jarvis.
       expect:
         delegates: false
-        judge: Es un saludo educado en español; puede mencionar la hora actual o sus capacidades, pero no afirma haber realizado tareas ni inventa datos sobre el usuario.
+        judge: Es un saludo educado en español; puede mencionar la hora actual o sus capacidades y tratar al usuario de "señor" (es el tratamiento configurado), pero no afirma haber realizado tareas ni inventa datos sobre el usuario.
 - id: hora
   turns:
     - user: ¿Qué hora es?

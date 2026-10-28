@@ -9,7 +9,7 @@ from typing import Any
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
 from tony.core.runner import EventSink, TaskRequest, TaskResult
-from tony.core.runner.conversation import ConversationRunner, FrontTurn
+from tony.core.runner.conversation import ConversationRunner, FrontTurn, TextCallback
 from tony.core.runner.front_prompt import PREAMBLE_END
 
 
@@ -55,10 +55,15 @@ class RecordingConversationRunner:
         self._truncate()
         await self._inner.open(spec, catalog, self._handlers, events, resume=resume)
 
-    async def turn(self, prompt: str) -> FrontTurn:
+    async def turn(
+        self,
+        prompt: str,
+        on_text: TextCallback | None = None,
+        on_speech: TextCallback | None = None,
+    ) -> FrontTurn:
         assert self._handlers is not None, "open() must run before turn()"
         self._handlers.reset()
-        turn = await self._inner.turn(prompt)
+        turn = await self._inner.turn(prompt, on_text=on_text, on_speech=on_speech)
         self._turns += 1
         self._write(
             {

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, McpSdkServerConfig, ResultMessage
+from claude_agent_sdk.types import StreamEvent
 
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
@@ -21,11 +22,14 @@ from tony.core.runner.claude_sdk import (
 )
 from tony.core.runner.front_prompt import build_front_system_prompt
 from tony.core.runner.native_tools import SERVER_NAME, NativeToolHandlers, build_native_server
+from tony.core.runner.partial_json import PartialJsonFieldExtractor
 from tony.core.runner.ports import EventSink
 from tony.core.runner.proxy import TaskState, ToolCaller, ToolProxyFactory
 from tony.core.runner.reply_mode import FrontReply
 
 FRONT_OWNER_ID = "front"
+FRONT_EFFORT = "low"
+STRUCTURED_OUTPUT_TOOL = "StructuredOutput"
 TextCallback = Callable[[str], Awaitable[None]]
 TURN_ERROR = "turn.error"
 TURN_LOST = (
@@ -101,7 +105,8 @@ def build_front_options(
         setting_sources=[],
         strict_mcp_config=True,
         output_format={"type": "json_schema", "schema": FrontReply.model_json_schema()},
-        include_partial_messages=False,
+        include_partial_messages=True,
+        effort=FRONT_EFFORT,
         resume=resume,
     )
 
@@ -164,8 +169,6 @@ class ClaudeSdkConversation:
         on_text: TextCallback | None = None,
         on_speech: TextCallback | None = None,
     ) -> FrontTurn:
-        # The structured JSON output has no readable partial text, so `on_text` and
-        # `on_speech` stay unused until partial messages are enabled.
         client = await self._live_client()
         self._turn_state = TaskState(FRONT_OWNER_ID, interrupt=self.interrupt)
         try:
@@ -176,7 +179,7 @@ class ClaudeSdkConversation:
             client = await self._reopen()
             await client.query(prompt)
         try:
-            return await self._receive(client)
+            return await self._receive(client, _ReplyStream(on_text, on_speech))
         except Exception as exc:  # noqa: BLE001 - the prompt is out: never resend it
             self._dead = True
             return self._failed_turn(TURN_LOST, f"{exc.__class__.__name__}: {exc}", None)
@@ -213,10 +216,13 @@ class ClaudeSdkConversation:
         self._options.resume = self.session_id
         return await self._connect(self._options)
 
-    async def _receive(self, client: SessionClient) -> FrontTurn:
+    async def _receive(self, client: SessionClient, stream: _ReplyStream) -> FrontTurn:
         last_text = ""
         final: ResultMessage | None = None
         async for message in client.receive_response():
+            if isinstance(message, StreamEvent):
+                await stream.handle(message.event)
+                continue
             text = assistant_text(message)
             if text is not None:
                 last_text = text
@@ -247,6 +253,34 @@ class ClaudeSdkConversation:
     def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
         if self._events is not None:
             self._events.emit(event_type, payload)
+
+
+class _ReplyStream:
+    """Feeds the partial JSON of the StructuredOutput tool to `on_speech` / `on_text`.
+
+    Each StructuredOutput block gets its own extractor; partial input of any other tool
+    (`delegate`, MCP proxies) is ignored.
+    """
+
+    def __init__(self, on_text: TextCallback | None, on_speech: TextCallback | None) -> None:
+        self._callbacks = {"display_text": on_text, "speech_text": on_speech}
+        self._extractors: dict[int, PartialJsonFieldExtractor] = {}
+
+    async def handle(self, event: dict[str, Any]) -> None:
+        kind, index = event.get("type"), event.get("index")
+        if kind == "content_block_start":
+            block = event.get("content_block") or {}
+            if block.get("type") == "tool_use" and block.get("name") == STRUCTURED_OUTPUT_TOOL:
+                self._extractors[index] = PartialJsonFieldExtractor()
+        elif kind == "content_block_stop":
+            self._extractors.pop(index, None)
+        elif kind == "content_block_delta" and index in self._extractors:
+            partial = (event.get("delta") or {}).get("partial_json")
+            if isinstance(partial, str):
+                for field_name, text in self._extractors[index].feed(partial):
+                    callback = self._callbacks[field_name]
+                    if callback is not None:
+                        await callback(text)
 
 
 def _diagnostic(final: ResultMessage) -> str:

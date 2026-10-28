@@ -81,7 +81,12 @@ def test_front_options_keep_the_worker_defences_and_expose_tony() -> None:
     assert options.system_prompt.startswith("Eres Jarvis.")
     assert "`delegate`" in options.system_prompt
     assert options.resume is None
-    assert options.include_partial_messages is False
+    assert options.include_partial_messages is True
+    assert options.effort == "low"
+
+
+def test_the_structured_reply_schema_lists_speech_text_first() -> None:
+    assert list(FrontReply.model_json_schema()["properties"]) == ["speech_text", "display_text"]
 
 
 def test_front_with_declared_mcp_sees_its_allowed_proxies_only() -> None:

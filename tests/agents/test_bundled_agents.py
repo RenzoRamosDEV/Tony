@@ -110,3 +110,21 @@ def test_viernes_ships_the_investigador_subagent_without_tools_of_its_own() -> N
     assert child.tools.mcpServers == {} and child.tools.native == []
     assert child.parent == "viernes"
     assert "fuentes" in child.system_prompt
+
+
+def test_jarvis_speaks_in_a_serene_neutral_latin_american_style() -> None:
+    from datetime import datetime
+
+    from tony.core.runner.front_prompt import build_turn_preamble
+    from tony.core.runner.reply_mode import EffectiveMode
+
+    spec = load_agent(AGENTS_DIR / "jarvis", load_settings(None), {})
+    preamble = build_turn_preamble(
+        datetime(2026, 10, 28, 12, 0).astimezone(), EffectiveMode("voice", "prefix"), spec.style, ""
+    )
+
+    voice = spec.style.voice or ""
+    for fragment in ("señor", "sereno", "español latinoamericano neutro"):
+        assert fragment in voice
+    assert f"Estilo: {voice}" in preamble
+    assert spec.system_prompt.index("speech_text") < spec.system_prompt.index("display_text")

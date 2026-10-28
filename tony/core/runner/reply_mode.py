@@ -30,8 +30,10 @@ class EffectiveMode:
 
 
 class FrontReply(BaseModel):
-    display_text: str
+    # speech_text goes first: the model fills properties in schema order, so the spoken
+    # reply starts streaming (and synthesizing) before the longer display text.
     speech_text: str | None = None
+    display_text: str
 
 
 def strip_prefix(text: str) -> tuple[ResolvedMode | None, str]:

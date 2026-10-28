@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from claude_agent_sdk import AssistantMessage, TextBlock
+from claude_agent_sdk.types import StreamEvent
 
 from tests.core.runner_helpers import fake_catalog, result_message
 from tests.fakes.gates import AutoConfirmGate
@@ -320,7 +321,7 @@ async def test_failed_turn_diagnostic_falls_back_to_errors_then_a_placeholder(
     assert turn.error == expected
 
 
-async def test_turn_accepts_a_text_callback_that_v1_never_invokes() -> None:
+async def test_without_stream_events_the_callbacks_are_never_invoked() -> None:
     client = FakeSessionClient([turn_messages("Hola, señor.")])
     conversation, _ = make_conversation([client])
     seen: list[str] = []
@@ -333,3 +334,116 @@ async def test_turn_accepts_a_text_callback_that_v1_never_invokes() -> None:
 
     assert turn.text == "Hola, señor."
     assert seen == []
+
+
+def stream_event(event: dict[str, Any]) -> StreamEvent:
+    return StreamEvent(uuid="u", session_id="s1", event=event)
+
+
+def block_start(index: int, block_type: str, name: str | None = None) -> StreamEvent:
+    block: dict[str, Any] = {"type": block_type}
+    if name is not None:
+        block["name"] = name
+    return stream_event({"type": "content_block_start", "index": index, "content_block": block})
+
+
+def json_delta(index: int, partial_json: str) -> StreamEvent:
+    return stream_event(
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {"type": "input_json_delta", "partial_json": partial_json},
+        }
+    )
+
+
+def block_stop(index: int) -> StreamEvent:
+    return stream_event({"type": "content_block_stop", "index": index})
+
+
+STREAMED = {"speech_text": "Son las diez.", "display_text": "Son las **10**."}
+
+
+def streamed_turn(*fragments: str, structured: dict | None = STREAMED) -> list[Any]:
+    return [
+        block_start(0, "thinking"),
+        stream_event(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta"}}
+        ),
+        block_stop(0),
+        block_start(1, "tool_use", "mcp__tony__delegate"),
+        json_delta(1, '{"objetivo": "Son las'),
+        json_delta(1, ' diez", "speech_text": "no"}'),
+        block_stop(1),
+        block_start(2, "tool_use", "StructuredOutput"),
+        *(json_delta(2, fragment) for fragment in fragments),
+        block_stop(2),
+        result_message(session_id="s1", structured_output=structured, result="(resultado)"),
+    ]
+
+
+async def run_streamed(messages: list[Any]) -> tuple[FrontTurn, list[tuple[str, str]]]:
+    client = FakeSessionClient([messages])
+    conversation, _ = make_conversation([client])
+    seen: list[tuple[str, str]] = []
+
+    async def on_text(text: str) -> None:
+        seen.append(("text", text))
+
+    async def on_speech(text: str) -> None:
+        seen.append(("speech", text))
+
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), ListEventSink())
+    turn = await conversation.turn("hora", on_text=on_text, on_speech=on_speech)
+    return turn, seen
+
+
+async def test_structured_output_fragments_reach_the_callbacks_in_order() -> None:
+    turn, seen = await run_streamed(
+        streamed_turn('{"speech_text": "Son las', ' diez.", "display_text": "Son las **10**', '."}')
+    )
+
+    assert seen == [
+        ("speech", "Son las"),
+        ("speech", " diez."),
+        ("text", "Son las **10**"),
+        ("text", "."),
+    ]
+    assert turn.structured == STREAMED
+
+
+async def test_partial_input_of_other_tools_is_ignored() -> None:
+    _, seen = await run_streamed(streamed_turn())
+
+    assert seen == []
+
+
+async def test_a_broken_partial_json_stops_without_raising_and_keeps_the_final() -> None:
+    turn, seen = await run_streamed(streamed_turn('{"speech_text": "Hola', '", 5, "x": "y"}'))
+
+    assert seen == [("speech", "Hola")]
+    assert turn.structured == STREAMED and turn.error is None
+
+
+async def test_a_second_structured_output_block_gets_a_fresh_extractor() -> None:
+    messages = streamed_turn('{"speech_text": "Uno."')
+    messages[-1:-1] = [
+        block_start(3, "tool_use", "StructuredOutput"),
+        json_delta(3, '{"speech_text": "Dos."}'),
+        block_stop(3),
+        json_delta(3, '{"speech_text": "fuera"}'),
+    ]
+
+    _, seen = await run_streamed(messages)
+
+    assert seen == [("speech", "Uno."), ("speech", "Dos.")]
+
+
+async def test_stream_events_without_callbacks_are_harmless() -> None:
+    client = FakeSessionClient([streamed_turn('{"speech_text": "Hola."}')])
+    conversation, _ = make_conversation([client])
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), ListEventSink())
+
+    turn = await conversation.turn("hola")
+
+    assert turn.structured == STREAMED

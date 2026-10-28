@@ -9,7 +9,7 @@ from typing import Any
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
 from tony.core.runner import EventSink, TaskRequest, TaskResult
-from tony.core.runner.conversation import FrontTurn
+from tony.core.runner.conversation import FrontTurn, TextCallback
 
 TASK_RESULT = "task.result"
 REPLAYED_EVENTS = frozenset(
@@ -90,7 +90,12 @@ class ReplayConversationRunner:
     ) -> None:
         self._handlers = handlers
 
-    async def turn(self, prompt: str) -> FrontTurn:
+    async def turn(
+        self,
+        prompt: str,
+        on_text: TextCallback | None = None,
+        on_speech: TextCallback | None = None,
+    ) -> FrontTurn:
         number = self._next + 1
         if self._next >= len(self.turns):
             raise FixtureMissing(f"{self._fixture}: no hay turno {number} grabado")
