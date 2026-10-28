@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 
 from tony import __version__
+from tony.apps.cli import agents_cli, doctor_cli, mcp_cli, replay_cli
 from tony.apps.cli import chat as chat_app
 from tony.apps.cli import run_task as orchestration
 from tony.apps.cli.chat import ChatError, ChatOptions
@@ -23,12 +24,21 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+app.add_typer(mcp_cli.app, name="mcp", help="Gestiona los servidores MCP de un agente.")
+app.add_typer(agents_cli.app, name="agents", help="Lista los agentes y subagentes o muestra uno.")
+app.command("doctor", help="Diagnostica la instalación (✓/✗ con sugerencias).")(doctor_cli.doctor)
+app.add_typer(doctor_cli.config_app, name="config", help="Valida la configuración sin red.")
+app.command("replay", help="Muestra los eventos de un registro JSONL o lo convierte en eval.")(
+    replay_cli.replay
+)
+
 # Factories are module attributes so tests can inject doubles.
 runner_factory = orchestration.default_runner_factory
 manager_factory = default_manager_factory
 worker_runner_factory = default_worker_runner_factory
 conversation_factory = chat_app.default_conversation_factory
 lines_factory = StdinReader
+watch_factory = None
 
 
 DEFAULT_AGENTS_DIR = Path("agents")
@@ -89,6 +99,7 @@ def chat(
                 manager_factory,
                 worker_runner_factory,
                 lines_factory(),
+                watch=watch_factory() if watch_factory is not None else None,
             )
         )
     except ChatError as exc:

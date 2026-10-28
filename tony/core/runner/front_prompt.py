@@ -7,6 +7,7 @@ from datetime import datetime
 from tony.core.loader import AgentSpec, Style
 from tony.core.runner.prompt import format_moment
 from tony.core.runner.reply_mode import EffectiveMode, style_instruction
+from tony.core.skills.index import skills_index
 
 PREAMBLE_START = "<contexto_del_turno>"
 PREAMBLE_END = "</contexto_del_turno>"
@@ -17,6 +18,9 @@ NATIVE_DESCRIPTIONS: dict[str, str] = {
     "devuelve su TaskResult en JSON.",
     "remember": "(texto): guarda una preferencia del usuario en su memoria.",
     "set_reply_mode": "(modo): fija el modo de respuesta persistente (auto, voice, text, both).",
+    "read_skill": "(nombre): devuelve el cuerpo completo de una skill del índice de skills.",
+    "run_subagent": "(nombre, objetivo, contexto, restricciones): ejecuta un subagente como "
+    "subtarea y devuelve su TaskResult en JSON.",
 }
 
 DELEGATION_CRITERION = (
@@ -44,10 +48,12 @@ def build_front_system_prompt(spec: AgentSpec, native: list[str]) -> str:
     catalog = "\n".join(f"- {line}" for line in tools) if tools else "- (ninguna)"
     criterion = DELEGATION_CRITERION if "delegate" in native else NO_DELEGATION
     address = f"Trata al usuario de '{spec.persona.address}'. " if spec.persona.address else ""
+    skills = f"## Skills\n{skills_index(spec.skills)}\n\n" if spec.skills else ""
     return (
         f"{spec.system_prompt.strip()}\n\n"
         f"## Persona\n{address}Idioma: {spec.persona.language}.\n\n"
         f"## Tools nativas\n{catalog}\n\n"
+        f"{skills}"
         f"## Cuándo delegar\n{criterion}\n\n"
         f"## Formato de salida\n{OUTPUT_CONTRACT}\n\n"
         f"## Contexto del turno\nCada mensaje del usuario empieza con un bloque "

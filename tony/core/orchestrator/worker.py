@@ -1,57 +1,41 @@
-"""Builds the worker side of a task: shared MCP manager, JSONL log and SDK runner."""
+"""Builds the worker side of a task: MCP generation, JSONL log, native handlers and runner.
+
+Root tasks lease the current MCP generation; subtasks reuse their root's generation and
+are built by `SubagentWorkerBuilder` with the intersected permissions.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from tony.core.config import TonySettings
-from tony.core.loader import AgentSpec, ToolConfig
+from tony.core.loader import AgentSpec
 from tony.core.logging import JsonlEventSink
-from tony.core.mcp import ConfirmGate, McpManager, McpServerStatus, ToolCallOutcome, ToolCatalog
+from tony.core.mcp import ConfirmGate, McpServerStatus
+from tony.core.mcp.generations import Generation, McpGenerationPool
+from tony.core.mcp.ports import ManagerFactory, ToolManager, default_manager_factory
 from tony.core.orchestrator.ports import Worker
 from tony.core.orchestrator.task import Task
-from tony.core.runner import AgentRunner, EventSink
+from tony.core.runner import EventSink
 from tony.core.runner.cancel import CancelToken
-from tony.core.runner.claude_sdk import CLEANUP_BUDGET_S, ClaudeSdkRunner
-from tony.core.runner.proxy import ToolCaller
+from tony.core.runner.claude_sdk import CLEANUP_BUDGET_S
+from tony.core.runner.factory import WorkerRunnerFactory, default_worker_runner_factory
+from tony.core.subagents.builder import ChildWorker, SubagentWorkerBuilder
+from tony.core.subagents.handlers import WorkerToolHandlers
+from tony.core.subagents.launcher import SubagentLauncher
+from tony.core.subagents.ports import SubtaskHost
 
-
-class ToolManager(Protocol):
-    catalog: ToolCatalog
-
-    async def start(
-        self, tool_config: ToolConfig, server_filter: list[str] | None = None
-    ) -> None: ...
-
-    async def call(
-        self, qualified: str, args: dict[str, Any], timeout: float
-    ) -> ToolCallOutcome: ...
-
-    def status(self) -> dict[str, McpServerStatus]: ...
-
-    async def stop(self) -> None: ...
-
-
-ManagerFactory = Callable[[TonySettings], ToolManager]
-WorkerRunnerFactory = Callable[
-    [TonySettings, str, ConfirmGate, ToolCaller, CancelToken], AgentRunner
+__all__ = [
+    "ManagerFactory",
+    "SdkWorkerFactory",
+    "ToolManager",
+    "WorkerRunnerFactory",
+    "default_manager_factory",
+    "default_worker_runner_factory",
+    "role_mismatch_warning",
+    "status_payload",
 ]
-
-
-def default_manager_factory(settings: TonySettings) -> ToolManager:
-    return McpManager(connect_timeout_s=settings.limits.mcp_connect_timeout_s)
-
-
-def default_worker_runner_factory(
-    settings: TonySettings, task_id: str, gate: ConfirmGate, call: ToolCaller, token: CancelToken
-) -> AgentRunner:
-    return ClaudeSdkRunner(
-        settings=settings, task_id=task_id, gate=gate, call=call, cancel_token=token
-    )
 
 
 def role_mismatch_warning(spec: AgentSpec, expected_role: str) -> str | None:
@@ -82,73 +66,73 @@ class SdkWorkerFactory:
         close_budget_s: float = CLEANUP_BUDGET_S,
     ) -> None:
         self._settings = settings
-        self._spec = spec
         self._logs_dir = logs_dir
-        self._secrets = [*secrets, *spec.secrets]
-        self._manager_factory = manager_factory
+        self._dotenv_secrets = list(secrets)
         self._runner_factory = runner_factory
-        self._close_budget_s = close_budget_s
-        self._owner: _ManagerOwner | None = None
+        self.pool = McpGenerationPool(manager_factory, settings, spec.tools, close_budget_s)
+        self._builder = SubagentWorkerBuilder(
+            settings, runner_factory, manager_factory, close_budget_s
+        )
+        self._host: SubtaskHost | None = None
+        self._leases: dict[str, Generation] = {}
+        self._children: dict[str, ChildWorker] = {}
+        self.update_spec(spec)
+
+    def update_spec(self, spec: AgentSpec) -> None:
+        """Tasks built from now on use this spec (tools, secrets, skills, subagents)."""
+        self._spec = spec
+        self._secrets = [*self._dotenv_secrets, *spec.secrets]
         self.warnings = [w for w in [role_mismatch_warning(spec, "worker")] if w]
 
-    def open_log(self, task_id: str) -> JsonlEventSink:
-        return JsonlEventSink(self._logs_dir, task_id, self._secrets)
+    def attach_host(self, host: SubtaskHost) -> None:
+        self._host = host
+
+    def open_log(self, task_id: str, parent_id: str | None = None) -> JsonlEventSink:
+        return JsonlEventSink(self._logs_dir, task_id, self._secrets, parent_id)
 
     async def build_worker(
         self, task: Task, events: EventSink, cancel_token: CancelToken, gate: ConfirmGate
     ) -> Worker:
-        manager = await self._started_manager()
-        events.emit("mcp.status", status_payload(manager.status()))
-        runner = self._runner_factory(self._settings, task.id, gate, manager.call, cancel_token)
-        return Worker(runner=runner, spec=self._spec, catalog=manager.catalog)
+        if task.agent is None:
+            return await self._build_root(task, events, cancel_token, gate)
+        return await self._build_child(task, cancel_token, gate)
+
+    async def release(self, task_id: str) -> None:
+        generation = self._leases.pop(task_id, None)
+        if generation is not None:
+            await self.pool.release(generation)
+        child = self._children.pop(task_id, None)
+        if child is not None:
+            await child.close()
 
     async def close(self) -> None:
-        owner, self._owner = self._owner, None
-        if owner is not None:
-            await owner.stop()
+        await self.pool.close_all()
 
-    async def _started_manager(self) -> ToolManager:
-        if self._owner is None:
-            self._owner = _ManagerOwner(
-                self._manager_factory, self._settings, self._spec.tools, self._close_budget_s
-            )
-        try:
-            return await self._owner.manager()
-        except BaseException:
-            self._owner = None
-            raise
+    async def _build_root(
+        self, task: Task, events: EventSink, cancel_token: CancelToken, gate: ConfirmGate
+    ) -> Worker:
+        generation = await self.pool.acquire()
+        self._leases[task.id] = generation
+        manager = generation.manager
+        events.emit("mcp.status", status_payload(manager.status()))
+        launcher = SubagentLauncher(self._host, task.id, self._spec.subagents)
+        handlers = WorkerToolHandlers(self._spec, launcher)
+        runner = self._runner_factory(
+            self._settings, task.id, gate, manager.call, cancel_token, handlers
+        )
+        return Worker(runner=runner, spec=self._spec, catalog=manager.catalog)
 
-
-class _ManagerOwner:
-    """One long-lived task starts and stops the manager: MCP sessions bind their cancel scopes
-    to the task that opened them, so closing from another task raises inside anyio."""
-
-    def __init__(
-        self,
-        manager_factory: ManagerFactory,
-        settings: TonySettings,
-        tools: ToolConfig,
-        close_budget_s: float,
-    ) -> None:
-        self._close_budget_s = close_budget_s
-        self._ready: asyncio.Future[ToolManager] = asyncio.get_running_loop().create_future()
-        self._stop = asyncio.Event()
-        self._task = asyncio.create_task(self._own(manager_factory(settings), tools))
-
-    async def manager(self) -> ToolManager:
-        return await self._ready
-
-    async def stop(self) -> None:
-        self._stop.set()
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._task, self._close_budget_s)
-
-    async def _own(self, manager: ToolManager, tools: ToolConfig) -> None:
-        try:
-            await manager.start(tools)
-        except BaseException as exc:
-            self._ready.set_exception(exc)
-            return
-        self._ready.set_result(manager)
-        await self._stop.wait()
-        await manager.stop()
+    async def _build_child(
+        self, task: Task, cancel_token: CancelToken, gate: ConfirmGate
+    ) -> Worker:
+        child_spec = self._spec.subagents.get(task.agent or "")
+        if child_spec is None:
+            raise LookupError(f"subagente '{task.agent}' desconocido")
+        generation = self._leases.get(task.parent_id or "")
+        if generation is None:
+            raise LookupError(f"la tarea padre '{task.parent_id}' no tiene generación de MCPs")
+        child = await self._builder.build(
+            self._spec, child_spec, generation.manager, gate, cancel_token, task.id
+        )
+        self._children[task.id] = child
+        return Worker(runner=child.runner, spec=child.spec, catalog=child.catalog)

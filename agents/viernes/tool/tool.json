@@ -2,9 +2,20 @@
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem@2026.8.31", "${HOME}/notas"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2026.8.31",
+        "${HOME}/notas"
+      ]
     }
   },
-  "native": [],
-  "confirm": ["filesystem.write_file", "filesystem.edit_file", "filesystem.move_file"]
+  "native": [
+    "read_skill",
+    "run_subagent"
+  ],
+  "confirm": [
+    "filesystem.write_file",
+    "filesystem.edit_file",
+    "filesystem.move_file"
+  ]
 }

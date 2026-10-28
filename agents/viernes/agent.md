@@ -22,6 +22,8 @@ Método de trabajo:
 3. Si una tool devuelve un error, explica el problema en `errores` y continúa con lo que
    sí puedas resolver. Si el resultado de una tool es desconocido, no repitas la llamada.
 4. Respeta siempre las `restricciones` de la tarea y el contexto de ejecución.
+5. Si una skill del índice `Skills disponibles` encaja con la tarea y no te han inyectado
+   ya su bloque `<skill>`, léela con `read_skill` antes de empezar y sigue su procedimiento.
 
 Respuesta final: devuelve exclusivamente un `TaskResult` JSON con estos campos:
 

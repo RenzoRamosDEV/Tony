@@ -16,7 +16,7 @@ from tony.core.loader import AgentSpec
 from tony.core.mcp import McpServerStatus
 from tony.core.orchestrator.task import Task
 from tony.core.orchestrator.worker import SdkWorkerFactory, role_mismatch_warning
-from tony.core.runner import TaskRequest
+from tony.core.runner import TaskRequest, TaskResult
 from tony.core.runner.cancel import CancelToken
 
 
@@ -29,10 +29,12 @@ def spec(role: str = "worker", name: str = "viernes") -> AgentSpec:
 class Recorder:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        self.handlers: list = []
         self.managers: list[FakeManager] = []
 
-    def runner_factory(self, settings, task_id, gate, call, cancel_token):
+    def runner_factory(self, settings, task_id, gate, call, cancel_token, handlers=None):
         self.calls.append((settings, task_id, gate, call, cancel_token))
+        self.handlers.append(handlers)
         return object()
 
     def manager_factory(self, settings):
@@ -222,3 +224,150 @@ async def test_manager_start_failure_fails_the_build_and_leaves_nothing_to_close
             AutoConfirmGate(True),
         )
     await asyncio.wait_for(factory.close(), 1)
+
+
+# --- generations, subagents and native handlers ------------------------------------------------
+
+from tests.core.runner_helpers import mcp_tool  # noqa: E402
+from tony.core.loader import StdioServer, ToolConfig  # noqa: E402
+from tony.core.mcp import ToolCatalog  # noqa: E402
+from tony.core.skills import SkillSpec  # noqa: E402
+from tony.core.subagents.launcher import NO_HOST_ERROR  # noqa: E402
+
+CHILD = AgentSpec(
+    name="investigador",
+    role="worker",
+    model="claude-sonnet",
+    path=Path("/tmp/x/i"),
+    parent="viernes",
+)
+
+
+def full_spec(native: list[str], skills: list[SkillSpec] | None = None) -> AgentSpec:
+    return AgentSpec(
+        name="viernes",
+        role="worker",
+        model="claude-sonnet",
+        path=Path("/tmp/x"),
+        tools=ToolConfig(mcpServers={"fs": StdioServer(command="fs")}, native=native),
+        skills=skills or [],
+        subagents={"investigador": CHILD},
+    )
+
+
+def make_full_factory(tmp_path: Path, spec: AgentSpec) -> tuple[SdkWorkerFactory, Recorder]:
+    recorder = Recorder()
+    recorder.manager_factory = lambda settings: _catalog_manager(recorder)  # type: ignore[method-assign]
+    factory = SdkWorkerFactory(
+        load_settings(None),
+        spec,
+        logs_dir=tmp_path,
+        secrets=[],
+        manager_factory=recorder.manager_factory,
+        runner_factory=recorder.runner_factory,
+    )
+    return factory, recorder
+
+
+def _catalog_manager(recorder: Recorder) -> FakeManager:
+    manager = FakeManager(ToolCatalog.build({"fs": [mcp_tool("read_file")]}, None, []))
+    recorder.managers.append(manager)
+    return manager
+
+
+async def build(factory: SdkWorkerFactory, task: Task):
+    return await factory.build_worker(task, ListEventSink(), CancelToken(), AutoConfirmGate(True))
+
+
+async def test_root_task_leases_the_current_generation_and_release_frees_it(tmp_path) -> None:
+    factory, recorder = make_full_factory(tmp_path, full_spec([]))
+
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+    assert factory.pool.current is not None and factory.pool.current.leases == 1
+
+    await factory.release("t1")
+
+    assert factory.pool.current.leases == 0
+    await factory.release("t1")
+    assert factory.pool.current.leases == 0
+    await factory.close()
+    assert recorder.managers[0].stopped is True
+
+
+async def test_subtask_is_built_with_its_subagent_over_the_root_generation(tmp_path) -> None:
+    factory, recorder = make_full_factory(tmp_path, full_spec(["read_skill", "run_subagent"]))
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+
+    worker = await build(factory, Task("s1", TaskRequest(objetivo="b"), "t1", agent="investigador"))
+
+    assert worker.spec is CHILD
+    assert worker.catalog.qualified_names() == ["fs.read_file"]
+    assert len(recorder.managers) == 1
+    assert recorder.calls[1][1] == "s1" and recorder.calls[1][3] == recorder.managers[0].call
+    assert not hasattr(recorder.handlers[1], "run_subagent")
+    await factory.release("s1")
+    await factory.release("t1")
+    await factory.close()
+
+
+async def test_subtask_of_an_unknown_subagent_or_parent_fails_to_build(tmp_path) -> None:
+    factory, _ = make_full_factory(tmp_path, full_spec([]))
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+
+    with pytest.raises(LookupError, match="nadie"):
+        await build(factory, Task("s1", TaskRequest(objetivo="b"), "t1", agent="nadie"))
+    with pytest.raises(LookupError, match="t9"):
+        await build(factory, Task("s2", TaskRequest(objetivo="b"), "t9", agent="investigador"))
+    await factory.close()
+
+
+async def test_update_spec_is_seen_by_the_next_task(tmp_path) -> None:
+    factory, recorder = make_full_factory(tmp_path, full_spec(["read_skill"]))
+    skill = SkillSpec(name="nueva", description="d", body="cuerpo nuevo", path=Path("/s"))
+
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+    factory.update_spec(full_spec(["read_skill"], skills=[skill]))
+    worker = await build(factory, Task("t2", TaskRequest(objetivo="b")))
+
+    assert worker.spec.skills == [skill]
+    assert await recorder.handlers[1].read_skill("nueva") == "cuerpo nuevo"
+    assert factory.pool.current.leases == 2
+    await factory.close()
+
+
+async def test_native_handlers_offer_read_skill_and_run_subagent_to_the_root_worker(
+    tmp_path,
+) -> None:
+    factory, recorder = make_full_factory(tmp_path, full_spec(["read_skill", "run_subagent"]))
+
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+
+    handlers = recorder.handlers[0]
+    assert hasattr(handlers, "read_skill") and hasattr(handlers, "run_subagent")
+    result = await handlers.run_subagent("investigador", TaskRequest(objetivo="x"))
+    assert result.errores == [NO_HOST_ERROR]
+    await factory.close()
+
+
+async def test_attached_host_receives_the_subtasks_of_the_root_worker(tmp_path) -> None:
+    class Host:
+        def __init__(self) -> None:
+            self.submitted: list[tuple[str, str, str]] = []
+
+        def submit_subtask(self, parent_id, agent, request):
+            self.submitted.append((parent_id, agent, request.objetivo))
+            return Task("s1", request, parent_id, agent=agent)
+
+        async def wait(self, task_id):
+            return TaskResult(status="ok", resumen="hijo")
+
+    factory, recorder = make_full_factory(tmp_path, full_spec(["run_subagent"]))
+    host = Host()
+    factory.attach_host(host)
+    await build(factory, Task("t1", TaskRequest(objetivo="a")))
+
+    result = await recorder.handlers[0].run_subagent("investigador", TaskRequest(objetivo="x"))
+
+    assert result.resumen == "hijo"
+    assert host.submitted == [("t1", "investigador", "x")]
+    await factory.close()

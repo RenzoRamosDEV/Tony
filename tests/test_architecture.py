@@ -14,8 +14,17 @@ SDK_ALLOWED_IN = {
     "tony.core.runner.proxy",
     "tony.core.runner.conversation",
     "tony.core.runner.native_tools",
+    "tony.core.runner.oneshot",
 }
 MCP_CLIENT_ALLOWED_IN = {"tony.core.mcp.manager"}
+WATCHFILES_ALLOWED_IN = {"tony.core.config.watcher"}
+FRAMEWORK_FREE_PACKAGES = (
+    "tony.core.skills.",
+    "tony.core.subagents.",
+    "tony.core.doctor.",
+    "tony.core.evals.",
+)
+FORBIDDEN_IN_FRAMEWORK_FREE = ("tony.core.channels", "pytest", "typer")
 SQLITE_ALLOWED_IN = {"tony.core.memory.conversations"}
 WORKER_PATH_PACKAGES = ("tony.core.runner.", "tony.core.orchestrator.", "tony.core.memory.")
 CHANNELS_PACKAGE = "tony.core.channels"
@@ -58,6 +67,11 @@ def worker_path_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
     return offenders(worker_side, (CHANNELS_PACKAGE,))
 
 
+def framework_free_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
+    scoped = {m: i for m, i in modules.items() if m.startswith(FRAMEWORK_FREE_PACKAGES)}
+    return offenders(scoped, FORBIDDEN_IN_FRAMEWORK_FREE)
+
+
 def test_core_never_imports_apps_or_frameworks() -> None:
     assert offenders(core_modules(), FORBIDDEN_IN_CORE) == {}
 
@@ -78,6 +92,14 @@ def test_worker_path_never_imports_channels() -> None:
     assert worker_path_offenders(core_modules()) == {}
 
 
+def test_only_the_config_watcher_imports_watchfiles() -> None:
+    assert users_of(core_modules(), "watchfiles") == WATCHFILES_ALLOWED_IN
+
+
+def test_new_core_packages_import_neither_channels_nor_test_or_cli_frameworks() -> None:
+    assert framework_free_offenders(core_modules()) == {}
+
+
 def test_a_simulated_forbidden_import_is_reported() -> None:
     simulated = {
         "tony.core.runner.claude_sdk": {"asyncio", "tony.core.channels.ports"},
@@ -94,3 +116,16 @@ def test_a_simulated_forbidden_import_is_reported() -> None:
         "tony.core.x": ["typer"]
     }
     assert users_of({"tony.core.y": {"sqlite3"}}, "sqlite3") == {"tony.core.y"}
+    assert framework_free_offenders(
+        {
+            "tony.core.skills.index": {"pytest", "unicodedata"},
+            "tony.core.doctor.checks": {"typer"},
+            "tony.core.evals.replay": {"tony.core.channels.session"},
+            "tony.core.runner.prompt": {"typer"},
+        }
+    ) == {
+        "tony.core.skills.index": ["pytest"],
+        "tony.core.doctor.checks": ["typer"],
+        "tony.core.evals.replay": ["tony.core.channels.session"],
+    }
+    assert users_of({"tony.core.x": {"watchfiles"}}, "watchfiles") == {"tony.core.x"}

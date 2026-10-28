@@ -10,6 +10,7 @@ from tony.core.mcp import ConfirmGate, ToolCatalog
 from tony.core.orchestrator.task import Task
 from tony.core.runner import AgentRunner, EventSink
 from tony.core.runner.cancel import CancelToken
+from tony.core.subagents.ports import SubtaskHost
 
 
 class TaskLog(Protocol):
@@ -26,10 +27,14 @@ class Worker:
 
 
 class WorkerFactory(Protocol):
-    def open_log(self, task_id: str) -> TaskLog: ...
+    def attach_host(self, host: SubtaskHost) -> None: ...
+
+    def open_log(self, task_id: str, parent_id: str | None = None) -> TaskLog: ...
 
     async def build_worker(
         self, task: Task, events: EventSink, cancel_token: CancelToken, gate: ConfirmGate
     ) -> Worker: ...
+
+    async def release(self, task_id: str) -> None: ...
 
     async def close(self) -> None: ...

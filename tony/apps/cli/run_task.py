@@ -19,14 +19,20 @@ from tony.core.orchestrator.worker import (
 from tony.core.runner import AgentRunner, TaskRequest, TaskResult
 from tony.core.runner.claude_sdk import ClaudeSdkRunner
 from tony.core.runner.proxy import ToolCaller
+from tony.core.subagents.handlers import WorkerToolHandlers
+from tony.core.subagents.launcher import SubagentLauncher
 
 
 class RunTaskError(Exception):
     """The task could not start (bad config, unknown or unsuitable agent)."""
 
 
-RunnerFactory = Callable[[TonySettings, str, ConfirmGate, ToolCaller], AgentRunner]
+RunnerFactory = Callable[[TonySettings, str, ConfirmGate, ToolCaller, Any], AgentRunner]
 GateFactory = Callable[[AgentSpec, TonySettings], ConfirmGate]
+SUBAGENTS_UNAVAILABLE = (
+    "Aviso: el agente declara 'run_subagent', pero los subagentes solo están disponibles en "
+    "tony chat y en el servidor web; aquí la tool devolverá un error."
+)
 
 
 @dataclass
@@ -51,9 +57,15 @@ class UsageRecorder:
 
 
 def default_runner_factory(
-    settings: TonySettings, task_id: str, gate: ConfirmGate, call: ToolCaller
+    settings: TonySettings,
+    task_id: str,
+    gate: ConfirmGate,
+    call: ToolCaller,
+    native_handlers: Any = None,
 ) -> AgentRunner:
-    return ClaudeSdkRunner(settings=settings, task_id=task_id, gate=gate, call=call)
+    return ClaudeSdkRunner(
+        settings=settings, task_id=task_id, gate=gate, call=call, native_handlers=native_handlers
+    )
 
 
 def default_gate_factory(spec: AgentSpec, settings: TonySettings) -> ConfirmGate:
@@ -100,12 +112,20 @@ async def run_task(
         await manager.start(spec.tools)
         statuses = manager.status()
         events.emit("mcp.status", status_payload(statuses))
-        runner = runner_factory(settings, task_id, gate_factory(spec, settings), manager.call)
+        handlers = WorkerToolHandlers(spec, SubagentLauncher(None, task_id, spec.subagents))
+        runner = runner_factory(
+            settings, task_id, gate_factory(spec, settings), manager.call, handlers
+        )
         result = await runner.run(spec, TaskRequest(objetivo=task), manager.catalog, events)
     finally:
         await manager.stop()
         sink.close()
-    return RunOutcome(result, events.usage, sink.path, mcp_warnings(statuses))
+    warnings = [*mcp_warnings(statuses), *subagent_warnings(spec)]
+    return RunOutcome(result, events.usage, sink.path, warnings)
+
+
+def subagent_warnings(spec: AgentSpec) -> list[str]:
+    return [SUBAGENTS_UNAVAILABLE] if "run_subagent" in spec.tools.native else []
 
 
 def mcp_warnings(statuses: dict[str, McpServerStatus]) -> list[str]:

@@ -28,8 +28,8 @@ def cli(tmp_repo: Path, monkeypatch: pytest.MonkeyPatch):
     write_agent(tmp_repo / "agents", "jarvis", "front")
     state = {"runner": FakeAgentRunner(OK_RESULT), "manager": FakeManager(), "factory_args": []}
 
-    def runner_factory(settings, task_id, gate, call):
-        state["factory_args"].append((settings, task_id, gate, call))
+    def runner_factory(settings, task_id, gate, call, handlers=None):
+        state["factory_args"].append((settings, task_id, gate, call, handlers))
         return state["runner"]
 
     monkeypatch.setattr(main, "runner_factory", runner_factory)
@@ -214,7 +214,7 @@ def test_json_output_keeps_mcp_warnings_out_of_stdout(cli) -> None:
 def test_run_task_wiring_uses_one_task_id_and_the_agent_tools(cli) -> None:
     result = invoke("run", "viernes", "x")
 
-    settings, task_id, gate, call = cli["factory_args"][0]
+    settings, task_id, gate, call, _ = cli["factory_args"][0]
     footer = result.output.strip().splitlines()[-1]
     assert Path(footer.split("log: ", 1)[1]).stem == task_id
     assert cli["manager"].started_with == cli["runner"].calls[0][0].tools
@@ -282,7 +282,7 @@ class ConfirmingRunner(FakeAgentRunner):
 
 
 def test_confirmation_under_json_keeps_stdout_parseable(cli) -> None:
-    def runner_factory(settings, task_id, gate, call):
+    def runner_factory(settings, task_id, gate, call, handlers=None):
         cli["runner"] = ConfirmingRunner(gate, OK_RESULT)
         return cli["runner"]
 
@@ -294,3 +294,36 @@ def test_confirmation_under_json_keeps_stdout_parseable(cli) -> None:
     assert json.loads(result.stdout)["status"] == "ok"
     assert "¿Confirmas? [s/N]" in result.stderr
     assert cli["runner"].answers == [True]
+
+
+# --- subagents are not available in `tony run` -------------------------------------------------
+
+import asyncio  # noqa: E402
+
+from tony.core.runner import TaskRequest  # noqa: E402
+from tony.core.subagents.launcher import NO_HOST_ERROR  # noqa: E402
+
+
+def test_run_subagent_declared_warns_and_the_task_continues(cli, tmp_repo: Path) -> None:
+    tool = tmp_repo / "agents" / "viernes" / "tool"
+    tool.mkdir()
+    (tool / "tool.json").write_text(
+        json.dumps({"native": ["run_subagent", "read_skill"]}), encoding="utf-8"
+    )
+    write_agent(tmp_repo / "agents" / "viernes" / "subagents", "investigador", "worker")
+
+    result = invoke("run", "viernes", "x")
+
+    assert result.exit_code == 0
+    assert "run_subagent" in result.stderr and "tony chat" in result.stderr
+    assert "Hecho" in result.stdout
+    handlers = cli["factory_args"][0][4]
+    outcome = asyncio.run(handlers.run_subagent("investigador", TaskRequest(objetivo="y")))
+    assert outcome.errores == [NO_HOST_ERROR]
+
+
+def test_without_run_subagent_there_is_no_warning(cli) -> None:
+    result = invoke("run", "viernes", "x")
+
+    assert "run_subagent" not in result.stderr
+    assert cli["factory_args"][0][4] is not None

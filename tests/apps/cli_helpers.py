@@ -20,16 +20,22 @@ def write_agent(
 
 
 class FakeManager:
-    def __init__(self) -> None:
-        self.catalog = ToolCatalog.empty()
+    def __init__(self, catalog: ToolCatalog | None = None) -> None:
+        self.catalog = catalog or ToolCatalog.empty()
         self.started_with: ToolConfig | None = None
+        self.server_filter: list[str] | None = None
         self.stopped = False
         self.statuses: dict[str, McpServerStatus] = {}
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def start(self, tool_config: ToolConfig, server_filter: list[str] | None = None) -> None:
         self.started_with = tool_config
+        self.server_filter = server_filter
 
     async def call(self, qualified: str, args: dict[str, Any], timeout: float) -> ToolCallOutcome:
+        self.calls.append((qualified, args))
+        if qualified in self.catalog:
+            return ToolCallOutcome(ok=True, content=f"{qualified} ok", duration_ms=1)
         return ToolCallOutcome.failure("sin servidores")
 
     def status(self) -> dict[str, McpServerStatus]:

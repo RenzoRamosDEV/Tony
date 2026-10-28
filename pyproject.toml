@@ -61,4 +61,12 @@ do_not_mutate = ["tony/core/mcp/manager.py"]
 pytest_add_cli_args = [
     "--ignore=tests/core/test_mcp_manager.py",
     "--ignore=tests/fakes/test_fake_mcp_server.py",
+    "--deselect=tests/fakes/test_doubles.py::test_fake_filesystem_server_exposes_five_tools_over_the_given_directory",
+    "--deselect=tests/apps/test_cli_mcp.py::test_add_stdio_server_connects_and_reports_tools",
+    "--deselect=tests/apps/test_cli_mcp.py::test_add_with_a_failing_connection_keeps_the_entry_and_warns",
+    "--deselect=tests/apps/test_cli_mcp.py::test_list_connects_and_shows_state_tools_allow_and_confirm",
+    "--deselect=tests/apps/test_cli_mcp.py::test_list_with_a_broken_server_shows_error_and_exits_0",
+    "--deselect=tests/apps/test_cli_doctor.py::test_healthy_installation_passes_offline",
+    "--deselect=tests/apps/test_cli_doctor.py::test_induced_failures_are_reported_with_hints_and_exit_1",
+    "--deselect=tests/apps/test_cli_doctor.py::test_doctor_without_offline_probes_the_model",
 ]

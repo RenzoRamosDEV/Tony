@@ -144,7 +144,7 @@ class ClaudeSdkConversation:
         self._options = build_front_options(
             spec,
             self._settings,
-            build_native_server(spec.tools.native, handlers),
+            build_native_server(spec.tools.native, handlers, events),
             proxies,
             make_can_use_tool(catalog),
             resume=resume,

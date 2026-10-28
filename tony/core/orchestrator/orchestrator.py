@@ -22,6 +22,8 @@ from tony.core.orchestrator.ports import TaskLog, WorkerFactory
 from tony.core.orchestrator.queue import TaskQueue
 from tony.core.orchestrator.state import transition
 from tony.core.orchestrator.task import (
+    SUBTASK_FINISHED,
+    SUBTASK_STARTED,
     TASK_CANCELLED,
     TASK_CONFIRMED,
     TASK_NEEDS_CONFIRMATION,
@@ -47,7 +49,7 @@ class _TaskContext:
     def __init__(self, task: Task, log: TaskLog) -> None:
         self.task = task
         self.log = log
-        self.bus = TaskEventBus(task.id)
+        self.bus = TaskEventBus(task.id, task.parent_id)
         self.sink = TaskEventSink(self.bus, log)
         self.token = CancelToken()
         self.runner_task: asyncio.Task[None] | None = None
@@ -70,17 +72,22 @@ class Orchestrator:
         self._contexts: dict[str, _TaskContext] = {}
         self._confirmations = ConfirmationRegistry()
         self._closing = False
+        worker_factory.attach_host(self)
 
     @property
     def tasks(self) -> dict[str, Task]:
         return {task_id: ctx.task for task_id, ctx in self._contexts.items()}
 
-    def submit(self, request: TaskRequest, parent_id: str | None = None) -> Task:
+    def submit(
+        self, request: TaskRequest, parent_id: str | None = None, agent: str | None = None
+    ) -> Task:
         if parent_id is not None:
             parent = self._contexts.get(parent_id)
             if parent is None or parent.task.final:
                 raise OrchestratorError(UNKNOWN_TASK)
-        task = Task(self._new_id(), request, parent_id, created_at=self._clock.monotonic())
+        task = Task(
+            self._new_id(), request, parent_id, agent=agent, created_at=self._clock.monotonic()
+        )
         if parent_id is None:
             self._queue.push(task)
         self._register(task)
@@ -89,6 +96,12 @@ class Orchestrator:
         else:
             self._start(task)
         return task
+
+    def submit_subtask(self, parent_id: str, agent: str, request: TaskRequest) -> Task:
+        return self.submit(request, parent_id, agent)
+
+    def children(self, task_id: str) -> list[Task]:
+        return [ctx.task for ctx in self._contexts.values() if ctx.task.parent_id == task_id]
 
     async def confirm(
         self,
@@ -107,6 +120,7 @@ class Orchestrator:
                 return
             was_queued = task.status == TaskStatus.QUEUED
             transition(task, TaskStatus.CANCELLED)
+            await self._cascade(task, TaskStatus.CANCELLED, reason)
             self._confirmations.invalidate_owner(task.id)
             ctx.token.cancel(reason)
             ctx.sink.emit(TASK_CANCELLED, {"reason": reason})
@@ -135,20 +149,22 @@ class Orchestrator:
     async def request_confirmation(self, task_id: str, request: ConfirmRequest) -> bool:
         ctx = self._context(task_id)
         task = ctx.task
-        async with self._confirmations.lock_for(task_id):
+        async with self._confirmations.lock_for(self._root_of(task_id)):
             async with task.lock:
                 if task.final:
                     return False
                 transition(task, TaskStatus.WAITING_CONFIRMATION)
                 pending = self._confirmations.register(task_id, request)
-                ctx.sink.emit(
-                    TASK_NEEDS_CONFIRMATION,
-                    {
-                        "confirmation_id": request.confirmation_id,
-                        "tool": request.tool,
-                        "args": json.loads(request.args_normalized),
-                    },
-                )
+                payload = {
+                    "confirmation_id": request.confirmation_id,
+                    "tool": request.tool,
+                    "args": json.loads(request.args_normalized),
+                }
+                ctx.sink.emit(TASK_NEEDS_CONFIRMATION, payload)
+                if task.parent_id is not None:
+                    self._context(task.parent_id).bus.publish(
+                        TASK_NEEDS_CONFIRMATION, {**payload, "task_id": task.id}
+                    )
             approved = await self._await_answer(pending)
             if pending.invalidated:
                 return False
@@ -181,8 +197,14 @@ class Orchestrator:
             raise OrchestratorError(UNKNOWN_TASK)
         return ctx
 
+    def _root_of(self, task_id: str) -> str:
+        task = self._context(task_id).task
+        while task.parent_id is not None:
+            task = self._context(task.parent_id).task
+        return task.id
+
     def _register(self, task: Task) -> None:
-        ctx = _TaskContext(task, self._factory.open_log(task.id))
+        ctx = _TaskContext(task, self._factory.open_log(task.id, task.parent_id))
         self._contexts[task.id] = ctx
         ctx.sink.emit(TASK_QUEUED, {"objetivo": task.request.objetivo, "parent_id": task.parent_id})
 
@@ -205,11 +227,12 @@ class Orchestrator:
             transition(task, TaskStatus.RUNNING)
             task.started_at = self._clock.monotonic()
             ctx.sink.emit(TASK_RUNNING, {})
+        self._emit_to_parent(task, SUBTASK_STARTED, {"task_id": task.id, "agent": task.agent})
         await self._finish(ctx, await self._supervise(ctx))
 
     async def _supervise(self, ctx: _TaskContext) -> TaskResult | None:
         run = asyncio.ensure_future(self._build_and_run(ctx))
-        deadline = asyncio.ensure_future(self._clock.sleep(self._limits.task_timeout_s))
+        deadline = asyncio.ensure_future(self._clock.sleep(self._remaining_s(ctx.task)))
         cancelled = asyncio.ensure_future(ctx.token.wait())
         try:
             done, _ = await asyncio.wait(
@@ -241,14 +264,42 @@ class Orchestrator:
             run.cancel()
             await asyncio.gather(run, return_exceptions=True)
 
+    def _remaining_s(self, task: Task) -> float:
+        """A subtask shares its parent's deadline instead of getting a full timeout."""
+        timeout = self._limits.task_timeout_s
+        if task.parent_id is None:
+            return timeout
+        parent = self._context(task.parent_id).task
+        if parent.started_at is None:
+            return timeout
+        return max(0.0, parent.started_at + timeout - self._clock.monotonic())
+
     async def _expire(self, ctx: _TaskContext) -> None:
         task = ctx.task
         async with task.lock:
             if task.final:
                 return
             transition(task, TaskStatus.TIMEOUT)
+            await self._cascade(task, TaskStatus.TIMEOUT, TIMEOUT_REASON)
             self._confirmations.invalidate_owner(task.id)
             ctx.token.cancel(TIMEOUT_REASON)
+
+    async def _cascade(self, parent: Task, status: TaskStatus, reason: str) -> None:
+        """Apply the parent's final transition to every child still in flight."""
+        for child in self.children(parent.id):
+            ctx = self._context(child.id)
+            async with child.lock:
+                if child.final:
+                    continue
+                transition(child, status)
+                self._confirmations.invalidate_owner(child.id)
+                ctx.token.cancel(reason)
+                if status == TaskStatus.CANCELLED:
+                    ctx.sink.emit(TASK_CANCELLED, {"reason": reason})
+
+    def _emit_to_parent(self, task: Task, event_type: str, payload: dict[str, Any]) -> None:
+        if task.parent_id is not None:
+            self._context(task.parent_id).sink.emit(event_type, payload)
 
     async def _finish(self, ctx: _TaskContext, runner_result: TaskResult | None) -> None:
         task = ctx.task
@@ -263,6 +314,8 @@ class Orchestrator:
             task.finished_at = self._clock.monotonic()
             ctx.sink.emit(TASK_RESULT, {"result": result.model_dump()})
         ctx.log.close()
+        await self._factory.release(task.id)
+        self._emit_to_parent(task, SUBTASK_FINISHED, {"task_id": task.id, "status": task.status})
         task.finished.set()
         self._queue.release(task)
         self._pump()

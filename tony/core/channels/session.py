@@ -29,6 +29,8 @@ from tony.core.orchestrator.clock import Clock, SystemClock
 from tony.core.orchestrator.errors import OrchestratorError
 from tony.core.orchestrator.orchestrator import Orchestrator
 from tony.core.orchestrator.task import (
+    SUBTASK_FINISHED,
+    SUBTASK_STARTED,
     TASK_CANCELLED,
     TASK_FINISHED,
     TASK_NEEDS_CONFIRMATION,
@@ -37,6 +39,7 @@ from tony.core.orchestrator.task import (
 )
 from tony.core.runner import EventSink, TaskRequest, TaskResult
 from tony.core.runner.cancel import USER_REASON
+from tony.core.runner.claude_sdk import SKILL_ACTIVATED
 from tony.core.runner.conversation import ConversationRunner
 from tony.core.runner.front_prompt import PREAMBLE_END, PREAMBLE_START, build_turn_preamble
 from tony.core.runner.reply_mode import (
@@ -46,6 +49,8 @@ from tony.core.runner.reply_mode import (
     resolve_reply_mode,
     strip_prefix,
 )
+from tony.core.skills.index import find_skill
+from tony.core.skills.triggers import matched_skills, skill_blocks
 
 WAIT_PHRASE_DELAY_S = 3.0
 FRONT_INTERRUPTED_REASON = "front_interrupted"
@@ -134,7 +139,11 @@ class ChatSession:
         preamble = build_turn_preamble(
             self._now(), mode, self._front.style, self._memory.preferences.injection_block()
         )
-        turn = await self._runner.turn(preamble + message)
+        for skill in matched_skills(message, self._front.skills):
+            self._events.emit(SKILL_ACTIVATED, {"skill": skill.name})
+        turn = await self._runner.turn(
+            preamble + skill_blocks(message, self._front.skills) + message
+        )
         self._persist_sdk_session()
         front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
         reply = AssistantReply(front_reply.display_text, front_reply.speech_text, mode.mode)
@@ -197,6 +206,12 @@ class ChatSession:
         self._memory.settings.set_reply_mode(mode)
         return mode
 
+    async def read_skill(self, name: str) -> str:
+        return find_skill(self._front.skills, name).body
+
+    async def notify_reload(self, text: str) -> None:
+        await self._channel.send(Notice(text))
+
     async def _settle_interrupted(
         self, task_id: str, request: TaskRequest, usage: dict[str, Any], forwarder: asyncio.Task
     ) -> None:
@@ -211,32 +226,28 @@ class ChatSession:
         supervisor.add_done_callback(self._supervisors.discard)
 
     async def _forward_events(self, task_id: str, usage: dict[str, Any]) -> None:
-        confirmation: asyncio.Task[None] | None = None
+        asking = _PendingAsk()
         try:
             async for event in self._orchestrator.events(task_id):
+                payload = event.payload
                 if event.type == TASK_PROGRESS:
                     await self._channel.send(
-                        TaskProgress(task_id, event.payload["tool"], event.payload["step"])
+                        TaskProgress(task_id, payload["tool"], payload["step"])
                     )
                 elif event.type == TASK_NEEDS_CONFIRMATION:
-                    confirmation = asyncio.ensure_future(
-                        self._channel.send(
-                            NeedsConfirmation(
-                                task_id,
-                                event.payload["confirmation_id"],
-                                event.payload["tool"],
-                                event.payload["args"],
-                            )
-                        )
-                    )
+                    owner = payload.get("task_id", task_id)
+                    asking.replace(owner, self._channel.send(_needs_confirmation(owner, payload)))
                 elif event.type == TASK_FINISHED:
-                    usage.update(event.payload.get("usage") or {})
-                elif event.type in (TASK_CANCELLED, TASK_RESULT) and confirmation is not None:
-                    confirmation.cancel()
+                    usage.update(payload.get("usage") or {})
+                elif event.type == SUBTASK_STARTED:
+                    self.active_task_ids.add(payload["task_id"])
+                elif event.type == SUBTASK_FINISHED:
+                    self.active_task_ids.discard(payload["task_id"])
+                    asking.cancel_if(payload["task_id"])
+                elif event.type in (TASK_CANCELLED, TASK_RESULT):
+                    asking.cancel_if(task_id)
         finally:
-            if confirmation is not None:
-                confirmation.cancel()
-                await asyncio.gather(confirmation, return_exceptions=True)
+            await asking.close()
 
     async def _wait_phrase_once(self) -> None:
         await self._clock.sleep(WAIT_PHRASE_DELAY_S)
@@ -274,3 +285,36 @@ class ChatSession:
             tokens_out=int(usage.get("output_tokens", 0) or 0),
             cost_usd=float(usage.get("total_cost_usd", 0.0) or 0.0),
         )
+
+
+def _needs_confirmation(task_id: str, payload: dict[str, Any]) -> NeedsConfirmation:
+    return NeedsConfirmation(task_id, payload["confirmation_id"], payload["tool"], payload["args"])
+
+
+class _PendingAsk:
+    """The confirmation prompt in flight; withdrawn when its task ends."""
+
+    def __init__(self) -> None:
+        self._task_id: str | None = None
+        self._sending: asyncio.Task[None] | None = None
+
+    def replace(self, task_id: str, sending: Any) -> None:
+        self._withdraw()
+        self._task_id = task_id
+        self._sending = asyncio.ensure_future(sending)
+
+    def cancel_if(self, task_id: str) -> None:
+        if self._task_id == task_id:
+            self._withdraw()
+
+    async def close(self) -> None:
+        sending = self._sending
+        self._withdraw()
+        if sending is not None:
+            await asyncio.gather(sending, return_exceptions=True)
+
+    def _withdraw(self) -> None:
+        if self._sending is not None:
+            self._sending.cancel()
+        self._sending = None
+        self._task_id = None

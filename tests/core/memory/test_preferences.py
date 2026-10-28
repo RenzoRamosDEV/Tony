@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tony.core.memory import atomic
+from tony.core.config import atomic
 from tony.core.memory.preferences import OMITTED_HEADER, PreferencesStore
 
 TODAY = date(2026, 10, 28)

@@ -33,3 +33,18 @@ def render_json(result: TaskResult) -> str:
 
 def exit_code_for(status: str) -> int:
     return 0 if status in SUCCESS_STATUSES else 1
+
+
+def render_table(columns: tuple[str, ...], rows: list[list[str]]) -> str:
+    """Plain-text table: ` | ` separated cells padded to the widest value per column."""
+    widths = [len(column) for column in columns]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+    lines = [
+        " | ".join(cell.ljust(width) for cell, width in zip(columns, widths, strict=True)),
+        "-+-".join("-" * width for width in widths),
+    ]
+    for row in rows:
+        lines.append(" | ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)))
+    return "\n".join(lines)

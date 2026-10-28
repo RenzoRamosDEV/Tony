@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -10,17 +11,40 @@ from typing import Any
 from pydantic import ValidationError
 
 from tony.core.config import EnvMap, TonySettings
-from tony.core.loader.errors import AgentLoadError, MissingEnvVar
+from tony.core.loader.errors import AgentLoadError, MissingEnvVar, format_validation_error
 from tony.core.loader.frontmatter import FrontmatterError, split_frontmatter
 from tony.core.loader.models import AgentSpec, ToolConfig
 from tony.core.loader.substitution import substitute_deep
+from tony.core.skills.loader import load_skills
 
 SUBSTITUTED_FIELDS = ("args", "env", "url", "headers")
-RESERVED_HEADER_KEYS = frozenset({"system_prompt", "path", "tools", "secrets"})
+RESERVED_HEADER_KEYS = frozenset(
+    {
+        "system_prompt",
+        "path",
+        "tools",
+        "secrets",
+        "skills",
+        "skill_errors",
+        "subagents",
+        "subagent_errors",
+        "parent",
+    }
+)
+SUBAGENT_ONLY_NATIVE = "run_subagent"
+SUBAGENTS_DIR = "subagents"
+SKILLS_DIR = "skills"
+
+logger = logging.getLogger(__name__)
 
 
-def load_agent(path: Path, settings: TonySettings, env: EnvMap) -> AgentSpec:
-    """Load agents/<name>/agent.md and tool/tool.json into an AgentSpec."""
+def load_agent(
+    path: Path, settings: TonySettings, env: EnvMap, depth: int = 0, parent: str | None = None
+) -> AgentSpec:
+    """Load agents/<name>/ (agent.md, tool/tool.json, skills/, subagents/) into an AgentSpec.
+
+    depth 0 is a top-level agent; depth 1 is a subagent, which loads no subagents of its own.
+    """
     agent = path.name
     agent_md = path / "agent.md"
     if not agent_md.is_file():
@@ -33,18 +57,66 @@ def load_agent(path: Path, settings: TonySettings, env: EnvMap) -> AgentSpec:
     if reserved:
         raise AgentLoadError(agent, f"el frontmatter no puede definir {reserved}")
     tools, secrets = _load_tool_config(path / "tool" / "tool.json", agent, env)
+    if depth > 0:
+        tools = _without_subagent_tools(tools, agent)
+    skills, skill_errors = load_skills(path / SKILLS_DIR)
+    subagents, subagent_errors = (
+        _load_subagents(path / SUBAGENTS_DIR, agent, settings, env) if depth == 0 else ({}, {})
+    )
     try:
         spec = AgentSpec.model_validate(
-            {**header, "system_prompt": body, "path": path, "tools": tools, "secrets": secrets}
+            {
+                **header,
+                "system_prompt": body,
+                "path": path,
+                "tools": tools,
+                "secrets": secrets,
+                "skills": skills,
+                "skill_errors": [f"{e.skill}: {e.message}" for e in skill_errors],
+                "subagents": subagents,
+                "subagent_errors": subagent_errors,
+                "parent": parent,
+            }
         )
     except ValidationError as exc:
-        raise AgentLoadError(agent, _format_validation_error(exc)) from None
+        raise AgentLoadError(agent, format_validation_error(exc)) from None
     if spec.model not in settings.models:
         raise AgentLoadError(
             agent,
             f"alias de modelo desconocido '{spec.model}'; disponibles: {sorted(settings.models)}",
         )
+    if depth > 0 and spec.role != "worker":
+        logger.warning(
+            "el subagente '%s' declara role '%s'; se usa como 'worker'", agent, spec.role
+        )
     return spec
+
+
+def _load_subagents(
+    folder: Path, parent: str, settings: TonySettings, env: EnvMap
+) -> tuple[dict[str, AgentSpec], dict[str, str]]:
+    loaded: dict[str, AgentSpec] = {}
+    errors: dict[str, str] = {}
+    if not folder.is_dir():
+        return loaded, errors
+    for child in sorted(p for p in folder.iterdir() if p.is_dir()):
+        try:
+            loaded[child.name] = load_agent(child, settings, env, depth=1, parent=parent)
+        except AgentLoadError as exc:
+            errors[child.name] = exc.message
+    return loaded, errors
+
+
+def _without_subagent_tools(tools: ToolConfig, agent: str) -> ToolConfig:
+    if SUBAGENT_ONLY_NATIVE not in tools.native:
+        return tools
+    logger.warning(
+        "el subagente '%s' declara '%s'; se ignora (profundidad máxima 1)",
+        agent,
+        SUBAGENT_ONLY_NATIVE,
+    )
+    native = [name for name in tools.native if name != SUBAGENT_ONLY_NATIVE]
+    return tools.model_copy(update={"native": native})
 
 
 def load_all(
@@ -96,7 +168,7 @@ def _load_tool_config(tool_json: Path, agent: str, env: EnvMap) -> tuple[ToolCon
     except MissingEnvVar as exc:
         raise AgentLoadError(agent, str(exc)) from None
     except ValidationError as exc:
-        raise AgentLoadError(agent, f"tool.json: {_format_validation_error(exc)}") from None
+        raise AgentLoadError(agent, f"tool.json: {format_validation_error(exc)}") from None
 
 
 def _substitute_servers(servers: Any, env: Mapping[str, str]) -> Any:
@@ -115,12 +187,3 @@ def _substitute_servers(servers: Any, env: Mapping[str, str]) -> Any:
         except MissingEnvVar as exc:
             raise MissingEnvVar(exc.var, name) from None
     return substituted
-
-
-def _format_validation_error(exc: ValidationError) -> str:
-    parts = []
-    for error in exc.errors():
-        location = ".".join(str(part) for part in error["loc"])
-        message = error["msg"].removeprefix("Value error, ")
-        parts.append(f"{location}: {message}" if location else message)
-    return "; ".join(parts)

@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from tests.apps.cli_helpers import FakeManager, write_agent
 from tests.fakes.conversation import FakeConversationRunner
+from tests.fakes.fake_watch import ScriptedWatch
 from tests.fakes.scripted_runner import ScriptedRunner
 from tests.fakes.stdin import FakeStdin
 from tony.apps.cli import chat as chat_app
@@ -51,6 +52,7 @@ def cli(tmp_repo: Path, monkeypatch: pytest.MonkeyPatch):
         "runners": [],
         "conversations": [],
         "managers": [],
+        "watch": ScriptedWatch(),
     }
 
     def conversation_factory(settings, gate, call):
@@ -58,7 +60,7 @@ def cli(tmp_repo: Path, monkeypatch: pytest.MonkeyPatch):
         state["conversations"].append(conversation)
         return conversation
 
-    def worker_runner_factory(settings, task_id, gate, call, token):
+    def worker_runner_factory(settings, task_id, gate, call, token, handlers=None):
         scripted = ScriptedRunner(
             task_id, state["script"], cancel_token=token, gate=gate, call=call
         )
@@ -74,6 +76,7 @@ def cli(tmp_repo: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(main, "worker_runner_factory", worker_runner_factory)
     monkeypatch.setattr(main, "manager_factory", manager_factory)
     monkeypatch.setattr(main, "lines_factory", lambda: FakeStdin(state["stdin"]))
+    monkeypatch.setattr(main, "watch_factory", lambda: state["watch"])
     return state
 
 
@@ -434,3 +437,56 @@ def test_root_help_lists_chat_run_and_version() -> None:
     result = runner.invoke(main.app, ["--help"])
 
     assert "chat" in result.output and "run" in result.output and "version" in result.output
+
+
+# --- hot reload composition ---------------------------------------------------------------------
+
+FAKE_SERVER = {"command": "python", "args": ["-m", "tests.fakes.fake_mcp_server"]}
+MODIFIED = 2
+
+
+def write_viernes_tool_json(text: str) -> Path:
+    tool = Path("agents/viernes/tool")
+    tool.mkdir(exist_ok=True)
+    path = tool / "tool.json"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_chat_watches_the_agents_dir_and_stops_the_watcher_on_exit(cli) -> None:
+    result = invoke()
+
+    assert result.exit_code == 0
+    assert cli["watch"].calls[0]["paths"] == (Path("agents"),)
+    assert cli["watch"].finished is True
+
+
+def test_valid_tool_json_change_is_announced_with_the_agent_and_servers(cli) -> None:
+    path = write_viernes_tool_json(json.dumps({"mcpServers": {"fake": FAKE_SERVER}}))
+    cli["watch"].feed({(MODIFIED, str(path.resolve()))})
+    cli["turns"] = ["Hola."]
+    cli["stdin"] = ["hola\n", TYPING_PAUSE, "/salir\n"]
+
+    result = invoke()
+
+    assert result.exit_code == 0
+    assert "viernes" in result.stderr and "fake" in result.stderr and "recargada" in result.stderr
+    logs = list(Path("logs").rglob("chat-*.jsonl"))
+    events = [json.loads(line)["type"] for line in logs[0].read_text().splitlines()]
+    assert "config.reloaded" in events
+    assert any(m.started_with and "fake" in m.started_with.mcpServers for m in cli["managers"])
+
+
+def test_invalid_tool_json_change_is_announced_as_a_failure(cli) -> None:
+    async def break_tool_json(prompt: str, handlers: Any) -> str:
+        path = write_viernes_tool_json("{no es json")
+        cli["watch"].feed({(MODIFIED, str(path.resolve()))})
+        return "Hecho."
+
+    cli["turns"] = [break_tool_json]
+    cli["stdin"] = ["rompe\n", TYPING_PAUSE, "/salir\n"]
+
+    result = invoke()
+
+    assert result.exit_code == 0
+    assert "viernes" in result.stderr and "No se pudo recargar" in result.stderr

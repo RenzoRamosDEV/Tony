@@ -136,3 +136,26 @@ def test_nested_logs_dir_is_created_and_shared_between_tasks(tmp_path: Path) -> 
 
     assert first.path.parent == second.path.parent
     assert sorted(p.name for p in first.path.parent.iterdir()) == ["a.jsonl", "b.jsonl"]
+
+
+def test_subtask_lines_carry_parent_id_and_root_lines_omit_it(tmp_repo: Path) -> None:
+    child = JsonlEventSink(tmp_repo / "logs", "s1", secrets=[], parent_id="t1")
+    root = JsonlEventSink(tmp_repo / "logs", "t1", secrets=[])
+    child.emit("task.started", {})
+    child.emit("tool.call", {"tool": "x"})
+    root.emit("task.started", {})
+    child.close()
+    root.close()
+
+    child_lines = read_lines(child.path)
+    assert [line["parent_id"] for line in child_lines] == ["t1", "t1"]
+    assert list(child_lines[0]) == [
+        "schema_version",
+        "ts",
+        "task_id",
+        "parent_id",
+        "seq",
+        "type",
+        "payload",
+    ]
+    assert "parent_id" not in read_lines(root.path)[0]

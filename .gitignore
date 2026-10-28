@@ -21,3 +21,5 @@ node_modules/
 tony/apps/web/frontend/dist/
 # Serena (personal tooling cache)
 .serena/
+# Eval runs recorded with the real model
+evals/runs/

@@ -20,15 +20,16 @@ async def noop_can_use_tool(tool_name, tool_input, context):
     return PermissionResultAllow()
 
 
-def options_for(catalog=None, request=None):
+def options_for(catalog=None, request=None, native_server=None, spec=None):
     return build_options(
-        worker_spec(),
+        spec or worker_spec(),
         request or TaskRequest(objetivo="o"),
         catalog or fake_catalog(),
         SETTINGS,
         proxies={"fake": {"type": "sdk", "name": "fake", "instance": object()}},
         can_use_tool=noop_can_use_tool,
         now=NOW,
+        native_server=native_server,
     )
 
 
@@ -131,3 +132,86 @@ async def test_can_use_tool_denies_malformed_mcp_name() -> None:
     decide = make_can_use_tool(fake_catalog())
 
     assert isinstance(await decide("mcp__fake", {}, ToolPermissionContext()), PermissionResultDeny)
+
+
+# --- skills index, trigger blocks and the native `tony` server ------------------------------
+
+from pathlib import Path  # noqa: E402
+
+from tony.core.loader import AgentSpec, ToolConfig  # noqa: E402
+from tony.core.skills import SkillSpec  # noqa: E402
+
+RESUMEN = SkillSpec(
+    name="resumen-web",
+    description="Resume una página web",
+    triggers=["resume esta web"],
+    body="1. Descarga la página con fetch.fetch.",
+    path=Path("/s/resumen-web"),
+)
+
+
+def skilled_spec(native: list[str] | None = None) -> AgentSpec:
+    return AgentSpec(
+        name="viernes",
+        role="worker",
+        model="claude-sonnet",
+        system_prompt="Eres Viernes.",
+        path=Path("/tmp/viernes"),
+        skills=[RESUMEN],
+        tools=ToolConfig(native=native or []),
+    )
+
+
+def test_native_server_is_added_to_mcp_servers_and_allowed_tools() -> None:
+    tony = {"type": "sdk", "name": "tony", "instance": object()}
+
+    options = options_for(native_server=tony)
+
+    assert options.allowed_tools == ["mcp__fake__*", "mcp__tony__*"]
+    assert set(options.mcp_servers) == {"fake", "tony"}
+    assert options.mcp_servers["tony"] is tony
+
+
+def test_without_native_server_there_is_no_tony_server() -> None:
+    options = options_for()
+
+    assert "tony" not in options.mcp_servers
+    assert options.allowed_tools == ["mcp__fake__*"]
+
+
+def test_system_prompt_lists_skills_without_their_bodies() -> None:
+    prompt = build_system_prompt(skilled_spec(), TaskRequest(objetivo="o"), now=NOW)
+
+    assert "Skills disponibles:" in prompt
+    assert "- resumen-web: Resume una página web" in prompt
+    assert "Descarga la página" not in prompt
+    assert options_for(spec=skilled_spec()).system_prompt == prompt
+
+
+def test_system_prompt_without_skills_has_no_index() -> None:
+    assert "Skills disponibles" not in build_system_prompt(worker_spec(), TaskRequest(objetivo="o"))
+
+
+def test_user_prompt_prepends_triggered_skill_blocks() -> None:
+    request = TaskRequest(objetivo="Resume esta web: https://x.y")
+
+    prompt = build_user_prompt(request, [RESUMEN])
+
+    assert prompt.startswith(
+        '<skill name="resumen-web">\n1. Descarga la página con fetch.fetch.\n</skill>'
+    )
+    assert prompt.endswith(request.model_dump_json())
+    assert "Resuelve la siguiente tarea" in prompt
+
+
+def test_user_prompt_matches_triggers_in_the_context_too() -> None:
+    request = TaskRequest(objetivo="haz esto", contexto="RESUME ESTA WEB")
+
+    assert '<skill name="resumen-web">' in build_user_prompt(request, [RESUMEN])
+
+
+def test_user_prompt_without_trigger_has_no_skill_block() -> None:
+    prompt = build_user_prompt(TaskRequest(objetivo="lista los ficheros"), [RESUMEN])
+
+    assert "<skill" not in prompt
+    assert prompt == build_user_prompt(TaskRequest(objetivo="lista los ficheros"))

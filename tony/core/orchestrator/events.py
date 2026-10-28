@@ -14,15 +14,20 @@ _END = None
 
 
 class TaskEventBus:
-    def __init__(self, task_id: str, now: Callable[[], str] = utc_timestamp) -> None:
+    def __init__(
+        self, task_id: str, parent_id: str | None = None, now: Callable[[], str] = utc_timestamp
+    ) -> None:
         self._task_id = task_id
+        self._parent_id = parent_id
         self._now = now
         self.history: list[Event] = []
         self.closed = False
         self._subscribers: set[asyncio.Queue[Event | None]] = set()
 
     def publish(self, event_type: str, payload: dict[str, Any]) -> Event:
-        event = Event(self._task_id, event_type, payload, len(self.history) + 1, self._now())
+        event = Event(
+            self._task_id, event_type, payload, len(self.history) + 1, self._now(), self._parent_id
+        )
         self.history.append(event)
         for queue in self._subscribers:
             queue.put_nowait(event)

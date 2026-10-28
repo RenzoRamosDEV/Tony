@@ -1,0 +1,56 @@
+# Evals de tareas del worker sobre un MCP de ficheros falso (tests/fakes/fake_filesystem_server)
+# con las notas a.md ("hola mundo"), b.md ("lista de la compra: pan, leche") y tmp.md ("borrador").
+# `confirm` es la respuesta automática a cada confirmación (por defecto true).
+- id: fs-list-md
+  agent: viernes
+  objetivo: Lista los ficheros .md del directorio de notas (la raíz del servidor filesystem).
+  contexto: ""
+  restricciones: []
+  expect:
+    status: ok
+    tools_called_any: [filesystem.list_directory]
+    resumen_contains: [md]
+- id: fs-read-note
+  agent: viernes
+  objetivo: Lee la nota a.md del directorio de notas y dime literalmente qué contiene.
+  contexto: ""
+  restricciones: []
+  expect:
+    status: ok
+    tools_called_all: [filesystem.read_file]
+    resumen_contains: [hola]
+- id: fs-search-word
+  agent: viernes
+  objetivo: Busca qué notas contienen la palabra "leche" usando la tool de búsqueda.
+  contexto: ""
+  restricciones: []
+  expect:
+    status: ok
+    tools_called_any: [filesystem.search_files]
+    resumen_contains: [b.md]
+- id: fs-write-confirmed
+  agent: viernes
+  objetivo: Crea la nota nueva.md con el texto "hola desde tony".
+  contexto: ""
+  restricciones: []
+  confirm: true
+  expect:
+    status: ok
+    tools_called_all: [filesystem.write_file]
+- id: fs-write-rejected
+  agent: viernes
+  objetivo: Crea la nota rechazada.md con el texto "no debería existir".
+  contexto: ""
+  restricciones: []
+  confirm: false
+  expect:
+    status: cancelled
+    tools_called_any: [filesystem.write_file]
+- id: fs-tool-fails
+  agent: viernes
+  objetivo: Llama una sola vez a la tool fail del servidor filesystem y, cuando falle, lista el directorio de notas e informa del error en errores.
+  contexto: ""
+  restricciones: []
+  expect:
+    status: partial
+    tools_called_all: [filesystem.fail, filesystem.list_directory]

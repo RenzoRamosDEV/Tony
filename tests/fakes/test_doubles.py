@@ -270,3 +270,89 @@ async def test_fake_stdin_none_means_eof_and_feed_adds_lines() -> None:
 
     stdin.feed("x\n")
     assert await stdin.readline() == "x\n"
+
+
+# --- doubles added for skills, subagents and hot reload ---------------------------------
+
+import sys  # noqa: E402
+
+from tests.fakes.fake_watch import ScriptedWatch  # noqa: E402
+from tests.fakes.worker_factory import FakeWorkerFactory  # noqa: E402
+from tony.core.loader import StdioServer, ToolConfig  # noqa: E402
+from tony.core.mcp import McpManager  # noqa: E402
+from tony.core.orchestrator.task import Task  # noqa: E402
+
+FS_TOOLS = ["fail", "list_directory", "read_file", "search_files", "write_file"]
+
+
+def fs_server(root: Path) -> ToolConfig:
+    server = StdioServer(
+        command=sys.executable, args=["-m", "tests.fakes.fake_filesystem_server", str(root)]
+    )
+    return ToolConfig(mcpServers={"filesystem": server})
+
+
+async def test_fake_filesystem_server_exposes_five_tools_over_the_given_directory(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.md").write_text("hola mundo", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("nada", encoding="utf-8")
+    manager = McpManager(connect_timeout_s=10)
+    try:
+        await manager.start(fs_server(tmp_path))
+
+        assert sorted(ref.name for ref in manager.catalog) == FS_TOOLS
+        assert manager.catalog.get("filesystem.write_file").destructive is True
+        assert manager.catalog.get("filesystem.read_file").destructive is False
+        listed = await manager.call("filesystem.list_directory", {"path": "."}, 5)
+        assert listed.ok and "a.md" in listed.content and "b.txt" in listed.content
+        read = await manager.call("filesystem.read_file", {"path": "a.md"}, 5)
+        assert read.ok and "hola mundo" in read.content
+        found = await manager.call("filesystem.search_files", {"query": "mundo"}, 5)
+        assert found.ok and "a.md" in found.content and "b.txt" not in found.content
+        written = await manager.call(
+            "filesystem.write_file", {"path": "c.md", "content": "nuevo"}, 5
+        )
+        assert written.ok and (tmp_path / "c.md").read_text(encoding="utf-8") == "nuevo"
+        failed = await manager.call("filesystem.fail", {}, 5)
+        assert failed.ok is False and "fallo simulado" in (failed.error or "")
+    finally:
+        await manager.stop()
+
+
+async def test_scripted_watch_applies_the_filter_and_stops_on_the_event() -> None:
+    watch = ScriptedWatch()
+    stop = asyncio.Event()
+    received: list[set] = []
+
+    async def consume() -> None:
+        async for batch in watch(
+            "agents", watch_filter=lambda change, path: path.endswith(".json"), stop_event=stop
+        ):
+            received.append(batch)
+
+    consumer = asyncio.ensure_future(consume())
+    watch.feed({(2, "agents/v/tool/tool.json"), (2, "agents/v/agent.md")})
+    watch.feed({(2, "agents/v/agent.md")})
+    await asyncio.sleep(0.01)
+    stop.set()
+    await asyncio.wait_for(consumer, 1)
+
+    assert received == [{(2, "agents/v/tool/tool.json")}]
+    assert watch.calls[0]["paths"] == ("agents",)
+
+
+async def test_fake_worker_factory_records_host_logs_with_parent_and_releases() -> None:
+    factory = FakeWorkerFactory(FakeClock())
+    host = object()
+
+    factory.attach_host(host)
+    log = factory.open_log("s1", parent_id="t1")
+    await factory.release("s1")
+    await factory.build_worker(
+        Task("t1", TaskRequest(objetivo="o")), ListEventSink(), CancelToken(), AutoConfirmGate(True)
+    )
+
+    assert factory.host is host
+    assert factory.logs["s1"] is log and factory.parents == {"s1": "t1"}
+    assert factory.released == ["s1"]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from typing import Any, Protocol
 
@@ -71,6 +71,32 @@ class ToolCatalog:
         for ref in self.refs:
             grouped.setdefault(ref.server, []).append(ref)
         return grouped
+
+    def restrict(self, allow: list[str] | None) -> ToolCatalog:
+        """The same tools narrowed to those matching `allow`; None keeps everything."""
+        if allow is None:
+            return self
+        return self.from_refs([ref for ref in self.refs if _is_allowed(ref.qualified, allow)])
+
+    def with_confirm(self, confirm: list[str]) -> ToolCatalog:
+        """Mark more tools as needing confirmation; inherited marks are never removed."""
+        return self.from_refs(
+            [
+                replace(ref, needs_confirm=ref.needs_confirm or ref.qualified in confirm)
+                for ref in self.refs
+            ]
+        )
+
+    def merge(self, other: ToolCatalog) -> ToolCatalog:
+        """Union of both catalogs; on the same qualified name this catalog's tool wins."""
+        return self.from_refs(
+            [*self.refs, *(ref for ref in other.refs if ref.qualified not in self)]
+        )
+
+    @classmethod
+    def from_refs(cls, refs: Iterable[ToolRef]) -> ToolCatalog:
+        index = {ref.qualified: ref for ref in refs}
+        return cls(tuple(index.values()), index)
 
     def __contains__(self, qualified: object) -> bool:
         return qualified in self._index

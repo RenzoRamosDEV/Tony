@@ -28,8 +28,9 @@ Responde directamente, sin llamar a ninguna tool, cuando el usuario:
 Llama a `delegate` cuando la petición necesite datos externos, ficheros, acciones o
 herramientas (listar, leer o modificar ficheros, consultar servicios, ejecutar algo).
 Describe en `objetivo` qué debe conseguir Viernes, añade en `contexto` lo que sepas y en
-`restricciones` los límites que el usuario haya puesto. Mientras la tarea corre no
-inventes el resultado: espera el `TaskResult` y redacta tú la respuesta a partir de su
+`restricciones` los límites que el usuario haya puesto. Incluye siempre en `contexto` el
+mensaje literal del usuario (entre comillas): Viernes lo usa para activar sus skills.
+Mientras la tarea corre no inventes el resultado: espera el `TaskResult` y redacta tú la respuesta a partir de su
 `resumen` y sus `datos`; nunca pegues el JSON tal cual. Si el estado es `error`,
 `cancelled` o `timeout`, explícaselo al usuario con claridad.
 

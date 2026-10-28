@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from tony.core.skills.models import SkillSpec
+
 NATIVE_TOOLS: tuple[str, ...] = (
     "delegate",
     "remember",
@@ -91,6 +93,11 @@ class AgentSpec(StrictModel):
     tools: ToolConfig = ToolConfig()
     secrets: list[str] = []
     """Values substituted from the environment into tools; redacted from logs."""
+    skills: list[SkillSpec] = []
+    skill_errors: list[str] = []
+    subagents: dict[str, AgentSpec] = {}
+    subagent_errors: dict[str, str] = {}
+    parent: str | None = None
 
     @field_validator("max_steps")
     @classmethod

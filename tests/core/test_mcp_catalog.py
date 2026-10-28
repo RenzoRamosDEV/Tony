@@ -119,3 +119,50 @@ def test_colliding_qualified_names_keep_the_first_and_record_the_conflict() -> N
 
 def test_catalog_without_collisions_has_no_conflicts() -> None:
     assert ToolCatalog.build(FAKE_TOOLS, allow=None, confirm=[]).conflicts == ()
+
+
+# --- restrict / with_confirm / merge (subagent permissions) ----------------------------------
+
+from tests.core.runner_helpers import mcp_tool as _tool  # noqa: E402
+
+
+def _catalog(confirm: list[str] | None = None, allow: list[str] | None = None) -> ToolCatalog:
+    tools = {"fs": [_tool("read_file"), _tool("write_file")], "notion": [_tool("search")]}
+    return ToolCatalog.build(tools, allow, confirm or [])
+
+
+def test_restrict_filters_by_patterns_and_none_keeps_everything() -> None:
+    catalog = _catalog()
+
+    assert catalog.restrict(["fs.*"]).qualified_names() == ["fs.read_file", "fs.write_file"]
+    assert catalog.restrict(["*.search", "fs.read_file"]).qualified_names() == [
+        "fs.read_file",
+        "notion.search",
+    ]
+    assert catalog.restrict(None) == catalog
+    assert catalog.restrict([]).qualified_names() == []
+
+
+def test_restrict_keeps_membership_and_confirm_flags() -> None:
+    restricted = _catalog(confirm=["fs.write_file"]).restrict(["fs.*"])
+
+    assert "notion.search" not in restricted
+    assert restricted.get("fs.write_file").needs_confirm is True
+
+
+def test_with_confirm_adds_entries_without_removing_inherited_ones() -> None:
+    catalog = _catalog(confirm=["fs.write_file"]).with_confirm(["fs.read_file"])
+
+    assert catalog.get("fs.read_file").needs_confirm is True
+    assert catalog.get("fs.write_file").needs_confirm is True
+    assert catalog.get("notion.search").needs_confirm is False
+
+
+def test_merge_keeps_the_first_definition_on_conflict() -> None:
+    first = _catalog(allow=["fs.*"])
+    second = ToolCatalog.build({"fs": [_tool("read_file")], "x": [_tool("y")]}, None, ["x.y"])
+
+    merged = first.merge(second)
+
+    assert merged.qualified_names() == ["fs.read_file", "fs.write_file", "x.y"]
+    assert merged.get("x.y").needs_confirm is True

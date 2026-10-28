@@ -112,3 +112,12 @@ def test_task_result_is_the_last_line_of_the_jsonl(tmp_path: Path) -> None:
     expected_types = ["task.queued", "tool.call", TASK_PROGRESS, TASK_RESULT]
     assert [line["type"] for line in lines] == expected_types
     assert [line["seq"] for line in lines] == [1, 2, 3, 4]
+
+
+def test_events_of_a_subtask_carry_the_parent_id() -> None:
+    child = TaskEventBus("s1", parent_id="t1")
+    root = TaskEventBus("t1")
+
+    assert child.publish("x", {}).parent_id == "t1"
+    assert root.publish("x", {}).parent_id is None
+    assert Event("t", "x", {}, 1, "ts").parent_id is None

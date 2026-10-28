@@ -88,3 +88,25 @@ def test_swapped_roles_only_warn(tmp_path: Path) -> None:
         "Aviso: el agente 'viernes' tiene role 'worker' pero se usa como 'front'",
         "Aviso: el agente 'jarvis' tiene role 'front' pero se usa como 'worker'",
     ]
+
+
+def test_viernes_ships_the_resumen_web_skill_with_its_triggers() -> None:
+    spec = load_agent(AGENTS_DIR / "viernes", load_settings(None), {"HOME": "/home/x"})
+
+    assert spec.skill_errors == []
+    skill = next(s for s in spec.skills if s.name == "resumen-web")
+    assert skill.description == "Resume una página web en 5 viñetas con fuente y fecha."
+    assert skill.triggers == ["resume esta web", "resúmeme la página", "resume https"]
+    assert "fetch.fetch" in skill.body
+    assert spec.tools.native == ["read_skill", "run_subagent"]
+
+
+def test_viernes_ships_the_investigador_subagent_without_tools_of_its_own() -> None:
+    spec = load_agent(AGENTS_DIR / "viernes", load_settings(None), {"HOME": "/home/x"})
+
+    assert spec.subagent_errors == {}
+    child = spec.subagents["investigador"]
+    assert child.role == "worker" and child.model == "claude-sonnet"
+    assert child.tools.mcpServers == {} and child.tools.native == []
+    assert child.parent == "viernes"
+    assert "fuentes" in child.system_prompt

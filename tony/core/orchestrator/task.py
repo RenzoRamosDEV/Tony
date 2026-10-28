@@ -18,6 +18,8 @@ TASK_CANCELLED = "task.cancelled"
 TASK_RESULT = "task.result"
 TASK_FINISHED = "task.finished"
 TOOL_CALL = "tool.call"
+SUBTASK_STARTED = "subtask.started"
+SUBTASK_FINISHED = "subtask.finished"
 
 
 class TaskStatus(StrEnum):
@@ -54,6 +56,7 @@ class Event:
     payload: dict[str, Any]
     seq: int
     ts: str
+    parent_id: str | None = None
 
 
 @dataclass
@@ -61,6 +64,8 @@ class Task:
     id: str
     request: TaskRequest
     parent_id: str | None = None
+    agent: str | None = None
+    """Subagent that runs this subtask; None means the configured worker."""
     status: TaskStatus = TaskStatus.QUEUED
     created_at: float | None = None
     started_at: float | None = None

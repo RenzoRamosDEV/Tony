@@ -150,6 +150,114 @@ Eres Viernes...
 - Las tools de `confirm` y las anotadas como destructivas por el MCP piden confirmación
   `[s/N]` en la terminal (60 s); si la rechazas, la tarea termina con `cancelled`.
 
+## Skills
+
+Una skill es conocimiento que el agente lee bajo demanda. Vive en
+`agents/<agente>/skills/<nombre>/SKILL.md`:
+
+```markdown
+---
+name: resumen-web                     # igual que la carpeta
+description: Resume una página web en 5 viñetas con fuente y fecha.   # ≤ 200 caracteres
+trigger: ["resume esta web", "resúmeme la página", "resume https"]    # opcional
+---
+1. Descarga la página con `fetch.fetch`...
+```
+
+- El system prompt del `front` y del `worker` solo incluye el índice `Skills disponibles:`
+  (nombre y descripción); el cuerpo llega por la tool nativa `read_skill(nombre)` o se inyecta
+  automáticamente como bloque `<skill name="…">…</skill>` cuando el texto del usuario (o el
+  `objetivo`/`contexto` de la tarea) contiene una frase de `trigger`, sin distinguir mayúsculas
+  ni acentos. Cada skill activada se inyecta una sola vez por turno.
+- Una skill inválida (nombre distinto de la carpeta, `description` ausente o demasiado larga,
+  frontmatter ausente) se registra como error (`tony agents`, `tony doctor`) y no bloquea al agente.
+- Viernes incluye la skill `resumen-web`; `read_skill` se declara en `native` de `tool.json`.
+
+## Subagentes
+
+Un `worker` puede descomponer una tarea con la tool nativa `run_subagent(nombre, objetivo,
+contexto, restricciones)`, que ejecuta `agents/<agente>/subagents/<nombre>/` (misma estructura
+que un agente: `agent.md`, `skills/`, `tool/tool.json`) como subtarea del orquestador, con sesión
+e historial propios, y devuelve su `TaskResult`. Viernes incluye el subagente `investigador`.
+
+Permisos del hijo = intersección con los del padre:
+
+| `allow` del padre | `tool.json` del hijo                        | catálogo efectivo del hijo   |
+|-------------------|---------------------------------------------|------------------------------|
+| `["fs.*"]`        | ausente o vacío                             | `fs.read_file`, `fs.write_file` (el catálogo exacto del padre) |
+| `["fs.*"]`        | `allow: ["fs.read_file", "notion.*"]`       | `fs.read_file`               |
+| ausente (todas)   | `allow: ["fs.read_file"]`                   | `fs.read_file`               |
+
+- `confirm` del padre se hereda siempre; el hijo puede añadir entradas.
+- El hijo puede declarar servidores MCP nuevos (se conectan solo para esa subtarea y pasan por
+  el `allow` del padre) salvo que el padre sea a su vez un subagente. Un nombre repetido usa la
+  definición del padre.
+- Límites: profundidad máxima 1 (un subagente no carga `subagents/` ni expone `run_subagent`),
+  máximo 2 subagentes concurrentes por tarea (el tercero espera), fecha límite compartida con la
+  tarea padre (`task_timeout_s` desde que el padre entró en `running`) y la misma puerta de
+  confirmación: la pregunta `[s/N]` del hijo aparece en la conversación y un rechazo cancela solo
+  la subtarea.
+- Los eventos del hijo llevan `task_id` propio y `parent_id`; el padre recibe
+  `subtask.started {task_id, agent}` y `subtask.finished {task_id, status}`, y su log registra
+  `tool.call`/`tool.result` de `tony.run_subagent`.
+- En `tony run` no hay orquestador: `run_subagent` devuelve un `TaskResult` de error y se avisa
+  al arrancar. Los subagentes funcionan en `tony chat` (y en el servidor web).
+
+## Gestionar servidores MCP: `tony mcp`
+
+```bash
+uv run tony mcp add fetch -- uvx mcp-server-fetch --agent viernes          # stdio
+uv run tony mcp add notion https://mcp.notion.com/mcp --agent viernes \
+    --header "Authorization=Bearer \${NOTION_TOKEN}" --allow notion.search  # HTTP
+uv run tony mcp add x -- cmd --agent viernes --env TOKEN=\${TOKEN}         # entorno del servidor
+uv run tony mcp remove fetch --agent viernes
+uv run tony mcp list [--agent viernes] [--no-connect]
+```
+
+`add` edita `agents/<agente>/tool/tool.json` de forma atómica (indentación 2, el resto del fichero
+se conserva; se crea si no existe), conecta al servidor con `limits.mcp_connect_timeout_s` y
+muestra `<nombre>: N tools (allow: todas|<patrones>)`. Si la conexión falla, la entrada queda
+escrita igualmente con un aviso (código 0). Un nombre existente falla salvo con `--force`. Las
+opciones se reconocen aunque vayan después de `--`; si el servidor tiene una opción homónima
+(por ejemplo `--env`), pon la de Tony antes de `--`. `list` muestra
+`agente | servidor | transporte | estado | tools | allow | confirm` (subagentes como
+`viernes/investigador`); con `--no-connect` no arranca ningún proceso.
+
+## Inventario de agentes: `tony agents`
+
+```bash
+uv run tony agents                      # nombre | rol | modelo | skills | MCP | nativas
+uv run tony agents show viernes         # AgentSpec resuelto en YAML (secretos como ***)
+uv run tony agents show viernes/investigador
+```
+
+Un agente, subagente o skill que no carga aparece con `✗` y el motivo sin impedir el listado.
+
+## Diagnóstico: `tony doctor` y `tony config validate`
+
+```bash
+uv run tony doctor              # incluye una petición mínima a claude-haiku y conecta a cada MCP
+uv run tony doctor --offline    # sin la petición al modelo
+uv run tony config validate     # sin red ni procesos (lo mismo que usa la recarga en caliente)
+```
+
+Cada comprobación es una línea `✓`, `✗` (con una sugerencia debajo) o `·` (informativa): Python
+3.12, CLI `claude`, modelo, `config/tony.yaml`, `config/.env` (debe existir con permisos `600`),
+cada agente, subagente y skill (incluidas las variables `${VAR}`), `node`/`npx` si algún MCP los
+usa, extras de voz y `espeak-ng` (solo informan), conexión a cada MCP y patrones de
+`allow`/`confirm` que no coinciden con ninguna tool. El código de salida es `1` si hay algún `✗`.
+
+## Recarga en caliente de `tool.json`
+
+Mientras `tony chat` está en marcha, Tony observa `agents/**/tool/tool.json`. Al guardar el del
+`worker` (o el de uno de sus subagentes) se valida la configuración como `tony config validate`;
+si es válida arranca una nueva generación de servidores MCP para las tareas nuevas (las tareas en
+curso conservan la anterior, que se cierra cuando ninguna la usa) y se avisa en la terminal con el
+evento `config.reloaded {agent, servers}`. Si no es válida (JSON mal formado, `${VAR}` sin
+definir…) se conserva la última configuración válida y se emite `config.reload_failed {agent,
+error}`. `agent.md`, las skills y `tony.yaml` siguen exigiendo reiniciar; un cambio en la carpeta
+del `front` solo produce un aviso. `tony run` no observa nada.
+
 ## Logs
 
 Cada tarea escribe `logs/<YYYYMMDD>/<task_id>.jsonl` con un evento por línea
@@ -170,3 +278,22 @@ Antes de escribir, Tony redacta con `***` los valores de las claves `authorizati
 uv run pytest -q        # suite sin red ni modelo real (< 60 s)
 uv run ruff check .
 ```
+
+### Evals
+
+`evals/tareas.yaml` (6 tareas del worker sobre un MCP de ficheros falso) y
+`evals/conversaciones.yaml` (4 conversaciones del front) describen cada eval y sus expectativas
+(`status`, `tools_called_any`, `tools_called_all`, `resumen_contains`; `delegates`,
+`reply_contains`, `judge`). No forman parte de `uv run pytest`:
+
+```bash
+uv run pytest evals/ -m evals                 # reproduce evals/fixtures/<id>.jsonl, sin red
+TONY_EVALS=1 uv run pytest evals/ -m evals    # modelo real; graba evals/runs/<fecha>/<id>.jsonl
+uv run tony replay logs/<fecha>/<task_id>.jsonl                  # eventos legibles, sin ejecutar tools
+uv run tony replay evals/runs/<fecha>/fs-list-md.jsonl --to-eval fs-list-md [--force]
+```
+
+Con `TONY_EVALS=1` el juez (`claude-haiku`) evalúa el criterio `judge` de cada turno. `--to-eval`
+escribe `evals/fixtures/<id>.jsonl` e imprime la entrada YAML con el `status` y las tools
+observadas; los fixtures de conversación son el propio run copiado. `evals/runs/` está ignorado
+por git.

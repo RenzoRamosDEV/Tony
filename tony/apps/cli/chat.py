@@ -8,7 +8,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 
 from tony.apps.cli.chat_channel import CliChannel
 from tony.apps.cli.confirm_gate import CliConfirmGate
@@ -17,6 +17,7 @@ from tony.apps.cli.stdin_dispatcher import StdinDispatcher
 from tony.apps.cli.stdin_reader import LineSource, StdinReader
 from tony.core.channels.session import CHANNEL_NAME, ChatSession, Memory
 from tony.core.config import ConfigError, TonySettings, dotenv_secrets, load_env, load_settings
+from tony.core.config.watcher import ConfigWatcher
 from tony.core.loader import AgentLoadError, AgentSpec, load_agent
 from tony.core.logging import JsonlEventSink
 from tony.core.mcp import ConfirmGate, ToolCatalog
@@ -24,6 +25,7 @@ from tony.core.memory.conversations import ConversationStore
 from tony.core.memory.preferences import PreferencesStore
 from tony.core.memory.settings import SettingsStore
 from tony.core.orchestrator.orchestrator import Orchestrator
+from tony.core.orchestrator.reload import AgentReloader
 from tony.core.orchestrator.worker import (
     ManagerFactory,
     SdkWorkerFactory,
@@ -107,6 +109,7 @@ async def run_chat(
     lines: LineSource | None = None,
     out: TextIO | None = None,
     stdout: TextIO | None = None,
+    watch: Callable[..., Any] | None = None,
 ) -> int:
     err = out or sys.stderr
     try:
@@ -115,7 +118,8 @@ async def run_chat(
         raise ChatError(f"Configuración inválida en {options.config_path}: {exc}") from None
     dotenv_path = options.config_path.parent / ".env"
     secrets = dotenv_secrets(dotenv_path)
-    front, worker, warnings = load_roles(settings, options.agents_dir, load_env(dotenv_path))
+    env = load_env(dotenv_path)
+    front, worker, warnings = load_roles(settings, options.agents_dir, env)
     for warning in warnings:
         err.write(warning + "\n")
     stdin = StdinDispatcher(lines or StdinReader(), out)
@@ -157,6 +161,10 @@ async def run_chat(
         catalog=front_manager.catalog if front_manager else ToolCatalog.empty(),
         secrets=all_secrets,
     )
+    reloader = AgentReloader(
+        options.agents_dir, settings, env, worker_factory, session_log, session.notify_reload
+    )
+    watcher = ConfigWatcher(options.agents_dir, reloader.reload, watch=watch)
     async with AsyncExitStack() as stack:
         stack.callback(memory.conversations.close)
         stack.callback(session_log.close)
@@ -164,6 +172,8 @@ async def run_chat(
             stack.push_async_callback(front_manager.stop)
         stack.push_async_callback(session.close)
         await session.start(conversation_id)
+        watcher.start()
+        stack.push_async_callback(watcher.stop)
         return await ChatRepl(session, stdin, memory, settings, out, stdout).run()
 
 

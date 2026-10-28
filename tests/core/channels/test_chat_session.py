@@ -36,8 +36,9 @@ NOW = datetime(2026, 10, 28, 9, 5, 0, tzinfo=timezone(timedelta(hours=2)))
 ALL_NATIVE = ["delegate", "remember", "set_reply_mode"]
 
 
-def front_spec(native: list[str] | None = None) -> AgentSpec:
+def front_spec(native: list[str] | None = None, skills: list | None = None) -> AgentSpec:
     return AgentSpec(
+        skills=skills or [],
         name="jarvis",
         role="front",
         model="claude-haiku",
@@ -72,6 +73,7 @@ class Harness:
         secrets: list[str] | None = None,
         channel: Any | None = None,
         now: datetime = NOW,
+        skills: list | None = None,
     ) -> None:
         self.clock = FakeClock()
         self.factory = FakeWorkerFactory(self.clock)
@@ -85,7 +87,7 @@ class Harness:
             settings=SettingsStore(tmp_path / "memory" / "settings.json"),
             conversations=ConversationStore(tmp_path / "memory" / "conversations.sqlite"),
         )
-        self.front = front_spec(native)
+        self.front = front_spec(native, skills)
         self.settings = load_settings(None)
         self.session = ChatSession(
             self.front,
@@ -592,3 +594,148 @@ async def test_turn_without_an_sdk_session_id_keeps_the_stored_one(tmp_memory: P
     await h.session.handle("hola")
 
     assert h.memory.conversations.sdk_session(conversation) == "sdk-old"
+
+
+# --- skills, reload notices and subtasks ------------------------------------------------------
+
+from tests.fakes.worker_factory import WORKER_SPEC  # noqa: E402
+from tony.core.orchestrator.task import Task  # noqa: E402
+from tony.core.runner.front_prompt import PREAMBLE_END  # noqa: E402
+from tony.core.skills import SkillSpec  # noqa: E402
+
+MORNING = SkillSpec(
+    name="protocolo-mañana",
+    description="Briefing de la mañana",
+    triggers=["buenos días"],
+    body="1. Saluda.\n2. Resume la agenda.",
+    path=Path("/s/protocolo-mañana"),
+)
+
+
+async def test_read_skill_returns_the_front_skill_body_and_rejects_unknown_names(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [], skills=[MORNING])
+
+    assert await h.session.read_skill("protocolo-mañana") == MORNING.body
+    with pytest.raises(ValueError, match="nadie"):
+        await h.session.read_skill("nadie")
+
+
+async def test_triggered_skill_block_goes_between_the_preamble_and_the_text(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, ["Buenos días, señor."], skills=[MORNING])
+    await h.start()
+
+    await h.session.handle("Buenos días, Jarvis")
+
+    prompt = h.runner.prompts[0]
+    block = '<skill name="protocolo-mañana">\n1. Saluda.\n2. Resume la agenda.\n</skill>'
+    assert prompt.index(PREAMBLE_END) < prompt.index(block) < prompt.index("Buenos días, Jarvis")
+    assert prompt.endswith("Buenos días, Jarvis")
+
+
+async def test_text_without_trigger_has_no_skill_block(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, ["Son las nueve."], skills=[MORNING])
+    await h.start()
+
+    await h.session.handle("¿qué hora es?")
+
+    assert "<skill" not in h.runner.prompts[0]
+
+
+async def test_notify_reload_sends_a_notice_without_interrupting_the_turn(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [delegating("lenta")])
+    await h.start()
+    h.factory.scripts["lenta"] = [("sleep", 5)]
+    turn = asyncio.ensure_future(h.session.handle("tarda"))
+    await h.clock.settle()
+
+    await h.session.notify_reload("Configuración de 'viernes' recargada")
+    await h.clock.advance(5)
+
+    reply = await asyncio.wait_for(turn, 1)
+    assert Notice("Configuración de 'viernes' recargada") in h.channel.messages
+    assert reply is not None and "guion completado" in reply.display_text
+    assert h.runner.interrupts == 0
+
+
+class SubtaskParent:
+    """Root runner that launches one subtask and returns its result."""
+
+    def __init__(self, h: Harness, task: Task) -> None:
+        self.h = h
+        self.task = task
+
+    async def run(self, spec, request, tools, events) -> TaskResult:
+        events.emit("task.started", {"agent": spec.name, "objetivo": request.objetivo})
+        child = self.h.orchestrator.submit_subtask(
+            self.task.id, "investigador", TaskRequest(objetivo="hijo")
+        )
+        result = await self.h.orchestrator.wait(child.id)
+        events.emit("task.finished", {"status": result.status, "usage": {}})
+        return result
+
+
+def with_subtask_parent(h: Harness, child_script: list) -> None:
+    h.factory.scripts["hijo"] = child_script
+    h.factory.runner_builders["padre"] = lambda task, token, gate: SubtaskParent(h, task)
+
+
+async def test_child_confirmation_is_forwarded_with_the_child_id_and_tracked(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [delegating("padre")])
+    await h.start()
+    with_subtask_parent(h, [("confirm", "fs.write_file", {"p": 1})])
+    turn = asyncio.ensure_future(h.session.handle("delega"))
+    await h.clock.settle()
+    parent = next(t for t in h.orchestrator.tasks.values() if t.parent_id is None)
+    child = h.orchestrator.children(parent.id)[0]
+
+    asks = h.channel.of_type(NeedsConfirmation)
+    assert len(asks) == 1
+    assert asks[0].task_id == child.id and asks[0].tool == "fs.write_file"
+    assert h.session.active_task_ids == {parent.id, child.id}
+
+    await h.orchestrator.confirm(asks[0].confirmation_id, True, "fs.write_file", {"p": 1})
+    reply = await asyncio.wait_for(turn, 1)
+
+    assert reply is not None and "guion completado" in reply.display_text
+    assert h.session.active_task_ids == set()
+    assert child.status == TaskStatus.DONE
+    assert WORKER_SPEC.name == "viernes"
+
+
+async def test_cancel_active_reaches_the_running_subtask(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [delegating("padre")])
+    await h.start()
+    with_subtask_parent(h, [("sleep", 50)])
+    turn = asyncio.ensure_future(h.session.handle("delega"))
+    await h.clock.settle()
+    parent = next(t for t in h.orchestrator.tasks.values() if t.parent_id is None)
+    child = h.orchestrator.children(parent.id)[0]
+
+    await h.session.cancel_active()
+    await h.clock.settle()
+
+    assert child.status == TaskStatus.CANCELLED and parent.status == TaskStatus.CANCELLED
+    assert h.factory.runners[child.id].interrupted_by == "user"
+    await asyncio.wait_for(turn, 1)
+
+
+async def test_triggered_front_skill_is_logged_in_the_session_events(tmp_memory: Path) -> None:
+    from tests.fakes.sinks import ListEventSink
+
+    events = ListEventSink()
+    h = Harness(tmp_memory, ["Buenos días."], skills=[MORNING])
+    h.session._events = events  # noqa: SLF001 - the harness builds the session without a sink
+    await h.start()
+
+    await h.session.handle("Buenos días, Jarvis")
+    await h.session.handle("¿qué hora es?")
+
+    assert events.payloads("skill.activated") == [{"skill": "protocolo-mañana"}]

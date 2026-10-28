@@ -5,6 +5,8 @@ Event contract (schema_version 1), one JSON object per line:
     {"schema_version": 1, "ts": "<ISO-8601 UTC, ms, Z>", "task_id": "<hex>",
      "seq": <int from 1>, "type": "<event type>", "payload": {...}}
 
+Subtasks add `"parent_id": "<hex>"` after `task_id`; root tasks omit the key.
+
 Files live at logs/<YYYYMMDD>/<task_id>.jsonl (UTC date of the first event). The sink
 assigns `ts` and `seq`, redacts secrets, and flushes after every event.
 """
@@ -28,8 +30,15 @@ def utc_timestamp(now: datetime | None = None) -> str:
 
 
 class JsonlEventSink:
-    def __init__(self, logs_dir: Path, task_id: str, secrets: Iterable[str]) -> None:
+    def __init__(
+        self,
+        logs_dir: Path,
+        task_id: str,
+        secrets: Iterable[str],
+        parent_id: str | None = None,
+    ) -> None:
         self._task_id = task_id
+        self._parent_id = parent_id
         self._secrets = list(secrets)
         self._seq = 0
         self._file: TextIO | None = None
@@ -41,14 +50,16 @@ class JsonlEventSink:
         if file is None:
             return
         self._seq += 1
-        record = {
+        record: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "ts": utc_timestamp(),
             "task_id": self._task_id,
-            "seq": self._seq,
-            "type": event_type,
-            "payload": redact(payload, self._secrets),
         }
+        if self._parent_id is not None:
+            record["parent_id"] = self._parent_id
+        record.update(
+            {"seq": self._seq, "type": event_type, "payload": redact(payload, self._secrets)}
+        )
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
         file.flush()
 

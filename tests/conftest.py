@@ -13,7 +13,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         return
     skip_evals = pytest.mark.skip(reason="evals desactivadas: define TONY_EVALS=1 para ejecutarlas")
     for item in items:
-        if "evals" in item.keywords:
+        if item.get_closest_marker("evals") is not None:
             item.add_marker(skip_evals)
 
 

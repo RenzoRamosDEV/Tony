@@ -27,10 +27,12 @@ from tony.core.loader import AgentSpec
 from tony.core.mcp import ConfirmGate, ToolCatalog
 from tony.core.runner.cancel import CancelToken
 from tony.core.runner.contracts import TaskRequest, TaskResult
+from tony.core.runner.native_tools import SERVER_NAME, NativeToolSet, worker_native_tools
 from tony.core.runner.ports import EventSink
 from tony.core.runner.prompt import build_system_prompt, build_user_prompt
 from tony.core.runner.proxy import TaskState, ToolCaller, ToolProxyFactory
 from tony.core.runner.results import cancelled_result, error_result, timeout_result
+from tony.core.skills.triggers import matched_skills
 
 BUILTIN_TOOLS: tuple[str, ...] = (
     "Bash",
@@ -52,6 +54,7 @@ BUILTIN_TOOLS: tuple[str, ...] = (
 )
 MCP_PREFIX = "mcp__"
 CLEANUP_BUDGET_S = 5.0
+SKILL_ACTIVATED = "skill.activated"
 
 # allowed_tools auto-approves the proxies before can_use_tool is consulted; that is intended:
 # the proxy itself is the execution barrier and can_use_tool only guards non-proxy names.
@@ -77,13 +80,17 @@ def build_options(
     proxies: dict[str, McpSdkServerConfig],
     can_use_tool: CanUseTool,
     now: Any = None,
+    native_server: McpSdkServerConfig | None = None,
 ) -> ClaudeAgentOptions:
+    servers = dict(proxies)
+    if native_server is not None:
+        servers[SERVER_NAME] = native_server
     return ClaudeAgentOptions(
         tools=[],
-        allowed_tools=[f"{MCP_PREFIX}{server}__*" for server in proxies],
+        allowed_tools=[f"{MCP_PREFIX}{server}__*" for server in servers],
         disallowed_tools=list(BUILTIN_TOOLS),
         system_prompt=build_system_prompt(spec, request, now=now),
-        mcp_servers=dict(proxies),
+        mcp_servers=servers,
         permission_mode="default",
         max_turns=spec.max_steps,
         model=settings.models[spec.model],
@@ -164,6 +171,7 @@ class ClaudeSdkRunner:
         client_factory: Callable[[ClaudeAgentOptions], SdkClient] = ClaudeSDKClient,
         cleanup_budget_s: float = CLEANUP_BUDGET_S,
         cancel_token: CancelToken | None = None,
+        native_handlers: Any = None,
     ) -> None:
         self._settings = settings
         self._task_id = task_id
@@ -172,7 +180,9 @@ class ClaudeSdkRunner:
         self._client_factory = client_factory
         self._cleanup_budget_s = cleanup_budget_s
         self._cancel_token = cancel_token
+        self._native_handlers = native_handlers
         self._factory: ToolProxyFactory | None = None
+        self.native_tools: NativeToolSet | None = None
 
     def proxy_handler(self, qualified: str):
         assert self._factory is not None, "run() has not built the proxies yet"
@@ -193,15 +203,25 @@ class ClaudeSdkRunner:
             limits.tool_timeout_s,
             limits.confirm_timeout_s,
         )
+        self.native_tools = self._build_native_tools(spec, events)
         options = build_options(
-            spec, request, tools, self._settings, self._factory.build(), make_can_use_tool(tools)
+            spec,
+            request,
+            tools,
+            self._settings,
+            self._factory.build(),
+            make_can_use_tool(tools),
+            native_server=self.native_tools.build() if self.native_tools else None,
         )
         transcript = _Transcript()
         deadline = asyncio.get_running_loop().time() + limits.task_timeout_s
         result: TaskResult | None = None
+        for skill in matched_skills(f"{request.objetivo}\n{request.contexto}", spec.skills):
+            events.emit(SKILL_ACTIVATED, {"skill": skill.name})
+        prompt = build_user_prompt(request, spec.skills)
         try:
             async with asyncio.timeout_at(deadline + self._cleanup_budget_s):
-                result = await self._drive(options, request, state, transcript, events, deadline)
+                result = await self._drive(options, prompt, state, transcript, events, deadline)
         except TimeoutError:
             if transcript.final is None:
                 result = timeout_result(limits.task_timeout_s, state.steps)
@@ -217,10 +237,16 @@ class ClaudeSdkRunner:
         )
         return result
 
+    def _build_native_tools(self, spec: AgentSpec, events: EventSink) -> NativeToolSet | None:
+        native = worker_native_tools(spec.tools.native)
+        if not native or self._native_handlers is None:
+            return None
+        return NativeToolSet(native, self._native_handlers, events)
+
     async def _drive(
         self,
         options: ClaudeAgentOptions,
-        request: TaskRequest,
+        prompt: str,
         state: TaskState,
         transcript: _Transcript,
         events: EventSink,
@@ -237,7 +263,7 @@ class ClaudeSdkRunner:
             state.interrupt = client.interrupt
             try:
                 async with asyncio.timeout_at(deadline):
-                    await client.query(build_user_prompt(request))
+                    await client.query(prompt)
                     await consume_until_cancelled(_consume(client, transcript, events), state)
             except TimeoutError:
                 await state.request_interrupt()

@@ -50,6 +50,7 @@ def make_runner(
     gate=None,
     cleanup_budget_s: float = 5,
     cancel_token: CancelToken | None = None,
+    native_handlers=None,
 ):
     settings = load_settings(None)
     settings.limits.task_timeout_s = task_timeout_s
@@ -67,6 +68,7 @@ def make_runner(
         client_factory=factory,
         cleanup_budget_s=cleanup_budget_s,
         cancel_token=cancel_token,
+        native_handlers=native_handlers,
     )
     return runner, captured
 
@@ -437,3 +439,69 @@ def test_build_options_is_pure_and_keeps_worker_defences() -> None:
     assert options.permission_mode == "default"
     assert options.setting_sources == []
     assert "Bash" in options.disallowed_tools
+
+
+# --- the worker's native `tony` server and skill blocks ---------------------------------------
+
+from tony.core.loader import ToolConfig  # noqa: E402
+from tony.core.skills import SkillSpec  # noqa: E402
+
+
+class SkillOnlyHandlers:
+    async def read_skill(self, name: str) -> str:
+        return "cuerpo"
+
+
+async def test_native_handlers_add_the_tony_server_and_skill_blocks(tmp_path: Path) -> None:
+    skill = SkillSpec(
+        name="resumen-web", description="d", triggers=["resume esta web"], body="B", path=tmp_path
+    )
+    spec = worker_spec().model_copy(
+        update={"skills": [skill], "tools": ToolConfig(native=["read_skill", "run_subagent"])}
+    )
+    client = FakeClient([result_message(structured_output=OK_OUTPUT)])
+    runner, captured = make_runner(client, native_handlers=SkillOnlyHandlers())
+
+    await runner.run(spec, TaskRequest(objetivo="resume esta web"), fake_catalog(), ListEventSink())
+
+    options = captured["options"]
+    assert options.allowed_tools == ["mcp__fake__*", "mcp__tony__*"]
+    assert options.mcp_servers["tony"]["name"] == "tony"
+    assert [t.name for t in runner.native_tools.sdk_tools] == ["read_skill"]
+    assert client.prompts[0].startswith('<skill name="resumen-web">\nB\n</skill>')
+    assert "Skills disponibles:" in options.system_prompt
+
+
+async def test_without_native_handlers_there_is_no_tony_server() -> None:
+    spec = worker_spec().model_copy(update={"tools": ToolConfig(native=["read_skill"])})
+    client = FakeClient([result_message(structured_output=OK_OUTPUT)])
+    runner, captured = make_runner(client)
+
+    await runner.run(spec, TaskRequest(objetivo="o"), fake_catalog(), ListEventSink())
+
+    assert "tony" not in captured["options"].mcp_servers
+
+
+async def test_triggered_skills_are_logged_as_events(tmp_path: Path) -> None:
+    skill = SkillSpec(
+        name="resumen-web", description="d", triggers=["resume esta web"], body="B", path=tmp_path
+    )
+    spec = worker_spec().model_copy(update={"skills": [skill]})
+    client = FakeClient([result_message(structured_output=OK_OUTPUT)])
+    runner, _ = make_runner(client)
+    sink = ListEventSink()
+
+    await runner.run(spec, TaskRequest(objetivo="Resume esta web: https://x"), fake_catalog(), sink)
+
+    assert sink.types()[:2] == ["task.started", "skill.activated"]
+    assert sink.payloads("skill.activated") == [{"skill": "resumen-web"}]
+
+
+async def test_without_triggered_skills_no_activation_event(tmp_path: Path) -> None:
+    client = FakeClient([result_message(structured_output=OK_OUTPUT)])
+    runner, _ = make_runner(client)
+    sink = ListEventSink()
+
+    await runner.run(worker_spec(), TaskRequest(objetivo="o"), fake_catalog(), sink)
+
+    assert "skill.activated" not in sink.types()
