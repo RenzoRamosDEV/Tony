@@ -88,7 +88,7 @@ El almacén de conversaciones SHALL crear en `memory/conversations.sqlite`, si n
 - **THEN** la conversación y los mensajes siguen disponibles
 
 ### Requirement: Operaciones del historial
-El almacén SHALL exponer `start_conversation(channel) -> id`, `add_message(conversation_id, role, content, reply_mode)`, `record_task(...)` con estado, tokens, coste y JSON de petición y resultado, `recent_messages(conversation_id, limit=40)` en orden cronológico y `last_conversation(channel) -> id | None`.
+El almacén SHALL exponer `start_conversation(channel) -> id`, `add_message(conversation_id, role, content, reply_mode) -> message_id`, `record_task(...)` con estado, tokens, coste y JSON de petición y resultado, `recent_messages(conversation_id, limit=40)` en orden cronológico, `messages(conversation_id)` con todos los mensajes (con `id`) en orden cronológico, `list_conversations(limit=20)` de la más reciente a la más antigua con `id`, `channel` y `created_at`, `has_conversation(id) -> bool` y `last_conversation(channel) -> id | None`.
 
 #### Scenario: Mensajes recientes en orden
 - **GIVEN** una conversación con 45 mensajes
@@ -103,3 +103,17 @@ El almacén SHALL exponer `start_conversation(channel) -> id`, `add_message(conv
 - **GIVEN** dos conversaciones del canal `cli` y una del canal `web`
 - **WHEN** se llama a `last_conversation("cli")`
 - **THEN** devuelve el id de la conversación `cli` más reciente; `last_conversation("voice")` devuelve `None`
+
+#### Scenario: Identificador del mensaje
+- **WHEN** se llama a `add_message(id, "user", "hola", None)`
+- **THEN** devuelve el `id` del mensaje y `messages(id)` contiene un mensaje con ese mismo `id`
+
+#### Scenario: Listado de conversaciones
+- **GIVEN** 25 conversaciones creadas en orden en los canales `cli` y `web`
+- **WHEN** se llama a `list_conversations()`
+- **THEN** devuelve 20 elementos, el primero es la conversación más reciente y cada uno tiene `id`, `channel` y `created_at`
+
+#### Scenario: Existencia de una conversación
+- **GIVEN** la conversación `c1`
+- **WHEN** se llama a `has_conversation("c1")` y `has_conversation("nope")`
+- **THEN** devuelve `True` y `False` respectivamente
