@@ -125,3 +125,97 @@ def test_help_is_in_spanish() -> None:
     assert "warmup" in top and "bench" in top and "modelos" in top
     bench = runner.invoke(main.app, ["voice", "bench", "--help"]).stdout
     assert "--config" in bench and "TONY_EVALS" in bench
+
+
+class SilentTts(FakeTts):
+    def synthesize(self, text, voice):
+        self.sentences.append(text)
+        return iter(())
+
+
+class StuckTts(FakeTts):
+    def __init__(self) -> None:
+        super().__init__()
+        import threading
+
+        self.gate = threading.Event()
+
+    def synthesize(self, text, voice):
+        self.gate.wait(timeout=2)
+        return super().synthesize(text, voice)
+
+
+async def first_audio(tts, text: str = "Son las diez.", timeout_s: float = 2.0):
+    import time
+
+    from tests.fakes.sinks import ListEventSink
+    from tony.core.voice.executor import VoiceExecutor
+
+    executor = VoiceExecutor()
+    try:
+        return await voice_cli.time_to_first_audio(
+            lambda: tts,
+            executor,
+            "ef_dora",
+            text,
+            ListEventSink(),
+            time.perf_counter(),
+            timeout_s,
+        )
+    finally:
+        executor.close()
+
+
+async def test_review05_finding_15_a_real_first_chunk_gives_its_latency() -> None:
+    elapsed = await first_audio(FakeTts())
+
+    assert isinstance(elapsed, int) and elapsed >= 0
+
+
+@pytest.mark.parametrize(
+    ("tts", "text"),
+    [
+        (FakeTts(fail_at_sentence=1), "Son las diez."),
+        (SilentTts(), "Son las diez."),
+        (FakeTts(), ""),
+    ],
+    ids=["tts_fails", "no_chunks", "empty_text"],
+)
+async def test_review05_finding_15_no_audio_is_a_failed_run_not_a_latency(tts, text) -> None:
+    assert await first_audio(tts, text) is None
+
+
+async def test_review05_finding_15_a_stuck_synthesis_times_out() -> None:
+    tts = StuckTts()
+    try:
+        assert await first_audio(tts, timeout_s=0.05) is None
+    finally:
+        tts.gate.set()
+
+
+def test_review05_finding_15_failed_roundtrips_are_excluded_and_reported(
+    cli: Registries, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TONY_EVALS", "1")
+    samples = iter([100, None, 300, None, 200])
+    monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: next(samples))
+
+    result = runner.invoke(main.app, ["voice", "bench"])
+
+    assert result.exit_code == 0, result.output
+    row = next(line for line in result.stdout.splitlines() if line.startswith("roundtrip"))
+    assert f"p50 {200:>6} ms" in row and f"p95 {300:>6} ms" in row
+    assert "2/5 fallidas" in row
+
+
+def test_review05_finding_15_all_failed_roundtrips_print_no_percentiles(
+    cli: Registries, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TONY_EVALS", "1")
+    monkeypatch.setattr(voice_cli, "measure_roundtrip", lambda *a: None)
+
+    result = runner.invoke(main.app, ["voice", "bench"])
+
+    assert result.exit_code == 0, result.output
+    row = next(line for line in result.stdout.splitlines() if line.startswith("roundtrip"))
+    assert "p50" not in row and "5/5 fallidas" in row

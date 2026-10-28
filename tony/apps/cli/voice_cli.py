@@ -16,11 +16,12 @@ import typer
 from tony.core.channels.bootstrap import RuntimeOptions, build_chat_runtime
 from tony.core.channels.ports import AssistantReply, ChannelMessage
 from tony.core.config import ConfigError, VoiceSettings, load_settings
+from tony.core.runner import EventSink
 from tony.core.voice.aliases import parse_alias
 from tony.core.voice.engines import EngineRegistry
 from tony.core.voice.executor import VoiceExecutor
 from tony.core.voice.pipeline import SpeechPipeline
-from tony.core.voice.ports import INPUT_SAMPLE_RATE, AudioChunk, Utterance, VoiceConfigError
+from tony.core.voice.ports import INPUT_SAMPLE_RATE, AudioChunk, Tts, Utterance, VoiceConfigError
 
 DEFAULT_CONFIG = Path("config/tony.yaml")
 DEFAULT_AGENTS_DIR = Path("agents")
@@ -31,6 +32,7 @@ NOT_MET = "objetivo no alcanzado (p50 > 2000 ms)"
 BENCH_SENTENCE = "Buenos días señor, tiene tres reuniones hoy y la primera empieza pronto."
 ROUNDTRIP_QUESTION = "¿qué hora es?"
 STT_SAMPLE_S = 3
+FIRST_AUDIO_TIMEOUT_S = 60.0
 
 app = typer.Typer(
     help="Voz local: descarga y carga los modelos (warmup) o mide su latencia (bench).",
@@ -126,7 +128,7 @@ def bench(
     stt = registry.get_stt(voice.stt)
     tts = registry.get_tts(voice.tts)
     sample = synthetic_speech()
-    rows = {
+    rows: dict[str, list[int | None]] = {
         "load": [sum(timings.values())],
         "stt_3s": [_timed(lambda: stt.transcribe(sample, "es")) for _ in range(REPETITIONS)],
         "tts_12w": [
@@ -139,9 +141,19 @@ def bench(
             measure_roundtrip(config, agents_dir, registry) for _ in range(REPETITIONS)
         ]
     for name, samples in rows.items():
-        p50, p95 = percentiles(samples)
-        flag = f"  {NOT_MET}" if name == "roundtrip" and p50 > TARGET_MS else ""
-        typer.echo(f"{name:<10} p50 {p50:>6} ms  p95 {p95:>6} ms{flag}")
+        typer.echo(bench_row(name, samples))
+
+
+def bench_row(name: str, samples: list[int | None]) -> str:
+    """p50/p95 of the successful runs; failed runs (None) are only counted."""
+    measured = [ms for ms in samples if ms is not None]
+    failed = len(samples) - len(measured)
+    note = f"  ({failed}/{len(samples)} fallidas)" if failed else ""
+    if not measured:
+        return f"{name:<10} sin muestras válidas{note}"
+    p50, p95 = percentiles(measured)
+    flag = f"  {NOT_MET}" if name == "roundtrip" and p50 > TARGET_MS else ""
+    return f"{name:<10} p50 {p50:>6} ms  p95 {p95:>6} ms{flag}{note}"
 
 
 def _timed(fn: Callable[[], object]) -> int:
@@ -160,34 +172,66 @@ class _ReplyChannel:
 
 
 class _FirstChunk:
+    """Resolves `first_audio` only on a real chunk; any other ending leaves it unset."""
+
     def __init__(self) -> None:
-        self.ready = asyncio.Event()
+        self.first_audio = asyncio.Event()
 
     async def start(self) -> None:
         return None
 
     async def chunk(self, seq: int, sentence_index: int, audio: AudioChunk) -> None:
-        self.ready.set()
+        self.first_audio.set()
 
     async def end(self) -> None:
-        self.ready.set()
+        return None
 
     async def cancelled(self) -> None:
-        self.ready.set()
+        return None
 
     async def failed(self, error: str) -> None:
-        self.ready.set()
+        return None
 
 
-def default_measure_roundtrip(config: Path, agents_dir: Path, registry: EngineRegistry) -> int:
+async def time_to_first_audio(
+    tts_loader: Callable[[], Tts],
+    executor: VoiceExecutor,
+    voice: str,
+    text: str,
+    events: EventSink,
+    started: float,
+    timeout_s: float = FIRST_AUDIO_TIMEOUT_S,
+) -> int | None:
+    """Milliseconds from `started` to the first chunk, or None when no audio came in time."""
+    sink = _FirstChunk()
+    pipeline = SpeechPipeline(tts_loader, executor, voice, sink, events)
+    pipeline.feed(text)
+    finishing = asyncio.ensure_future(pipeline.finish())
+    first_audio = asyncio.ensure_future(sink.first_audio.wait())
+    await asyncio.wait(
+        {finishing, first_audio}, timeout=timeout_s, return_when=asyncio.FIRST_COMPLETED
+    )
+    elapsed = int((time.perf_counter() - started) * 1_000)
+    first_audio.cancel()
+    if not sink.first_audio.is_set():
+        await pipeline.cancel()
+        await asyncio.gather(finishing, return_exceptions=True)
+        return None
+    await finishing
+    return elapsed
+
+
+def default_measure_roundtrip(
+    config: Path, agents_dir: Path, registry: EngineRegistry
+) -> int | None:
     """Milliseconds from a ready transcript to the first synthesized chunk, with the real model."""
     return asyncio.run(_roundtrip(config, agents_dir, registry))
 
 
-measure_roundtrip: Callable[[Path, Path, EngineRegistry], int] = default_measure_roundtrip
+measure_roundtrip: Callable[[Path, Path, EngineRegistry], int | None] = default_measure_roundtrip
 
 
-async def _roundtrip(config: Path, agents_dir: Path, registry: EngineRegistry) -> int:
+async def _roundtrip(config: Path, agents_dir: Path, registry: EngineRegistry) -> int | None:
     from tony.core.mcp import ConfirmGate  # noqa: F401 - type only, keeps the import local
 
     channel = _ReplyChannel()
@@ -202,21 +246,16 @@ async def _roundtrip(config: Path, agents_dir: Path, registry: EngineRegistry) -
         )
         started = time.perf_counter()
         reply = await session.handle(ROUNDTRIP_QUESTION, "audio")
-        assert reply is not None
-        sink = _FirstChunk()
-        pipeline = SpeechPipeline(
+        if reply is None:
+            return None
+        return await time_to_first_audio(
             lambda: registry.get_tts(registry.tts_alias),
             executor,
             registry.tts_voice,
-            sink,
+            reply.speech_text or reply.display_text,
             runtime,
+            started,
         )
-        pipeline.feed(reply.speech_text or reply.display_text)
-        finishing = asyncio.ensure_future(pipeline.finish())
-        await sink.ready.wait()
-        elapsed = int((time.perf_counter() - started) * 1_000)
-        await finishing
-        return elapsed
     finally:
         executor.close()
         await runtime.aclose()
