@@ -184,8 +184,11 @@ class ChatSession:
         return on_text
 
     async def cancel_active(self) -> None:
-        if not self.active_task_ids:
-            return
+        if self.active_task_ids:
+            await self.interrupt()
+
+    async def interrupt(self) -> None:
+        """Stop the current turn: cancel its delegated tasks, then interrupt the front runner."""
         for task_id in list(self.active_task_ids):
             await self._orchestrator.cancel(task_id, USER_REASON)
         await self._runner.interrupt()

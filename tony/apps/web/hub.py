@@ -37,6 +37,7 @@ HELLO_REQUIRED = "envía hello antes de cualquier otro mensaje"
 UNKNOWN_CONVERSATION = "la conversación {} no existe"
 SOCKET_BUSY = "la conversación ya tiene un socket activo"
 CONVERSATION_BUSY = "hay otra conversación en curso"
+TURN_CLOSE_BUDGET_S = 5.0
 HelloDecision = Literal["open", "attach", "switch", "busy_same", "busy_other", "unknown"]
 
 
@@ -84,6 +85,7 @@ class ConversationHub:
         self.turn: asyncio.Task[None] | None = None
         self._emitter: asyncio.Task[None] | None = None
         self._runtime: ChatRuntime | None = None
+        self._transition = asyncio.Lock()
 
     def gate_factory(self, settings: TonySettings, front: AgentSpec) -> WebConfirmGate:
         limits = settings.limits
@@ -106,55 +108,54 @@ class ConversationHub:
     def turn_in_progress(self) -> bool:
         return self.turn is not None and not self.turn.done()
 
-    @property
-    def state(self) -> HubState:
+    def state_for(self, socket: SocketLike | None) -> HubState:
+        """Hub state as seen by `socket`: its own attachment never counts as a competing one."""
         session = self.runtime.session
         busy = self.turn_in_progress or (session is not None and session.has_active_task)
-        return HubState(self.conversation_id, self.socket is not None, busy)
+        other_socket = self.socket is not None and self.socket is not socket
+        return HubState(self.conversation_id, other_socket, busy)
 
     async def dispatch(self, socket: SocketLike, message: ClientMessage) -> None:
         payload = message.payload
         if message.type == HELLO:
-            await self.hello(
-                socket, payload.get("conversation_id"), int(payload.get("last_seq") or 0)
-            )
+            await self.hello(socket, payload.get("conversation_id"), payload.get("last_seq", 0))
         elif socket is not self.socket:
-            await self._error(
-                socket, "hello_required", "envía hello antes de cualquier otro mensaje"
-            )
+            await self._error(socket, "hello_required", HELLO_REQUIRED)
         elif message.type == USER_TEXT:
-            await self.user_text(str(payload.get("text") or ""))
+            await self.user_text(payload.get("text", ""), payload.get("client_id"))
         elif message.type == CONFIRM:
             await self.confirm(
-                str(payload.get("confirmation_id") or ""), bool(payload.get("approved"))
+                payload.get("confirmation_id", ""),
+                payload.get("approved", False),
+                payload.get("task_id"),
             )
         elif message.type == CANCEL:
-            await self.cancel(str(payload.get("task_id") or ""))
+            await self.cancel(payload.get("task_id", ""))
         elif message.type == SET_MODE:
-            await self.set_mode(str(payload.get("reply_mode") or ""))
+            await self.set_mode(payload.get("reply_mode", ""))
 
     async def hello(self, socket: SocketLike, requested: str | None, last_seq: int) -> None:
-        exists = requested is not None and self.runtime.memory.conversations.has_conversation(
-            requested
-        )
-        decision = decide_hello(self.state, requested, exists)
-        if decision == "unknown":
-            await self._error(
-                socket, "unknown_conversation", f"la conversación {requested} no existe"
+        async with self._transition:
+            exists = requested is not None and self.runtime.memory.conversations.has_conversation(
+                requested
             )
-        elif decision == "busy_same":
-            await self._error(
-                socket, "conversation_busy", "la conversación ya tiene un socket activo"
-            )
-            await socket.close(CLOSE_POLICY_VIOLATION)
-        elif decision == "busy_other":
-            await self._error(socket, "conversation_busy", "hay otra conversación en curso")
-        else:
-            if decision == "switch":
-                await self._close_conversation()
-            if decision in ("open", "switch"):
-                await self._open_conversation(requested)
-            await self._attach(socket, last_seq)
+            decision = decide_hello(self.state_for(socket), requested, exists)
+            if decision == "unknown":
+                await self._error(
+                    socket, "unknown_conversation", UNKNOWN_CONVERSATION.format(requested)
+                )
+            elif decision == "busy_same":
+                await self._error(socket, "conversation_busy", SOCKET_BUSY)
+                await socket.close(CLOSE_POLICY_VIOLATION)
+            elif decision == "busy_other":
+                await self._error(socket, "conversation_busy", CONVERSATION_BUSY)
+            else:
+                self.detach(socket)
+                if decision == "switch":
+                    await self._close_conversation()
+                if decision in ("open", "switch"):
+                    await self._open_conversation(requested)
+                await self._attach(socket, last_seq)
 
     def detach(self, socket: SocketLike) -> None:
         if socket is not self.socket:
@@ -166,14 +167,15 @@ class ConversationHub:
         if emitter is not None and emitter is not asyncio.current_task():
             emitter.cancel()
 
-    async def user_text(self, text: str) -> None:
-        assert self.socket is not None
+    async def user_text(self, text: str, client_id: str | None = None) -> None:
+        assert self.socket is not None and self.channel is not None
         if self.turn_in_progress:
             await self._error(self.socket, "turn_in_progress", "espera a que termine la respuesta")
             return
         if not text.strip():
             await self._error(self.socket, "empty_text", "el mensaje está vacío")
             return
+        self.channel.client_id = client_id
         self.turn = asyncio.create_task(self._run_turn(text))
 
     async def confirm(
@@ -212,23 +214,34 @@ class ConversationHub:
         return persisted or self.runtime.settings.reply_mode
 
     async def aclose(self) -> None:
-        socket = self.socket
-        if socket is not None:
-            self.detach(socket)
-            with contextlib.suppress(Exception):
-                await socket.close(CLOSE_GOING_AWAY)
-        session = self.runtime.session
-        if session is not None:
-            await session.cancel_active()
-        if self.turn is not None:
-            await asyncio.gather(self.turn, return_exceptions=True)
-        await self._close_conversation()
+        try:
+            socket = self.socket
+            if socket is not None:
+                self.detach(socket)
+                with contextlib.suppress(Exception):
+                    await socket.close(CLOSE_GOING_AWAY)
+            session = self.runtime.session
+            if session is not None and self.turn_in_progress:
+                await session.interrupt()
+            await self._settle_turn()
+        finally:
+            await self._close_conversation()
+
+    async def _settle_turn(self) -> None:
+        turn = self.turn
+        if turn is None or turn.done():
+            return
+        turn.cancel()
+        budget = asyncio.ensure_future(self._clock.sleep(TURN_CLOSE_BUDGET_S))
+        await asyncio.wait({turn, budget}, return_when=asyncio.FIRST_COMPLETED)
+        budget.cancel()
+        await asyncio.gather(budget, return_exceptions=True)
 
     async def _open_conversation(self, requested: str | None) -> None:
         runtime = self.runtime
         assert self.router is not None and self.usage is not None and self.gate is not None
         conversation_id = requested or runtime.memory.conversations.start_conversation(WEB_CHANNEL)
-        self.stream = ConversationStream(conversation_id)
+        self.stream = ConversationStream(conversation_id, secrets=runtime.secrets)
         self.gate.stream = self.stream
         self.channel = WebChannel(
             self.stream,
@@ -237,6 +250,7 @@ class ConversationHub:
             self.usage,
             runtime.options.logs_dir,
             runtime.settings.limits.confirm_timeout_s,
+            self._clock,
         )
         self.conversation_id = conversation_id
         await runtime.open_session(conversation_id, self.channel)
@@ -254,24 +268,35 @@ class ConversationHub:
     async def _attach(self, socket: SocketLike, last_seq: int) -> None:
         assert self.stream is not None
         replay = self.stream.replay(last_seq)
-        await socket.send_text(self._hello_ok(replay is None).to_json())
         queue = OutboundQueue()
         queue.prefill(replay or [])
         self.socket = socket
         self.stream.attach(queue)
+        greeting = self._hello_ok(replay is None).to_json()
+        try:
+            await socket.send_text(greeting)
+        except Exception:  # noqa: BLE001 - a socket that cannot take hello.ok is not attached
+            self.detach(socket)
+            return
         self._emitter = asyncio.create_task(self._pump(socket, queue))
 
     def _hello_ok(self, resync: bool) -> Envelope:
         assert self.stream is not None and self.router is not None
         payload: dict[str, Any] = {
             "conversation_id": self.conversation_id,
+            "stream_id": self.stream.stream_id,
             "reply_mode": self.reply_mode(),
             "last_seq": self.stream.last_seq,
             "state": self._state_payload(),
         }
         if resync:
             payload["resync"] = True
-        return Envelope(type=HELLO_OK, seq=0, conversation_id=self.conversation_id, payload=payload)
+        return Envelope(
+            type=HELLO_OK,
+            seq=0,
+            conversation_id=self.conversation_id,
+            payload=self.stream.redact(payload),
+        )
 
     def _state_payload(self) -> dict[str, Any]:
         assert self.router is not None

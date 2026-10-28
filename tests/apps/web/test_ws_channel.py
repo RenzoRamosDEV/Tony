@@ -10,7 +10,7 @@ from typing import Any
 from tests.fakes.clock import FakeClock
 from tony.apps.web.confirmations import ConfirmationRouter
 from tony.apps.web.protocol import ConversationStream, Envelope
-from tony.apps.web.ws_channel import UsageTracker, WebChannel
+from tony.apps.web.ws_channel import DRAIN_TIMEOUT_S, UsageTracker, WebChannel
 from tony.core.channels.ports import (
     AssistantDelta,
     AssistantReply,
@@ -59,6 +59,7 @@ class Harness:
             UsageTracker(TOKEN_ALERT),
             self.logs,
             confirm_timeout_s=60,
+            clock=self.clock,
         )
 
     def published(self) -> list[Envelope]:
@@ -90,7 +91,7 @@ async def test_user_accepted_delta_and_wait_become_envelopes(tmp_path: Path) -> 
     assert (accepted.type, accepted.message_id, accepted.payload) == (
         "user.accepted",
         "u1",
-        {"message_id": "u1", "effective_mode": "text"},
+        {"message_id": "u1", "effective_mode": "text", "client_id": None},
     )
     assert (delta.type, delta.message_id, delta.payload) == (
         "assistant.delta",
@@ -271,8 +272,9 @@ async def test_subtask_events_are_forwarded_with_parent_id_until_the_root_result
     await h.clock.settle()
     await h.channel.send(event("t-9", "subtask.finished", {"task_id": "s-1", "status": "done"}))
     await h.channel.send(event("t-9", "task.finished", {"status": "ok", "usage": ROOT_USAGE}))
-    await h.channel.send(event("t-9", "task.result", {"status": "ok"}))
-    await h.clock.settle()
+    finishing = asyncio.ensure_future(h.channel.send(event("t-9", "task.result", {"status": "ok"})))
+    await h.clock.advance(DRAIN_TIMEOUT_S)
+    await finishing
 
     by_type: dict[tuple[str, str | None], Envelope] = {}
     for e in h.published():
@@ -369,3 +371,105 @@ async def test_each_root_task_accumulates_on_its_own(tmp_path: Path) -> None:
     usages = [e.payload for e in h.published() if e.type == "usage"]
 
     assert [u["cumulative_tokens"] for u in usages] == [30000, 30000]
+
+
+# --- Review of change 04 ---------------------------------------------------------------
+
+SECRET = "sk-live-0123456789"
+
+
+class RedactingHarness(Harness):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path)
+        self.stream = ConversationStream("c1", secrets=[SECRET])
+        self.channel = WebChannel(
+            self.stream,
+            self.router,
+            self.orchestrator,  # type: ignore[arg-type]
+            UsageTracker(TOKEN_ALERT),
+            self.logs,
+            confirm_timeout_s=60,
+            clock=self.clock,
+        )
+
+
+async def test_finding_1_subtask_payloads_and_turn_errors_are_redacted(tmp_path: Path) -> None:
+    h = RedactingHarness(tmp_path)
+    h.orchestrator.scripted["s-1"] = [
+        bus_event("s-1", "tool.call", {"tool": "sh", "args": {"cmd": f"curl {SECRET}"}}, "t-9"),
+        bus_event("s-1", "task.result", {"status": "ok"}, "t-9"),
+    ]
+    await h.channel.send(event("t-9", "task.queued", {"objetivo": "padre"}))
+    await h.channel.send(event("t-9", "subtask.started", {"task_id": "s-1", "agent": "i"}))
+    await h.clock.settle()
+    await h.channel.send(AssistantReply(f"falló {SECRET}", None, "text", error=f"boom {SECRET}"))
+
+    wire = " ".join(e.to_json() for e in h.published())
+    assert SECRET not in wire
+    assert "curl ***" in wire and "boom ***" in wire and "falló ***" in wire
+
+
+async def test_finding_1_confirmation_args_are_redacted_on_the_wire_but_not_for_the_resolver(
+    tmp_path: Path,
+) -> None:
+    h = RedactingHarness(tmp_path)
+    args = {"path": "/etc/x", "token": "abc", "cmd": f"use {SECRET}"}
+
+    await h.channel.send(NeedsConfirmation("t-1", "c-1", "fs.write", args))
+    await h.router.resolve("c-1", True)
+
+    published = h.published()[0].payload
+    assert published["args"] == {"path": "/etc/x", "token": "***", "cmd": "use ***"}
+    assert h.orchestrator.confirmations == [("c-1", True, "fs.write", args)]
+
+
+async def test_finding_8_child_history_pending_at_root_result_is_forwarded(tmp_path: Path) -> None:
+    h = RedactingHarness(tmp_path)
+    h.orchestrator.scripted["s-1"] = [
+        bus_event("s-1", "tool.call", {"tool": "fs.read", "args": {}}, "t-9"),
+        bus_event("s-1", "task.finished", {"status": "ok", "usage": CHILD_USAGE}, "t-9"),
+        bus_event("s-1", "task.result", {"status": "ok"}, "t-9"),
+    ]
+    await h.channel.send(event("t-9", "task.queued", {"objetivo": "padre"}))
+    await h.channel.send(event("t-9", "subtask.started", {"task_id": "s-1", "agent": "i"}))
+    await h.channel.send(event("t-9", "task.result", {"status": "ok"}))
+
+    child = [(e.type, e.task_id) for e in h.published() if e.task_id == "s-1"]
+    assert child == [
+        ("tool.call", "s-1"),
+        ("task.finished", "s-1"),
+        ("usage", "s-1"),
+        ("task.result", "s-1"),
+    ]
+    assert h.channel.streamer.active_subscriptions == 0
+
+
+async def test_finding_8_a_child_that_never_ends_is_cancelled_after_the_drain_budget(
+    tmp_path: Path,
+) -> None:
+    h = RedactingHarness(tmp_path)
+    h.orchestrator.open_streams["s-2"] = asyncio.Event()
+    h.orchestrator.scripted["s-2"] = [bus_event("s-2", "task.queued", {"objetivo": "l"}, "t-9")]
+    await h.channel.send(event("t-9", "task.queued", {"objetivo": "padre"}))
+    await h.channel.send(event("t-9", "subtask.started", {"task_id": "s-2", "agent": "i"}))
+    await h.clock.settle()
+    finishing = asyncio.ensure_future(h.channel.send(event("t-9", "task.result", {"status": "ok"})))
+    await h.clock.advance(DRAIN_TIMEOUT_S - 1)
+    assert not finishing.done() and h.channel.streamer.active_subscriptions == 1
+
+    await h.clock.advance(1)
+
+    assert finishing.done() and h.channel.streamer.active_subscriptions == 0
+    assert ("task.queued", "s-2") in [(e.type, e.task_id) for e in h.published()]
+
+
+async def test_finding_14_user_accepted_echoes_the_client_id_of_that_turn_only(tmp_path) -> None:
+    h = RedactingHarness(tmp_path)
+
+    h.channel.client_id = "req-1"
+    await h.channel.send(UserAccepted("m1", "text"))
+    await h.channel.send(UserAccepted("m2", "text"))
+
+    accepted = [e.payload for e in h.published()]
+    assert accepted[0] == {"message_id": "m1", "effective_mode": "text", "client_id": "req-1"}
+    assert accepted[1] == {"message_id": "m2", "effective_mode": "text", "client_id": None}

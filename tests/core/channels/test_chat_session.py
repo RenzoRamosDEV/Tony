@@ -868,3 +868,12 @@ async def test_notify_reload_sends_a_notice_and_a_config_event(tmp_memory: Path)
     )
     assert events[0].payload == {"agent": "viernes", "servers": ["fs"]}
     assert events[0].seq == 0 and events[0].ts
+
+
+async def test_interrupt_stops_the_front_even_without_a_delegated_task(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [])
+    await h.start()
+
+    await h.session.interrupt()
+
+    assert h.runner.interrupts == 1

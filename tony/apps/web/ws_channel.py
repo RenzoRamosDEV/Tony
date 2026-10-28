@@ -28,6 +28,7 @@ from tony.core.channels.ports import (
     UserAccepted,
 )
 from tony.core.channels.session import CONFIG_TASK_ID
+from tony.core.orchestrator.clock import Clock, SystemClock
 from tony.core.orchestrator.task import (
     SUBTASK_STARTED,
     TASK_CANCELLED,
@@ -41,6 +42,7 @@ from tony.core.orchestrator.task import (
 
 TURN_FAILED = "turn_failed"
 NOTICE = "notice"
+DRAIN_TIMEOUT_S = 5.0
 Handler = Callable[[TaskEvent, dict[str, Any]], Awaitable[None]]
 
 
@@ -87,12 +89,14 @@ class TaskStreamer:
         source: TaskSource,
         usage: UsageTracker,
         logs_dir: Path,
+        clock: Clock | None = None,
     ) -> None:
         self._stream = stream
         self._router = router
         self._source = source
         self._usage = usage
         self._logs_dir = logs_dir
+        self._clock = clock or SystemClock()
         self._roots: dict[str, str] = {}
         self._subscriptions: dict[str, asyncio.Task[None]] = {}
         self._before: dict[str, Handler] = {
@@ -155,14 +159,23 @@ class TaskStreamer:
     async def _on_result(self, event: TaskEvent, payload: dict[str, Any]) -> None:
         self._router.discard_task(event.task_id)
         if self._roots.get(event.task_id, event.task_id) == event.task_id:
-            await self._stop_children_of(event.task_id)
+            await self._drain_children_of(event.task_id)
 
-    async def _stop_children_of(self, root_id: str) -> None:
+    async def _drain_children_of(self, root_id: str) -> None:
+        """Let the children's consumers forward their remaining history, up to DRAIN_TIMEOUT_S."""
         children = [c for c, root in self._roots.items() if root == root_id and c != root_id]
-        tasks = [self._subscriptions.pop(c) for c in children if c in self._subscriptions]
+        tasks = [self._subscriptions[c] for c in children if c in self._subscriptions]
+        if not tasks:
+            return
+        drained = asyncio.ensure_future(asyncio.gather(*tasks, return_exceptions=True))
+        budget = asyncio.ensure_future(self._clock.sleep(DRAIN_TIMEOUT_S))
+        await asyncio.wait({drained, budget}, return_when=asyncio.FIRST_COMPLETED)
+        budget.cancel()
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(drained, budget, return_exceptions=True)
+        for child in children:
+            self._subscriptions.pop(child, None)
 
     async def _follow(self, child_id: str) -> None:
         async for event in self._source.events(child_id):
@@ -182,18 +195,19 @@ class WebChannel:
         usage: UsageTracker,
         logs_dir: Path,
         confirm_timeout_s: float,
+        clock: Clock | None = None,
     ) -> None:
         self._stream = stream
         self._router = router
         self._source = source
         self._usage = usage
         self._confirm_timeout_s = confirm_timeout_s
-        self.streamer = TaskStreamer(stream, router, source, usage, logs_dir)
+        self.client_id: str | None = None
+        self.streamer = TaskStreamer(stream, router, source, usage, logs_dir, clock)
 
     async def send(self, message: ChannelMessage) -> None:
         if isinstance(message, UserAccepted):
-            payload = {"message_id": message.message_id, "effective_mode": message.effective_mode}
-            await self._stream.publish(USER_ACCEPTED, payload, message_id=message.message_id)
+            await self._send_accepted(message)
         elif isinstance(message, AssistantDelta):
             await self._stream.publish(
                 ASSISTANT_DELTA, {"text": message.text}, message_id=message.message_id
@@ -211,6 +225,15 @@ class WebChannel:
 
     async def close(self) -> None:
         await self.streamer.close()
+
+    async def _send_accepted(self, accepted: UserAccepted) -> None:
+        client_id, self.client_id = self.client_id, None
+        payload = {
+            "message_id": accepted.message_id,
+            "effective_mode": accepted.effective_mode,
+            "client_id": client_id,
+        }
+        await self._stream.publish(USER_ACCEPTED, payload, message_id=accepted.message_id)
 
     async def _send_reply(self, reply: AssistantReply) -> None:
         if reply.error is not None:

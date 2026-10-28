@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.apps.web.helpers import Doubles, FakeSocket, delegating
-from tony.apps.web.hub import ConversationHub, HubState, decide_hello
+from tony.apps.web.hub import TURN_CLOSE_BUDGET_S, ConversationHub, HubState, decide_hello
 from tony.apps.web.protocol import ClientMessage
 from tony.core.mcp import ConfirmRequest
 from tony.core.orchestrator.task import TaskStatus
@@ -64,6 +64,7 @@ async def test_hello_null_creates_a_web_conversation_and_answers_hello_ok(h: Hub
     assert ok["type"] == "hello.ok" and ok["seq"] == 0 and ok["conversation_id"] == conversation
     assert ok["payload"] == {
         "conversation_id": conversation,
+        "stream_id": h.hub.stream.stream_id,
         "reply_mode": "auto",
         "last_seq": 0,
         "state": {"turn_in_progress": False, "active_tasks": [], "pending_confirmation": None},
@@ -431,3 +432,214 @@ async def test_front_tool_confirmation_expires_with_the_clock(tmp_path: Path) ->
     assert socket.last("assistant.final")["payload"]["display_text"] == "aprobado: False"
     await harness.hub.aclose()
     await harness.hub.runtime.aclose()
+
+
+# --- Review of change 04 ---------------------------------------------------------------
+
+SECRET = "sk-live-0123456789"
+
+
+def write_secret(tmp_path: Path) -> None:
+    (tmp_path / "config" / ".env").write_text(f"API_KEY={SECRET}\n", encoding="utf-8")
+
+
+async def test_finding_1_hello_ok_state_and_front_confirmation_never_carry_secrets(
+    tmp_path: Path,
+) -> None:
+    harness = HubHarness(tmp_path, [])
+    write_secret(tmp_path)
+    await harness.start()
+    gate = harness.d.gate
+
+    async def asking_turn(prompt, handlers):
+        approved = await gate.confirm(ConfirmRequest.create("front", "sh", {"cmd": f"x {SECRET}"}))
+        return {"display_text": f"aprobado: {approved}", "speech_text": None}
+
+    harness.d.runner.turns.append(asking_turn)
+    socket = FakeSocket()
+    conversation = await harness.hello(socket)
+    await harness.send(socket, "user.text", {"text": "destruye"})
+    harness.hub.detach(socket)
+    second = FakeSocket()
+    await harness.hello(second, conversation, last_seq=0)
+
+    wire = json.dumps(socket.sent + second.sent)
+    assert SECRET not in wire and "x ***" in wire
+    assert second.sent[0]["payload"]["state"]["pending_confirmation"]["args"] == {"cmd": "x ***"}
+    await harness.hub.aclose()
+    await harness.hub.runtime.aclose()
+
+
+async def test_finding_1_turn_crash_details_are_redacted(tmp_path: Path) -> None:
+    async def dying(prompt, handlers):
+        raise ConnectionError(f"cli died with {SECRET}")
+
+    harness = HubHarness(tmp_path, [dying])
+    write_secret(tmp_path)
+    await harness.start()
+    socket = FakeSocket()
+    await harness.hello(socket)
+
+    await harness.send(socket, "user.text", {"text": "hola"})
+
+    assert SECRET not in json.dumps(socket.sent)
+    assert "cli died with ***" in socket.last("error")["payload"]["detail"]
+    await harness.hub.aclose()
+    await harness.hub.runtime.aclose()
+
+
+async def test_finding_4_events_published_during_the_hello_ok_send_are_delivered(
+    h: HubHarness,
+) -> None:
+    socket = FakeSocket()
+    socket.gate.clear()
+    greeting = asyncio.ensure_future(h.hello(socket))
+    await h.clock.settle()
+    assert socket.sent == [] and h.hub.stream is not None
+    await h.hub.stream.publish("assistant.wait", {"text": "mientras saludaba"})
+
+    socket.gate.set()
+    await greeting
+    await h.clock.settle()
+
+    assert socket.types() == ["hello.ok", "assistant.wait"]
+    assert socket.sent[0]["payload"]["last_seq"] == 0 and socket.sent[1]["seq"] == 1
+
+
+async def test_finding_4_a_failed_hello_ok_send_leaves_no_socket_attached(h: HubHarness) -> None:
+    socket = FakeSocket()
+    socket.closed.append(1006)
+
+    await h.hello(socket)
+
+    assert h.hub.socket is None and h.hub._emitter is None
+    assert h.hub.conversation_id is not None
+
+
+async def test_finding_5_concurrent_hellos_admit_exactly_one_socket(h: HubHarness) -> None:
+    first, second = FakeSocket(), FakeSocket()
+    first.gate.clear()
+    greetings = [asyncio.ensure_future(h.hello(first)), asyncio.ensure_future(h.hello(second))]
+    await h.clock.settle()
+
+    first.gate.set()
+    await asyncio.gather(*greetings)
+    await h.clock.settle()
+
+    assert first.types() == ["hello.ok"] and second.types() == ["error"]
+    assert second.last("error")["payload"]["code"] == "conversation_busy"
+    assert h.hub.socket is first
+    await h.hub.stream.publish("assistant.wait", {"text": "solo uno"})
+    await h.clock.settle()
+    assert first.types() == ["hello.ok", "assistant.wait"] and second.types() == ["error"]
+
+
+async def test_finding_6_aclose_interrupts_a_hung_front_turn_without_tasks(tmp_path: Path) -> None:
+    stuck = asyncio.Event()
+
+    async def hung(prompt, handlers):
+        await stuck.wait()
+        return {"display_text": "tarde", "speech_text": None}
+
+    harness = HubHarness(tmp_path, [hung])
+    await harness.start()
+    socket = FakeSocket()
+    await harness.hello(socket)
+    await harness.send(socket, "user.text", {"text": "cuelga"})
+    assert harness.hub.turn_in_progress
+
+    await asyncio.wait_for(harness.hub.aclose(), 2)
+
+    assert harness.d.runner.interrupts == 1 and harness.hub.turn.cancelled()
+    assert harness.hub.runtime.session is None and harness.d.runner.closed is True
+    await harness.hub.runtime.aclose()
+
+
+async def test_finding_6_aclose_gives_up_on_a_turn_that_ignores_cancellation(
+    tmp_path: Path,
+) -> None:
+    release = asyncio.Event()
+
+    async def stubborn(prompt, handlers):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await release.wait()
+        return {"display_text": "nunca", "speech_text": None}
+
+    harness = HubHarness(tmp_path, [stubborn])
+    await harness.start()
+    socket = FakeSocket()
+    await harness.hello(socket)
+    await harness.send(socket, "user.text", {"text": "cuelga"})
+    closing = asyncio.ensure_future(harness.hub.aclose())
+    await harness.clock.advance(TURN_CLOSE_BUDGET_S - 1)
+    assert not closing.done()
+
+    await harness.clock.advance(1)
+
+    assert closing.done() and harness.hub.runtime.session is None
+    release.set()
+    await asyncio.gather(harness.hub.turn, return_exceptions=True)
+    await harness.hub.runtime.aclose()
+
+
+async def test_finding_9_the_owner_socket_starts_a_new_conversation_when_idle(h: HubHarness):
+    socket = FakeSocket()
+    first = await h.hello(socket)
+    await h.send(socket, "user.text", {"text": "hola"})
+    assert socket.last("assistant.final")["payload"]["display_text"] == "Hola."
+    old_stream = h.hub.stream
+
+    second = await h.hello(socket, None)
+
+    assert second and second != first
+    assert h.hub.socket is socket and h.hub.runtime.session.conversation_id == second
+    ok = socket.last("hello.ok")["payload"]
+    assert ok["last_seq"] == 0 and ok["stream_id"] != old_stream.stream_id
+    await h.hub.stream.publish("assistant.wait", {"text": "nueva"})
+    await h.clock.settle()
+    assert socket.sent[-1]["payload"] == {"text": "nueva"} and socket.sent[-1]["seq"] == 1
+    assert socket.closed == []
+
+
+async def test_finding_9_the_owner_socket_cannot_switch_while_a_turn_runs(tmp_path: Path) -> None:
+    harness = HubHarness(tmp_path, [delegating("larga")])
+    await harness.start()
+    harness.d.scripts["larga"] = [("sleep", 100)]
+    socket = FakeSocket()
+    first = await harness.hello(socket)
+    await harness.send(socket, "user.text", {"text": "tarea"})
+
+    await harness.send(socket, "hello", {"conversation_id": None, "last_seq": 0})
+
+    assert socket.last("error")["payload"]["code"] == "conversation_busy"
+    assert harness.hub.conversation_id == first and harness.hub.socket is socket
+    await harness.hub.aclose()
+    await harness.hub.runtime.aclose()
+
+
+async def test_finding_11_hello_ok_carries_the_stream_id_of_the_live_stream(h: HubHarness) -> None:
+    socket = FakeSocket()
+    conversation = await h.hello(socket)
+    stream_id = socket.last("hello.ok")["payload"]["stream_id"]
+    assert stream_id == h.hub.stream.stream_id
+    h.hub.detach(socket)
+
+    again = FakeSocket()
+    await h.hello(again, conversation)
+    assert again.last("hello.ok")["payload"]["stream_id"] == stream_id
+
+    h.hub.detach(again)
+    fresh = FakeSocket()
+    await h.hello(fresh, None)
+    assert fresh.last("hello.ok")["payload"]["stream_id"] != stream_id
+
+
+async def test_finding_14_user_accepted_echoes_the_client_id(h: HubHarness) -> None:
+    socket = FakeSocket()
+    await h.hello(socket)
+
+    await h.send(socket, "user.text", {"text": "hola", "client_id": "req-7"})
+
+    assert socket.last("user.accepted")["payload"]["client_id"] == "req-7"
