@@ -119,3 +119,18 @@ def test_help_is_in_spanish() -> None:
     assert "modelo" in doctor
     validate = runner.invoke(main.app, ["config", "validate", "--help"]).stdout
     assert "sin" in validate and "--agents-dir" in validate
+
+
+def test_config_validate_fails_when_the_configured_agents_are_missing(cli) -> None:
+    import shutil
+
+    shutil.rmtree(cli / "agents" / "jarvis")
+    shutil.rmtree(cli / "agents" / "viernes")
+
+    result = runner.invoke(main.app, ["config", "validate"])
+
+    assert result.exit_code == 1
+    failures = lines(result.stdout, "✗")
+    assert any("agente jarvis" in line and "no existe" in line for line in failures)
+    assert any("agente viernes" in line and "no existe" in line for line in failures)
+    assert runner.invoke(main.app, ["doctor", "--offline"]).exit_code == 1

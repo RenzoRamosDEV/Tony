@@ -471,3 +471,23 @@ async def test_subagent_results_name_the_parent_path(tmp_repo: Path) -> None:
     assert results["skill viernes/subagents/investigador/s"] == CheckResult(
         "skill viernes/subagents/investigador/s", True, "d"
     )
+
+
+async def test_configured_front_and_worker_must_exist_as_folders(tmp_repo: Path) -> None:
+    p = healthy_repo(tmp_repo)
+    import shutil
+
+    shutil.rmtree(tmp_repo / "agents" / "jarvis")
+    shutil.rmtree(tmp_repo / "agents" / "viernes")
+
+    results = await check(tmp_repo, paths=p, connect=False)
+
+    assert failed(results) == ["agente jarvis", "agente viernes"]
+    assert results["agente jarvis"] == CheckResult(
+        "agente jarvis",
+        False,
+        f"no existe la carpeta {tmp_repo / 'agents' / 'jarvis'}",
+        "crea agents/jarvis/agent.md o cambia front/worker en config/tony.yaml",
+    )
+    assert results["agente viernes"].failed
+    assert list(results)[5:7] == ["agente jarvis", "agente viernes"]

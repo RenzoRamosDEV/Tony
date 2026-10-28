@@ -183,6 +183,16 @@ def check_agents(
     results: list[CheckResult] = []
     for name in agents:
         results.extend(validate_agent(paths.agents_dir, name, settings, env))
+    for name in (settings.front, settings.worker):
+        if name not in agents:
+            results.append(
+                CheckResult(
+                    f"agente {name}",
+                    False,
+                    f"no existe la carpeta {paths.agents_dir / name}",
+                    f"crea agents/{name}/agent.md o cambia front/worker en config/tony.yaml",
+                )
+            )
     return results
 
 
