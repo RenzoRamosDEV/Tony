@@ -191,7 +191,7 @@ class ClaudeSdkRunner:
     async def run(
         self, spec: AgentSpec, request: TaskRequest, tools: ToolCatalog, events: EventSink
     ) -> TaskResult:
-        events.emit("task.started", {"agent": spec.name, "objetivo": request.objetivo})
+        events.emit("task.started", {"agent": spec.name, **request.model_dump()})
         limits = self._settings.limits
         state = TaskState(self._task_id, cancel_token=self._cancel_token or CancelToken())
         self._factory = ToolProxyFactory(

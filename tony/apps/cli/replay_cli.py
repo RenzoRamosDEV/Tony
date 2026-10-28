@@ -33,19 +33,23 @@ def replay(
         if to_eval is None:
             typer.echo(render_events(events))
             return
-        entry, lines = to_eval_files(events, to_eval, fixtures_dir, force)
+        entry, lines, warnings = to_eval_files(events, to_eval, fixtures_dir, force)
     except ReplayError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from None
     typer.echo(entry, nl=False)
+    for warning in warnings:
+        typer.echo(f"Aviso: {warning}", err=True)
     typer.echo(f"# fixture: {fixtures_dir / f'{to_eval}.jsonl'} ({len(lines)} eventos)", err=True)
 
 
-def to_eval_files(events, eval_id: str, fixtures_dir: Path, force: bool) -> tuple[str, list[str]]:
+def to_eval_files(
+    events, eval_id: str, fixtures_dir: Path, force: bool
+) -> tuple[str, list[str], list[str]]:
     target = fixtures_dir / f"{eval_id}.jsonl"
     if target.exists() and not force:
         raise ReplayError(f"ya existe {target}; usa --force para sobrescribirlo")
-    entry, lines = to_eval(events, eval_id)
+    entry, lines, warnings = to_eval(events, eval_id)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return entry, lines
+    return entry, lines, warnings

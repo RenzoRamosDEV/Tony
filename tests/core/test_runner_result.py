@@ -241,7 +241,9 @@ async def test_task_started_payload_and_proxy_wiring() -> None:
 
     _, sink, captured = await run(client)
 
-    assert sink.payloads("task.started") == [{"agent": "viernes", "objetivo": "o"}]
+    assert sink.payloads("task.started") == [
+        {"agent": "viernes", "objetivo": "o", "contexto": "", "restricciones": []}
+    ]
     assert list(captured["options"].mcp_servers) == ["fake"]
     assert captured["options"].allowed_tools == ["mcp__fake__*"]
 
@@ -505,3 +507,16 @@ async def test_without_triggered_skills_no_activation_event(tmp_path: Path) -> N
     await runner.run(worker_spec(), TaskRequest(objetivo="o"), fake_catalog(), sink)
 
     assert "skill.activated" not in sink.types()
+
+
+async def test_task_started_carries_the_whole_request() -> None:
+    client = FakeClient([result_message(structured_output=OK_OUTPUT)])
+    request = TaskRequest(objetivo="o", contexto="ctx secreta", restricciones=["r1"])
+    runner, _ = make_runner(client)
+    sink = ListEventSink()
+
+    await runner.run(worker_spec(), request, fake_catalog(), sink)
+
+    assert sink.payloads("task.started") == [
+        {"agent": "viernes", "objetivo": "o", "contexto": "ctx secreta", "restricciones": ["r1"]}
+    ]

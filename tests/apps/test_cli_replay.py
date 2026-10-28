@@ -85,4 +85,14 @@ def test_fixtures_dir_option_and_help(log: Path, tmp_path: Path) -> None:
 def test_to_eval_reports_the_fixture_on_stderr(log: Path) -> None:
     result = runner.invoke(main.app, ["replay", str(log), "--to-eval", "fs-list-md"])
 
-    assert result.stderr.strip() == "# fixture: evals/fixtures/fs-list-md.jsonl (8 eventos)"
+    assert result.stderr.strip().splitlines()[-1] == (
+        "# fixture: evals/fixtures/fs-list-md.jsonl (8 eventos)"
+    )
+
+
+def test_to_eval_warns_on_stderr_about_an_incomplete_request(log: Path) -> None:
+    result = runner.invoke(main.app, ["replay", str(log), "--to-eval", "fs-list-md"])
+
+    assert result.exit_code == 0, result.output
+    assert "petición incompleta en el registro" in result.stderr
+    assert "contexto: ''" in result.stdout

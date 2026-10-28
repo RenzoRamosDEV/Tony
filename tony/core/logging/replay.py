@@ -9,6 +9,10 @@ from typing import Any
 import yaml
 
 Event = dict[str, Any]
+INCOMPLETE_REQUEST = (
+    "petición incompleta en el registro: task.started no incluye contexto ni "
+    "restricciones; revisa la entrada generada"
+)
 
 
 class ReplayError(Exception):
@@ -69,8 +73,8 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-def to_eval(events: list[Event], eval_id: str) -> tuple[str, list[str]]:
-    """YAML entry for tareas.yaml and the fixture lines derived from a task log."""
+def to_eval(events: list[Event], eval_id: str) -> tuple[str, list[str], list[str]]:
+    """YAML entry for tareas.yaml, the fixture lines derived from a task log, and warnings."""
     started = _first(events, "task.started")
     if started is None:
         raise ReplayError("el registro no contiene task.started")
@@ -93,7 +97,12 @@ def to_eval(events: list[Event], eval_id: str) -> tuple[str, list[str]]:
         "expect": {"status": (result.get("result") or {}).get("status"), "tools_called_all": tools},
     }
     yaml_entry = yaml.safe_dump([entry], allow_unicode=True, sort_keys=False)
-    return yaml_entry, [json.dumps(event, ensure_ascii=False) for event in events]
+    warnings = [] if _carries_request(started) else [INCOMPLETE_REQUEST]
+    return yaml_entry, [json.dumps(event, ensure_ascii=False) for event in events], warnings
+
+
+def _carries_request(started: dict[str, Any]) -> bool:
+    return "contexto" in started and "restricciones" in started
 
 
 def _first(events: list[Event], kind: str) -> dict[str, Any] | None:

@@ -82,7 +82,7 @@ def test_render_is_one_readable_line_per_event(tmp_path: Path) -> None:
 def test_to_eval_derives_the_entry_and_the_fixture_lines(tmp_path: Path) -> None:
     events = read_events(write_log(tmp_path / "t1.jsonl"))
 
-    entry, lines = to_eval(events, "fs-list-md")
+    entry, lines, _ = to_eval(events, "fs-list-md")
 
     data = yaml.safe_load(entry)
     assert data == [
@@ -156,7 +156,7 @@ def test_render_of_text_running_and_bare_events(tmp_path: Path) -> None:
 
 
 def test_to_eval_entry_matches_the_golden_yaml(tmp_path: Path) -> None:
-    entry, lines = to_eval(read_events(write_log(tmp_path / "t1.jsonl")), "fs-list-md")
+    entry, lines, _ = to_eval(read_events(write_log(tmp_path / "t1.jsonl")), "fs-list-md")
 
     assert entry == GOLDEN_ENTRY
     assert lines[0] == json.dumps(
@@ -170,7 +170,7 @@ def test_to_eval_takes_context_and_restrictions_from_task_started(tmp_path: Path
         ("task.result", {"result": {"status": "partial", "resumen": "x"}}),
     ]
 
-    entry, _ = to_eval(read_events(write_log(tmp_path / "t.jsonl", events)), "e")
+    entry, _, _ = to_eval(read_events(write_log(tmp_path / "t.jsonl", events)), "e")
 
     assert yaml.safe_load(entry) == [
         {
@@ -219,7 +219,31 @@ def test_to_eval_prefers_the_queued_objetivo_and_keeps_unicode(tmp_path: Path) -
         ("task.result", {"result": {"status": "ok", "resumen": "x"}}),
     ]
 
-    entry, lines = to_eval(read_events(write_log(tmp_path / "t.jsonl", events)), "e")
+    entry, lines, _ = to_eval(read_events(write_log(tmp_path / "t.jsonl", events)), "e")
 
     assert "objetivo: añade ñ\n" in entry
     assert "añade ñ" in lines[0] and "\\u00f1" not in lines[0]
+
+
+# --- the full request travels in task.started (review of change 03) ---------------------------
+
+
+def test_to_eval_warns_when_the_log_lacks_context_and_restrictions(tmp_path: Path) -> None:
+    _, _, warnings = to_eval(read_events(write_log(tmp_path / "t.jsonl")), "e")
+
+    assert warnings == [
+        "petición incompleta en el registro: task.started no incluye contexto ni "
+        "restricciones; revisa la entrada generada"
+    ]
+
+
+def test_to_eval_does_not_warn_when_task_started_carries_the_request(tmp_path: Path) -> None:
+    events = [
+        ("task.started", {"agent": "v", "objetivo": "o", "contexto": "", "restricciones": []}),
+        ("task.result", {"result": {"status": "ok", "resumen": "x"}}),
+    ]
+
+    entry, _, warnings = to_eval(read_events(write_log(tmp_path / "t.jsonl", events)), "e")
+
+    assert warnings == []
+    assert yaml.safe_load(entry)[0]["contexto"] == ""
