@@ -407,3 +407,24 @@ def test_invalid_config_exits_2_for_list_and_add(cli, monkeypatch) -> None:
     assert invoke("list", "--no-connect").exit_code == 2
     assert "reply_mode" in invoke("list", "--no-connect").stderr
     assert invoke("add", "x", "--", "cmd", "--agent", "viernes").exit_code == 2
+
+
+def test_add_and_remove_edit_tool_json_under_the_lock(cli, monkeypatch) -> None:
+    from tony.apps.cli import mcp_cli
+    from tony.core.loader import tooljson
+
+    locked: list[str] = []
+
+    def spy(path, edit):
+        locked.append(path.name)
+        return tooljson.edit_tool_json(path, edit)
+
+    monkeypatch.setattr(mcp_cli, "edit_tool_json", spy)
+    monkeypatch.setattr(main, "manager_factory", cli["manager_factory"])
+
+    assert invoke("add", "fetch", "--", "npx", "-y", "pkg", "--agent", "viernes").exit_code == 0
+    assert invoke("remove", "fetch", "--agent", "viernes").exit_code == 0
+
+    assert locked == ["tool.json", "tool.json"]
+    assert Path("agents/viernes/tool/tool.json.lock").is_file()
+    assert tool_json() == {"mcpServers": {}}

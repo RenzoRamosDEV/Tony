@@ -152,3 +152,52 @@ def test_error_messages_are_exact(tmp_path: Path) -> None:
     with pytest.raises(ToolJsonError) as missing:
         remove_server({"mcpServers": {}}, "nadie")
     assert str(missing.value) == "el servidor 'nadie' no existe en mcpServers"
+
+
+# --- inter-process lock around read-modify-replace (review of change 03) -----------------------
+
+import threading  # noqa: E402
+import time  # noqa: E402
+
+from tony.core.loader.tooljson import edit_tool_json  # noqa: E402
+
+
+def test_edit_tool_json_serialises_concurrent_editors_and_loses_no_update(tmp_path: Path) -> None:
+    path = tmp_path / "tool" / "tool.json"
+    trace: list[str] = []
+
+    def editor(name: str):
+        def edit(data: dict) -> dict:
+            trace.append(f"enter {name}")
+            time.sleep(0.05)
+            trace.append(f"exit {name}")
+            return upsert_server(data, name, {"command": name})
+
+        return lambda: edit_tool_json(path, edit)
+
+    threads = [threading.Thread(target=editor(name)) for name in ("a", "b")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert sorted(read_tool_json(path)["mcpServers"]) == ["a", "b"]
+    assert trace[0].startswith("enter") and trace[1].startswith("exit")
+    assert trace[1][5:] == trace[0][6:]
+    assert (tmp_path / "tool" / "tool.json.lock").is_file()
+
+
+def test_edit_tool_json_returns_the_written_data_and_releases_the_lock_on_error(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "tool.json"
+
+    written = edit_tool_json(path, lambda data: upsert_server(data, "a", {"command": "a"}))
+    assert written == {"mcpServers": {"a": {"command": "a"}}}
+    assert json.loads(path.read_text(encoding="utf-8")) == written
+
+    with pytest.raises(ToolJsonError):
+        edit_tool_json(path, lambda data: upsert_server(data, "a", {"command": "b"}))
+    assert json.loads(path.read_text(encoding="utf-8")) == written
+    edit_tool_json(path, lambda data: remove_server(data, "a"))
+    assert json.loads(path.read_text(encoding="utf-8")) == {"mcpServers": {}}

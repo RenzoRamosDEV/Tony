@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from tony.core.config.atomic import write_atomic
 
 ToolJson = dict[str, Any]
+LOCK_SUFFIX = ".lock"
 
 
 class ToolJsonError(Exception):
@@ -56,3 +60,23 @@ def remove_server(data: ToolJson, name: str) -> ToolJson:
 
 def write_tool_json(path: Path, data: ToolJson) -> None:
     write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def edit_tool_json(path: Path, edit: Callable[[ToolJson], ToolJson]) -> ToolJson:
+    """Read, edit and replace tool.json as one transaction, exclusive across processes."""
+    with locked_tool_json(path):
+        data = edit(read_tool_json(path))
+        write_tool_json(path, data)
+        return data
+
+
+@contextmanager
+def locked_tool_json(path: Path) -> Iterator[None]:
+    # The lock lives in a stable sibling: tool.json itself is replaced on every write.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (path.with_name(path.name + LOCK_SUFFIX)).open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)

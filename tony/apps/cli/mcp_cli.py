@@ -12,13 +12,7 @@ import typer
 from tony.apps.cli.render import render_table
 from tony.core.config import ConfigError, TonySettings, load_env, load_settings
 from tony.core.loader import AgentLoadError, AgentSpec, HttpServer, load_agent, load_all
-from tony.core.loader.tooljson import (
-    ToolJsonError,
-    read_tool_json,
-    remove_server,
-    upsert_server,
-    write_tool_json,
-)
+from tony.core.loader.tooljson import ToolJsonError, edit_tool_json, remove_server, upsert_server
 from tony.core.mcp.ports import ManagerFactory
 
 app = typer.Typer(
@@ -149,17 +143,14 @@ def add(
     folder = _agent_folder(agents_dir, request.agent)
     path = folder / "tool" / "tool.json"
     try:
-        data = upsert_server(
-            read_tool_json(path),
-            name,
-            request.server(),
-            request.allow,
-            request.confirm,
-            request.force,
+        edit_tool_json(
+            path,
+            lambda data: upsert_server(
+                data, name, request.server(), request.allow, request.confirm, request.force
+            ),
         )
     except ToolJsonError as exc:
         _fail(str(exc), 1)
-    write_tool_json(path, data)
     typer.echo(f"Servidor '{name}' guardado en {path}")
     asyncio.run(_report_connection(name, folder, _settings(config)))
 
@@ -217,10 +208,9 @@ def remove(
 ) -> None:
     path = _agent_folder(agents_dir, agent) / "tool" / "tool.json"
     try:
-        data = remove_server(read_tool_json(path), name)
+        edit_tool_json(path, lambda data: remove_server(data, name))
     except ToolJsonError as exc:
         _fail(str(exc), 1)
-    write_tool_json(path, data)
     typer.echo(f"Servidor '{name}' eliminado de {path}")
 
 

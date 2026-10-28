@@ -23,3 +23,5 @@ tony/apps/web/frontend/dist/
 .serena/
 # Eval runs recorded with the real model
 evals/runs/
+# Lock file of tony mcp add/remove
+tool.json.lock
