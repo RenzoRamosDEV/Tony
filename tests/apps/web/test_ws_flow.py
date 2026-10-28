@@ -196,3 +196,18 @@ def test_failed_turn_reports_turn_failed_and_keeps_the_socket(tmp_path: Path) ->
     assert seen[1]["payload"] == {"code": "turn_failed", "detail": "boom"}
     assert seen[3]["payload"]["display_text"] == "No pude completar el turno."
     assert again[-1]["payload"]["display_text"] == "Sigo."
+
+
+def test_finding_7_bad_payload_is_reported_over_the_wire_without_closing(tmp_path: Path) -> None:
+    with build_test_app(tmp_path) as client:
+        with open_chat(client) as (ws, _):
+            send(ws, "confirm", {"confirmation_id": "a3f", "approved": "false"})
+            rejected = ws.receive_json()
+            send(ws, "hello", {"conversation_id": None, "last_seq": "abc"})
+            second = ws.receive_json()
+            send(ws, "user.text", {"text": "sigo aquí"})
+            accepted = drain_until(ws, "user.accepted")[-1]
+
+    assert rejected["payload"]["code"] == "bad_payload" and rejected["seq"] == 0
+    assert second["payload"]["code"] == "bad_payload"
+    assert accepted["payload"]["client_id"] is None
