@@ -167,4 +167,4 @@ def test_malformed_root_or_section_becomes_config_error(
     with pytest.raises(ConfigError) as exc_info:
         load_settings(write_yaml(tmp_repo, body))
 
-    assert fragment in str(exc_info.value)
+    assert str(exc_info.value).startswith(fragment)
