@@ -38,7 +38,7 @@ from tony.core.orchestrator.task import (
 from tony.core.runner import EventSink, TaskRequest, TaskResult
 from tony.core.runner.cancel import USER_REASON
 from tony.core.runner.conversation import ConversationRunner
-from tony.core.runner.front_prompt import build_turn_preamble
+from tony.core.runner.front_prompt import PREAMBLE_END, PREAMBLE_START, build_turn_preamble
 from tony.core.runner.reply_mode import (
     PREFIX_FOR_MODE,
     InputModality,
@@ -51,6 +51,8 @@ WAIT_PHRASE_DELAY_S = 3.0
 FRONT_INTERRUPTED_REASON = "front_interrupted"
 SESSION_STARTED = "session.started"
 MISSING_TEXT_NOTICE = "Falta el mensaje después del prefijo {prefix}."
+RESUME_FAILED_NOTICE = "No se pudo reanudar la sesión anterior del front; se empieza de cero."
+TAGGED_PREFERENCE = "La preferencia no puede contener etiquetas de contexto."
 CHANNEL_NAME = "cli"
 
 
@@ -110,7 +112,14 @@ class ChatSession:
         self._events.emit(
             SESSION_STARTED, {"conversation_id": conversation_id, "front": self._front.name}
         )
-        await self._runner.open(self._front, self._catalog, self, self._events)
+        resume = self._memory.conversations.sdk_session(conversation_id)
+        try:
+            await self._runner.open(self._front, self._catalog, self, self._events, resume=resume)
+        except Exception:
+            if resume is None:
+                raise
+            await self._channel.send(Notice(RESUME_FAILED_NOTICE))
+            await self._runner.open(self._front, self._catalog, self, self._events)
 
     async def handle(self, text: str, modality: InputModality = "text") -> AssistantReply | None:
         prefix, message = strip_prefix(text)
@@ -126,6 +135,7 @@ class ChatSession:
             self._now(), mode, self._front.style, self._memory.preferences.injection_block()
         )
         turn = await self._runner.turn(preamble + message)
+        self._persist_sdk_session()
         front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
         reply = AssistantReply(front_reply.display_text, front_reply.speech_text, mode.mode)
         self._store_message("assistant", reply.display_text, mode.mode)
@@ -178,6 +188,8 @@ class ChatSession:
         return result
 
     async def remember(self, text: str) -> str:
+        if PREAMBLE_START in text or PREAMBLE_END in text:
+            raise ValueError(TAGGED_PREFERENCE)
         line = self._memory.preferences.append(text, today=self._now().date())
         return f"Guardado: {line}"
 
@@ -232,6 +244,14 @@ class ChatSession:
 
     def _redacted[M: BaseModel](self, model: M) -> M:
         return model.model_validate(redact(model.model_dump(), self._secrets))
+
+    def _persist_sdk_session(self) -> None:
+        session_id = self._runner.session_id
+        assert self.conversation_id is not None
+        if session_id and session_id != self._memory.conversations.sdk_session(
+            self.conversation_id
+        ):
+            self._memory.conversations.set_sdk_session(self.conversation_id, session_id)
 
     def _store_message(self, role: str, content: str, reply_mode: str | None) -> None:
         assert self.conversation_id is not None, "start() must run before handle()"

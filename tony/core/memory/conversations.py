@@ -14,7 +14,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     channel TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    sdk_session_id TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     finished_at TEXT
 );
 """
+MIGRATIONS = {"conversations": {"sdk_session_id": "TEXT"}}
 DEFAULT_RECENT = 40
 
 
@@ -55,6 +57,15 @@ class ConversationStore:
         self._connection = sqlite3.connect(path)
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.executescript(SCHEMA)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        for table, columns in MIGRATIONS.items():
+            present = {row[1] for row in self._connection.execute(f"PRAGMA table_info({table})")}
+            for column, kind in columns.items():
+                if column not in present:
+                    with self._connection:
+                        self._connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     def start_conversation(self, channel: str) -> str:
         conversation_id = uuid.uuid4().hex
@@ -113,6 +124,19 @@ class ConversationStore:
             (conversation_id, limit),
         ).fetchall()
         return [Message(*row) for row in reversed(rows)]
+
+    def sdk_session(self, conversation_id: str) -> str | None:
+        row = self._connection.execute(
+            "SELECT sdk_session_id FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def set_sdk_session(self, conversation_id: str, session_id: str) -> None:
+        with self._connection:
+            self._connection.execute(
+                "UPDATE conversations SET sdk_session_id = ? WHERE id = ?",
+                (session_id, conversation_id),
+            )
 
     def last_conversation(self, channel: str) -> str | None:
         row = self._connection.execute(

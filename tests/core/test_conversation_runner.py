@@ -279,3 +279,13 @@ async def test_each_turn_gets_a_fresh_cancel_state_wired_to_interrupt() -> None:
     assert client.interrupts == 1
     assert conversation.turn_state is not seen[0]
     assert conversation.turn_state.cancelled is False
+
+
+async def test_open_with_resume_passes_it_to_the_client_options() -> None:
+    client = FakeSessionClient([])
+    conversation, captured = make_conversation([client])
+
+    await conversation.open(spec(), ToolCatalog.empty(), Handlers(), ListEventSink(), resume="s9")
+
+    assert captured[0].resume == "s9"
+    assert client.connects == 1

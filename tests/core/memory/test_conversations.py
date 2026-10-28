@@ -22,7 +22,7 @@ def columns(path: Path, table: str) -> list[str]:
 def test_schema_is_created_on_open(tmp_path: Path) -> None:
     s = store(tmp_path)
 
-    assert columns(s.path, "conversations") == ["id", "channel", "created_at"]
+    assert columns(s.path, "conversations") == ["id", "channel", "created_at", "sdk_session_id"]
     assert columns(s.path, "messages") == [
         "id",
         "conversation_id",
@@ -126,4 +126,35 @@ def test_ids_are_unique_hex(tmp_path: Path) -> None:
 
     assert len(ids) == 3
     assert all(len(i) == 32 for i in ids)
+    s.close()
+
+
+def test_sdk_session_id_round_trips_and_defaults_to_none(tmp_path: Path) -> None:
+    s = store(tmp_path)
+    conversation = s.start_conversation("cli")
+
+    assert s.sdk_session(conversation) is None
+    s.set_sdk_session(conversation, "sdk-1")
+    assert s.sdk_session(conversation) == "sdk-1"
+    s.set_sdk_session(conversation, "sdk-2")
+    assert s.sdk_session(conversation) == "sdk-2"
+    assert s.sdk_session("missing") is None
+    s.close()
+
+
+def test_database_created_before_the_sdk_session_column_is_migrated(tmp_path: Path) -> None:
+    path = tmp_path / "memory" / "conversations.sqlite"
+    path.parent.mkdir(parents=True)
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            "CREATE TABLE conversations (id TEXT PRIMARY KEY, channel TEXT NOT NULL,"
+            " created_at TEXT NOT NULL);"
+            "INSERT INTO conversations VALUES ('old', 'cli', '2026-01-01T00:00:00.000Z');"
+        )
+
+    s = ConversationStore(path)
+    s.set_sdk_session("old", "sdk-1")
+
+    assert s.sdk_session("old") == "sdk-1"
+    assert s.last_conversation("cli") == "old"
     s.close()

@@ -29,13 +29,23 @@ class FakeConversationRunner:
         self.session_id: str | None = session_id
         self.handlers: NativeToolHandlers | None = None
         self.opened: list[AgentSpec] = []
+        self.resumes: list[str | None] = []
+        self.fail_resume = False
         self.prompts: list[str] = []
         self.interrupts = 0
         self.closed = False
 
     async def open(
-        self, spec: AgentSpec, catalog: ToolCatalog, handlers: NativeToolHandlers, events: EventSink
+        self,
+        spec: AgentSpec,
+        catalog: ToolCatalog,
+        handlers: NativeToolHandlers,
+        events: EventSink,
+        resume: str | None = None,
     ) -> None:
+        self.resumes.append(resume)
+        if resume is not None and self.fail_resume:
+            raise RuntimeError("no such session")
         self.handlers = handlers
         self.opened.append(spec)
 

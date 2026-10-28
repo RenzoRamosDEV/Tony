@@ -55,6 +55,7 @@ class ConversationRunner(Protocol):
         catalog: ToolCatalog,
         handlers: NativeToolHandlers,
         events: EventSink,
+        resume: str | None = None,
     ) -> None: ...
 
     async def turn(self, prompt: str) -> FrontTurn: ...
@@ -128,6 +129,7 @@ class ClaudeSdkConversation:
         catalog: ToolCatalog,
         handlers: NativeToolHandlers,
         events: EventSink,
+        resume: str | None = None,
     ) -> None:
         limits = self._settings.limits
         proxies = ToolProxyFactory(
@@ -145,6 +147,7 @@ class ClaudeSdkConversation:
             build_native_server(spec.tools.native, handlers),
             proxies,
             make_can_use_tool(catalog),
+            resume=resume,
         )
         self._events = events
         await self._connect(self._options)

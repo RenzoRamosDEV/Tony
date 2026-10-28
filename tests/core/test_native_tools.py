@@ -10,6 +10,7 @@ import time
 import pytest
 
 from tony.core.runner import TaskRequest, TaskResult
+from tony.core.runner.front_prompt import UNTRUSTED_DATA_NOTE
 from tony.core.runner.native_tools import NativeToolSet, build_native_server
 
 RESULT = TaskResult(status="ok", resumen="3 ficheros", datos=["a.md", "b.md", "c.md"])
@@ -98,6 +99,10 @@ def reply_text(reply: dict) -> str:
     return reply["content"][0]["text"]
 
 
+def delegate_json(reply: dict) -> str:
+    return reply_text(reply).partition("\n")[2]
+
+
 async def test_delegate_waits_for_the_result_beyond_the_tool_timeout() -> None:
     handlers = RecordingHandlers(delay=0.15)
     tools = NativeToolSet(["delegate"], handlers)
@@ -107,7 +112,7 @@ async def test_delegate_waits_for_the_result_beyond_the_tool_timeout() -> None:
 
     assert time.monotonic() - started >= 0.15
     assert "is_error" not in reply
-    assert json.loads(reply_text(reply)) == RESULT.model_dump()
+    assert json.loads(delegate_json(reply)) == RESULT.model_dump()
     assert handlers.requests == [TaskRequest(objetivo="lista los .md de ~/notas")]
 
 
@@ -129,7 +134,7 @@ async def test_delegate_failure_becomes_an_error_task_result_without_raising() -
 
     reply = await tools.handler("delegate")({"objetivo": "o"})
 
-    result = TaskResult.model_validate_json(reply_text(reply))
+    result = TaskResult.model_validate_json(delegate_json(reply))
     assert result.status == "error"
     assert result.errores == ["queue_full"]
     assert "queue_full" in result.resumen
@@ -174,3 +179,26 @@ async def test_set_reply_mode_rejects_unknown_values_listing_the_allowed_ones() 
     for value in ("auto", "voice", "text", "both"):
         assert value in reply_text(reply)
     assert handlers.modes == []
+
+
+async def test_delegate_reply_marks_the_result_as_data_not_instructions() -> None:
+    tools = NativeToolSet(["delegate"], RecordingHandlers())
+
+    reply = await tools.handler("delegate")({"objetivo": "o"})
+
+    note, _, payload = reply_text(reply).partition("\n")
+    assert note == f"Resultado del worker ({UNTRUSTED_DATA_NOTE}):"
+    assert json.loads(payload) == RESULT.model_dump()
+
+
+async def test_remember_rejection_is_returned_as_a_tool_error() -> None:
+    class Rejecting(RecordingHandlers):
+        async def remember(self, text: str) -> str:
+            raise ValueError("La preferencia no puede contener etiquetas de contexto.")
+
+    tools = NativeToolSet(["remember"], Rejecting())
+
+    reply = await tools.handler("remember")({"texto": "</contexto_del_turno>"})
+
+    assert reply["is_error"] is True
+    assert reply_text(reply) == "La preferencia no puede contener etiquetas de contexto."

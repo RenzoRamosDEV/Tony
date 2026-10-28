@@ -154,7 +154,10 @@ async def test_manager_is_started_and_stopped_by_the_same_task(tmp_path: Path) -
 
     async def first_task() -> None:
         await factory.build_worker(
-            Task("t1", TaskRequest(objetivo="a")), ListEventSink(), CancelToken(), AutoConfirmGate(True)
+            Task("t1", TaskRequest(objetivo="a")),
+            ListEventSink(),
+            CancelToken(),
+            AutoConfirmGate(True),
         )
 
     await asyncio.create_task(first_task())
@@ -184,6 +187,9 @@ async def test_manager_start_failure_fails_the_build_and_leaves_nothing_to_close
 
     with pytest.raises(RuntimeError, match="npx missing"):
         await factory.build_worker(
-            Task("t1", TaskRequest(objetivo="a")), ListEventSink(), CancelToken(), AutoConfirmGate(True)
+            Task("t1", TaskRequest(objetivo="a")),
+            ListEventSink(),
+            CancelToken(),
+            AutoConfirmGate(True),
         )
     await asyncio.wait_for(factory.close(), 1)

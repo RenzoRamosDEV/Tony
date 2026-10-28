@@ -11,10 +11,12 @@ from pydantic import ValidationError
 
 from tony.core.config import REPLY_MODES
 from tony.core.runner.contracts import TaskRequest, TaskResult
+from tony.core.runner.front_prompt import UNTRUSTED_DATA_NOTE
 from tony.core.runner.proxy import ToolReply, text_reply
 
 SERVER_NAME = "tony"
 SERVER_VERSION = "1.0.0"
+RESULT_NOTE = f"Resultado del worker ({UNTRUSTED_DATA_NOTE}):"
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +93,7 @@ class NativeToolSet:
                     resumen=f"No se pudo delegar la tarea: {exc}",
                     errores=[str(exc) or exc.__class__.__name__],
                 )
-            return text_reply(result.model_dump_json())
+            return text_reply(f"{RESULT_NOTE}\n{result.model_dump_json()}")
 
         return self._register(
             "delegate",
@@ -102,7 +104,10 @@ class NativeToolSet:
 
     def _remember_tool(self) -> SdkMcpTool:
         async def remember(args: dict[str, Any]) -> ToolReply:
-            return text_reply(await self._handlers.remember(str(args.get("texto", ""))))
+            try:
+                return text_reply(await self._handlers.remember(str(args.get("texto", ""))))
+            except ValueError as exc:
+                return text_reply(str(exc), is_error=True)
 
         return self._register(
             "remember",
