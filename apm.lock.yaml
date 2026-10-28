@@ -1,0 +1,1253 @@
+lockfile_version: '1'
+apm_version: 0.34.0
+dependencies:
+- repo_url: _local/ai-apm
+  name: ai-apm
+  version: 1.0.0
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/proper-testing
+  - .agents/skills/proper-testing/SKILL.md
+  - .agents/skills/proper-testing/references/integration-testing.md
+  - .agents/skills/proper-testing/references/lang-dotnet.md
+  - .agents/skills/proper-testing/references/lang-java.md
+  - .agents/skills/proper-testing/references/lang-php.md
+  - .agents/skills/proper-testing/references/lang-python.md
+  - .agents/skills/proper-testing/references/lang-rust.md
+  - .agents/skills/proper-testing/references/lang-scala.md
+  - .agents/skills/proper-testing/references/lang-typescript.md
+  - .agents/skills/proper-testing/references/mutation-testing.md
+  - .agents/skills/proper-testing/references/regression-testing.md
+  - .agents/skills/proper-testing/references/test-design-principles.md
+  - .agents/skills/proper-testing/references/unit-testing.md
+  - .claude/agents/architect.md
+  - .claude/agents/researcher-agent.md
+  - .claude/agents/tdd-developer.md
+  - .claude/commands/code-review.md
+  - .claude/commands/create-wiki.md
+  - .claude/commands/jira-comment.md
+  - .claude/commands/jira-issue-refiner.md
+  - .claude/commands/prop-and-apply.md
+  - .claude/commands/refine-requirement.md
+  - .claude/commands/rpa.md
+  - .claude/rules/agent-delegation.md
+  - .claude/rules/opsx-apply-command.md
+  - .claude/rules/opsx-propose-command.md
+  - .claude/rules/repo.md
+  - .claude/rules/serena-usage-enforcement.md
+  - .claude/rules/skills-usage-enforcement.md
+  - .claude/rules/tdd.md
+  - .claude/skills/proper-testing
+  - .claude/skills/proper-testing/SKILL.md
+  - .claude/skills/proper-testing/references/integration-testing.md
+  - .claude/skills/proper-testing/references/lang-dotnet.md
+  - .claude/skills/proper-testing/references/lang-java.md
+  - .claude/skills/proper-testing/references/lang-php.md
+  - .claude/skills/proper-testing/references/lang-python.md
+  - .claude/skills/proper-testing/references/lang-rust.md
+  - .claude/skills/proper-testing/references/lang-scala.md
+  - .claude/skills/proper-testing/references/lang-typescript.md
+  - .claude/skills/proper-testing/references/mutation-testing.md
+  - .claude/skills/proper-testing/references/regression-testing.md
+  - .claude/skills/proper-testing/references/test-design-principles.md
+  - .claude/skills/proper-testing/references/unit-testing.md
+  - .opencode/agents/architect.md
+  - .opencode/agents/researcher-agent.md
+  - .opencode/agents/tdd-developer.md
+  - .opencode/commands/code-review.md
+  - .opencode/commands/create-wiki.md
+  - .opencode/commands/jira-comment.md
+  - .opencode/commands/jira-issue-refiner.md
+  - .opencode/commands/prop-and-apply.md
+  - .opencode/commands/refine-requirement.md
+  - .opencode/commands/rpa.md
+  deployed_file_hashes:
+    .agents/skills/proper-testing/SKILL.md: sha256:3d838a7d72419c1da42247fef56fd74a1936fcb87acbc92f3726816d99394cb9
+    .agents/skills/proper-testing/references/integration-testing.md: sha256:2d235f49c8b6ea4c84156f49e33853a2729b7454c541a85845c3013cb309d155
+    .agents/skills/proper-testing/references/lang-dotnet.md: sha256:ed962b18f37971495bb396fcaf79a4a2b2612195d663ed49219dd3ccae2d4a6b
+    .agents/skills/proper-testing/references/lang-java.md: sha256:b76f303645aae4985789b28a43b56b6c1d9089bd99b368c4ac6f739bfd455af3
+    .agents/skills/proper-testing/references/lang-php.md: sha256:cf51aa96a55fe47d7eca9f5497614b99fd4673a90d169e2f0e34cb58278f9c1d
+    .agents/skills/proper-testing/references/lang-python.md: sha256:de8cb2dfbb58180783d8bd45f24db9789cb14cb5d4ace1682c56b3c042c34f62
+    .agents/skills/proper-testing/references/lang-rust.md: sha256:49d2d0ac9abbacbbf42d77c787a01ff662b86174d63f21167b32674e74e2724a
+    .agents/skills/proper-testing/references/lang-scala.md: sha256:c4c57c0c63751dba809602e8e3586e607bb7913440b572a5e319400dfd139df2
+    .agents/skills/proper-testing/references/lang-typescript.md: sha256:8acb5681db614f6c051a1e8c2ca09d8444255a8aeb048864462f0c5fd2ffee35
+    .agents/skills/proper-testing/references/mutation-testing.md: sha256:215c37bf671229ebb620df59ced7e7a414f62102f7dfb67eb80af867a338e662
+    .agents/skills/proper-testing/references/regression-testing.md: sha256:8ff688550c053151bce7fd70e09aa823f3b2aa915843b2aaab2a444ed40791ee
+    .agents/skills/proper-testing/references/test-design-principles.md: sha256:c14ae4304a73e17f69ec8d53e3101281cfef80a5f544719bee4ec018cbb10027
+    .agents/skills/proper-testing/references/unit-testing.md: sha256:31461bbb897314b7026236c5c87603fea0eb6215bae421b068fd7c20be1822b9
+    .claude/agents/architect.md: sha256:32a1a4fef3f04b2412212d8c94e76544055caf10e26d69838c5b74b5df29a98a
+    .claude/agents/researcher-agent.md: sha256:d3ac6902dd77b86ff1238c0951cad7065c5e16fd987d7637049822f49a910338
+    .claude/agents/tdd-developer.md: sha256:abad344457b38c49c046733dcf009753363c4c8b194001d6ab1b26ad298ae7d6
+    .claude/commands/code-review.md: sha256:6f55b3a85773c470c72289c76dc4f7f2d10503259f36de5177960d2cf171b628
+    .claude/commands/create-wiki.md: sha256:47f7c2012d6f4dbc3011ce7390d9f840297d3eb8d8e2bd3a0af835bb9d6666ee
+    .claude/commands/jira-comment.md: sha256:901271dd63a094a8c433b856a4c7429d36fa480a1430a5947cb6c09d72546e6f
+    .claude/commands/jira-issue-refiner.md: sha256:6619d441262ba3ab28df36ae6288dced896d06af6470b87ae837b7bf88bb2902
+    .claude/commands/prop-and-apply.md: sha256:c1645af3accb352dc8ebef8561240d2f5a56fc84d4d4f157bab3e96427fb9df6
+    .claude/commands/refine-requirement.md: sha256:69b5623b5c667fa918fd17a4b942291de66277bf1d34c43466928d6e1c0a3741
+    .claude/commands/rpa.md: sha256:fd3f6e5e616761068c9e2a787ec17c87612f7fd87ec9bc024b7a5d4433dd378c
+    .claude/rules/agent-delegation.md: sha256:9d4ff3e626c71fe82e8a031190ec98f67d0ddf3750b86147c5d5ea5a69edb0c5
+    .claude/rules/opsx-apply-command.md: sha256:afb3bcc7f31155ba8240baa889bfe4d7d1c80472932f244d690cbea9f2f07788
+    .claude/rules/opsx-propose-command.md: sha256:be67066ec67678883a82fe432cd2d1d18bd15cfa410ec5e67259897ef0adff41
+    .claude/rules/repo.md: sha256:afa109e920e89b67d4f5ed6421c0cb77f64a8791cef36e808d98614bfe641b0f
+    .claude/rules/serena-usage-enforcement.md: sha256:42bf6842d90c3dd7f2981897363594693e3883744f806aec8856f482f45dce9a
+    .claude/rules/skills-usage-enforcement.md: sha256:7b34ae67f491411ccda33fd0bc84bac63b8b9ea29e8cd9404fa8a3333a2b59eb
+    .claude/rules/tdd.md: sha256:afdff9b82c5200b8b880122bd6c456b3b901e35d8903565d7b348384bffd95c5
+    .claude/skills/proper-testing/SKILL.md: sha256:3d838a7d72419c1da42247fef56fd74a1936fcb87acbc92f3726816d99394cb9
+    .claude/skills/proper-testing/references/integration-testing.md: sha256:2d235f49c8b6ea4c84156f49e33853a2729b7454c541a85845c3013cb309d155
+    .claude/skills/proper-testing/references/lang-dotnet.md: sha256:ed962b18f37971495bb396fcaf79a4a2b2612195d663ed49219dd3ccae2d4a6b
+    .claude/skills/proper-testing/references/lang-java.md: sha256:b76f303645aae4985789b28a43b56b6c1d9089bd99b368c4ac6f739bfd455af3
+    .claude/skills/proper-testing/references/lang-php.md: sha256:cf51aa96a55fe47d7eca9f5497614b99fd4673a90d169e2f0e34cb58278f9c1d
+    .claude/skills/proper-testing/references/lang-python.md: sha256:de8cb2dfbb58180783d8bd45f24db9789cb14cb5d4ace1682c56b3c042c34f62
+    .claude/skills/proper-testing/references/lang-rust.md: sha256:49d2d0ac9abbacbbf42d77c787a01ff662b86174d63f21167b32674e74e2724a
+    .claude/skills/proper-testing/references/lang-scala.md: sha256:c4c57c0c63751dba809602e8e3586e607bb7913440b572a5e319400dfd139df2
+    .claude/skills/proper-testing/references/lang-typescript.md: sha256:8acb5681db614f6c051a1e8c2ca09d8444255a8aeb048864462f0c5fd2ffee35
+    .claude/skills/proper-testing/references/mutation-testing.md: sha256:215c37bf671229ebb620df59ced7e7a414f62102f7dfb67eb80af867a338e662
+    .claude/skills/proper-testing/references/regression-testing.md: sha256:8ff688550c053151bce7fd70e09aa823f3b2aa915843b2aaab2a444ed40791ee
+    .claude/skills/proper-testing/references/test-design-principles.md: sha256:c14ae4304a73e17f69ec8d53e3101281cfef80a5f544719bee4ec018cbb10027
+    .claude/skills/proper-testing/references/unit-testing.md: sha256:31461bbb897314b7026236c5c87603fea0eb6215bae421b068fd7c20be1822b9
+    .opencode/agents/architect.md: sha256:32a1a4fef3f04b2412212d8c94e76544055caf10e26d69838c5b74b5df29a98a
+    .opencode/agents/researcher-agent.md: sha256:d3ac6902dd77b86ff1238c0951cad7065c5e16fd987d7637049822f49a910338
+    .opencode/agents/tdd-developer.md: sha256:abad344457b38c49c046733dcf009753363c4c8b194001d6ab1b26ad298ae7d6
+    .opencode/commands/code-review.md: sha256:6f55b3a85773c470c72289c76dc4f7f2d10503259f36de5177960d2cf171b628
+    .opencode/commands/create-wiki.md: sha256:47f7c2012d6f4dbc3011ce7390d9f840297d3eb8d8e2bd3a0af835bb9d6666ee
+    .opencode/commands/jira-comment.md: sha256:901271dd63a094a8c433b856a4c7429d36fa480a1430a5947cb6c09d72546e6f
+    .opencode/commands/jira-issue-refiner.md: sha256:6619d441262ba3ab28df36ae6288dced896d06af6470b87ae837b7bf88bb2902
+    .opencode/commands/prop-and-apply.md: sha256:c1645af3accb352dc8ebef8561240d2f5a56fc84d4d4f157bab3e96427fb9df6
+    .opencode/commands/refine-requirement.md: sha256:69b5623b5c667fa918fd17a4b942291de66277bf1d34c43466928d6e1c0a3741
+    .opencode/commands/rpa.md: sha256:fd3f6e5e616761068c9e2a787ec17c87612f7fd87ec9bc024b7a5d4433dd378c
+  source: local
+  local_path: ~/Proyectos/APM/ai-apm
+- repo_url: obra/superpowers
+  name: brainstorming
+  host: github.com
+  resolved_commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b
+  resolved_ref: main
+  version: unknown
+  virtual_path: skills/brainstorming
+  is_virtual: true
+  depth: 2
+  resolved_by: _local/ai-apm
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/brainstorming
+  - .agents/skills/brainstorming/SKILL.md
+  - .agents/skills/brainstorming/builder-check-prompt.md
+  - .agents/skills/brainstorming/scripts/frame-template.html
+  - .agents/skills/brainstorming/scripts/helper.js
+  - .agents/skills/brainstorming/scripts/server.cjs
+  - .agents/skills/brainstorming/scripts/start-server.sh
+  - .agents/skills/brainstorming/scripts/stop-server.sh
+  - .agents/skills/brainstorming/visual-companion.md
+  - .claude/skills/brainstorming
+  - .claude/skills/brainstorming/SKILL.md
+  - .claude/skills/brainstorming/builder-check-prompt.md
+  - .claude/skills/brainstorming/scripts/frame-template.html
+  - .claude/skills/brainstorming/scripts/helper.js
+  - .claude/skills/brainstorming/scripts/server.cjs
+  - .claude/skills/brainstorming/scripts/start-server.sh
+  - .claude/skills/brainstorming/scripts/stop-server.sh
+  - .claude/skills/brainstorming/visual-companion.md
+  deployed_file_hashes:
+    .agents/skills/brainstorming/SKILL.md: sha256:61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a
+    .agents/skills/brainstorming/builder-check-prompt.md: sha256:36d51a4723d6f0a3ce5811a0ea3b3a8424f07533947e1355f5d8cb8cce40c55e
+    .agents/skills/brainstorming/scripts/frame-template.html: sha256:6a8a4e58bd6a44b904e2e3c57de774481d909204597e1498de53f1b2fecc4c4e
+    .agents/skills/brainstorming/scripts/helper.js: sha256:43c6d69954a46ec34a2a262bcc62a9a7e83e839c739f199cb72646d397c686e3
+    .agents/skills/brainstorming/scripts/server.cjs: sha256:763abf96510e0b892a1141397b31aa82ef900cf87ed34dde94bc8782baf4a7ca
+    .agents/skills/brainstorming/scripts/start-server.sh: sha256:a4e5ae84275bcaacd2f84345afeabe59cf7b00ba080e123da7cc1fb226f12847
+    .agents/skills/brainstorming/scripts/stop-server.sh: sha256:0b5ccbbd57f62d3ed88993f7940b5ee0e5c0fc9b21c550c623da4f6292e47daf
+    .agents/skills/brainstorming/visual-companion.md: sha256:6ffcb038b53254bd31debaa15e12dcd4ff24bd63d690e0b644ac6396701cf2e2
+    .claude/skills/brainstorming/SKILL.md: sha256:61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a
+    .claude/skills/brainstorming/builder-check-prompt.md: sha256:36d51a4723d6f0a3ce5811a0ea3b3a8424f07533947e1355f5d8cb8cce40c55e
+    .claude/skills/brainstorming/scripts/frame-template.html: sha256:6a8a4e58bd6a44b904e2e3c57de774481d909204597e1498de53f1b2fecc4c4e
+    .claude/skills/brainstorming/scripts/helper.js: sha256:43c6d69954a46ec34a2a262bcc62a9a7e83e839c739f199cb72646d397c686e3
+    .claude/skills/brainstorming/scripts/server.cjs: sha256:763abf96510e0b892a1141397b31aa82ef900cf87ed34dde94bc8782baf4a7ca
+    .claude/skills/brainstorming/scripts/start-server.sh: sha256:a4e5ae84275bcaacd2f84345afeabe59cf7b00ba080e123da7cc1fb226f12847
+    .claude/skills/brainstorming/scripts/stop-server.sh: sha256:0b5ccbbd57f62d3ed88993f7940b5ee0e5c0fc9b21c550c623da4f6292e47daf
+    .claude/skills/brainstorming/visual-companion.md: sha256:6ffcb038b53254bd31debaa15e12dcd4ff24bd63d690e0b644ac6396701cf2e2
+  content_hash: sha256:ad4eee670fea942a17872aca524126e457416c7a8590c3427463284a787c85de
+- repo_url: obra/superpowers
+  name: systematic-debugging
+  host: github.com
+  resolved_commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b
+  resolved_ref: main
+  version: unknown
+  virtual_path: skills/systematic-debugging
+  is_virtual: true
+  depth: 2
+  resolved_by: _local/ai-apm
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/systematic-debugging
+  - .agents/skills/systematic-debugging/CREATION-LOG.md
+  - .agents/skills/systematic-debugging/SKILL.md
+  - .agents/skills/systematic-debugging/condition-based-waiting-example.ts
+  - .agents/skills/systematic-debugging/condition-based-waiting.md
+  - .agents/skills/systematic-debugging/defense-in-depth.md
+  - .agents/skills/systematic-debugging/find-polluter.sh
+  - .agents/skills/systematic-debugging/root-cause-tracing.md
+  - .agents/skills/systematic-debugging/test-academic.md
+  - .agents/skills/systematic-debugging/test-pressure-1.md
+  - .agents/skills/systematic-debugging/test-pressure-2.md
+  - .agents/skills/systematic-debugging/test-pressure-3.md
+  - .claude/skills/systematic-debugging
+  - .claude/skills/systematic-debugging/CREATION-LOG.md
+  - .claude/skills/systematic-debugging/SKILL.md
+  - .claude/skills/systematic-debugging/condition-based-waiting-example.ts
+  - .claude/skills/systematic-debugging/condition-based-waiting.md
+  - .claude/skills/systematic-debugging/defense-in-depth.md
+  - .claude/skills/systematic-debugging/find-polluter.sh
+  - .claude/skills/systematic-debugging/root-cause-tracing.md
+  - .claude/skills/systematic-debugging/test-academic.md
+  - .claude/skills/systematic-debugging/test-pressure-1.md
+  - .claude/skills/systematic-debugging/test-pressure-2.md
+  - .claude/skills/systematic-debugging/test-pressure-3.md
+  deployed_file_hashes:
+    .agents/skills/systematic-debugging/CREATION-LOG.md: sha256:c24733a5b1821bd6bed1fc950261f0b9f4e90097e0bbb96459d8179713730789
+    .agents/skills/systematic-debugging/SKILL.md: sha256:51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202
+    .agents/skills/systematic-debugging/condition-based-waiting-example.ts: sha256:40ae5ebe497fdf310200e43fe986552546d0a22837c0d39e855db1cfd33eb88e
+    .agents/skills/systematic-debugging/condition-based-waiting.md: sha256:e89fec8400d6cd50f43407cec9fab50976ba4d55d0ec2eb51c0bd68036b54c26
+    .agents/skills/systematic-debugging/defense-in-depth.md: sha256:1e175fb86fc357e58c6aebf5441e481e1b7868b4380c0456b63a17eefbd18ba7
+    .agents/skills/systematic-debugging/find-polluter.sh: sha256:dd7b8f13c4cc2a24b33ff87b18da9248f3e1c80a085c3316224f69ff0fa5c43c
+    .agents/skills/systematic-debugging/root-cause-tracing.md: sha256:75b933b6a8c40bdb2031b10f21654395b56ec6ab6bc7b018c18d3fe57aeb7fb8
+    .agents/skills/systematic-debugging/test-academic.md: sha256:fe2ba480d78ac0d686dc025f41c2a32a43d642bf533f91b0c6053a04d35d6486
+    .agents/skills/systematic-debugging/test-pressure-1.md: sha256:0b6a915db0054577819834c79be9eb614e97bddba10d73768e1fbe91cfed048a
+    .agents/skills/systematic-debugging/test-pressure-2.md: sha256:b2030aeffba07050e8ad573ddf87486457c4a016a786bb326235bebd856f2016
+    .agents/skills/systematic-debugging/test-pressure-3.md: sha256:96b50a52e2c7989c9cf20fb752c47c1e9a3a70dc362f8f7989f8f5b64dac7708
+    .claude/skills/systematic-debugging/CREATION-LOG.md: sha256:c24733a5b1821bd6bed1fc950261f0b9f4e90097e0bbb96459d8179713730789
+    .claude/skills/systematic-debugging/SKILL.md: sha256:51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202
+    .claude/skills/systematic-debugging/condition-based-waiting-example.ts: sha256:40ae5ebe497fdf310200e43fe986552546d0a22837c0d39e855db1cfd33eb88e
+    .claude/skills/systematic-debugging/condition-based-waiting.md: sha256:e89fec8400d6cd50f43407cec9fab50976ba4d55d0ec2eb51c0bd68036b54c26
+    .claude/skills/systematic-debugging/defense-in-depth.md: sha256:1e175fb86fc357e58c6aebf5441e481e1b7868b4380c0456b63a17eefbd18ba7
+    .claude/skills/systematic-debugging/find-polluter.sh: sha256:dd7b8f13c4cc2a24b33ff87b18da9248f3e1c80a085c3316224f69ff0fa5c43c
+    .claude/skills/systematic-debugging/root-cause-tracing.md: sha256:75b933b6a8c40bdb2031b10f21654395b56ec6ab6bc7b018c18d3fe57aeb7fb8
+    .claude/skills/systematic-debugging/test-academic.md: sha256:fe2ba480d78ac0d686dc025f41c2a32a43d642bf533f91b0c6053a04d35d6486
+    .claude/skills/systematic-debugging/test-pressure-1.md: sha256:0b6a915db0054577819834c79be9eb614e97bddba10d73768e1fbe91cfed048a
+    .claude/skills/systematic-debugging/test-pressure-2.md: sha256:b2030aeffba07050e8ad573ddf87486457c4a016a786bb326235bebd856f2016
+    .claude/skills/systematic-debugging/test-pressure-3.md: sha256:96b50a52e2c7989c9cf20fb752c47c1e9a3a70dc362f8f7989f8f5b64dac7708
+  content_hash: sha256:f0851634609c3efcf0589ad4adaed73dc844798e6dacd30acf5e5b9a81f3705e
+- repo_url: obra/superpowers
+  name: writing-plans
+  host: github.com
+  resolved_commit: 2ce8aa15d05bd57213e6f746f953aafb7ded7a8b
+  resolved_ref: main
+  version: unknown
+  virtual_path: skills/writing-plans
+  is_virtual: true
+  depth: 2
+  resolved_by: _local/ai-apm
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/writing-plans
+  - .agents/skills/writing-plans/SKILL.md
+  - .claude/skills/writing-plans
+  - .claude/skills/writing-plans/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/writing-plans/SKILL.md: sha256:a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a
+    .claude/skills/writing-plans/SKILL.md: sha256:a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a
+  content_hash: sha256:c2647b5bf067be353a893e5a39a632cbbeb7ad81e61fa5ae227ece5490029073
+deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/agents/architect.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:32a1a4fef3f04b2412212d8c94e76544055caf10e26d69838c5b74b5df29a98a
+- kind: project-relative
+  target: claude
+  value: .claude/agents/researcher-agent.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:d3ac6902dd77b86ff1238c0951cad7065c5e16fd987d7637049822f49a910338
+- kind: project-relative
+  target: claude
+  value: .claude/agents/tdd-developer.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:abad344457b38c49c046733dcf009753363c4c8b194001d6ab1b26ad298ae7d6
+- kind: project-relative
+  target: claude
+  value: .claude/commands/code-review.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:6f55b3a85773c470c72289c76dc4f7f2d10503259f36de5177960d2cf171b628
+- kind: project-relative
+  target: claude
+  value: .claude/commands/create-wiki.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:47f7c2012d6f4dbc3011ce7390d9f840297d3eb8d8e2bd3a0af835bb9d6666ee
+- kind: project-relative
+  target: claude
+  value: .claude/commands/jira-comment.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:901271dd63a094a8c433b856a4c7429d36fa480a1430a5947cb6c09d72546e6f
+- kind: project-relative
+  target: claude
+  value: .claude/commands/jira-issue-refiner.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:6619d441262ba3ab28df36ae6288dced896d06af6470b87ae837b7bf88bb2902
+- kind: project-relative
+  target: claude
+  value: .claude/commands/prop-and-apply.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:c1645af3accb352dc8ebef8561240d2f5a56fc84d4d4f157bab3e96427fb9df6
+- kind: project-relative
+  target: claude
+  value: .claude/commands/refine-requirement.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:69b5623b5c667fa918fd17a4b942291de66277bf1d34c43466928d6e1c0a3741
+- kind: project-relative
+  target: claude
+  value: .claude/commands/rpa.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:fd3f6e5e616761068c9e2a787ec17c87612f7fd87ec9bc024b7a5d4433dd378c
+- kind: project-relative
+  target: claude
+  value: .claude/rules/agent-delegation.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:9d4ff3e626c71fe82e8a031190ec98f67d0ddf3750b86147c5d5ea5a69edb0c5
+- kind: project-relative
+  target: claude
+  value: .claude/rules/opsx-apply-command.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:afb3bcc7f31155ba8240baa889bfe4d7d1c80472932f244d690cbea9f2f07788
+- kind: project-relative
+  target: claude
+  value: .claude/rules/opsx-propose-command.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:be67066ec67678883a82fe432cd2d1d18bd15cfa410ec5e67259897ef0adff41
+- kind: project-relative
+  target: claude
+  value: .claude/rules/repo.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:afa109e920e89b67d4f5ed6421c0cb77f64a8791cef36e808d98614bfe641b0f
+- kind: project-relative
+  target: claude
+  value: .claude/rules/serena-usage-enforcement.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:42bf6842d90c3dd7f2981897363594693e3883744f806aec8856f482f45dce9a
+- kind: project-relative
+  target: claude
+  value: .claude/rules/skills-usage-enforcement.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:7b34ae67f491411ccda33fd0bc84bac63b8b9ea29e8cd9404fa8a3333a2b59eb
+- kind: project-relative
+  target: claude
+  value: .claude/rules/tdd.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:afdff9b82c5200b8b880122bd6c456b3b901e35d8903565d7b348384bffd95c5
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/builder-check-prompt.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:36d51a4723d6f0a3ce5811a0ea3b3a8424f07533947e1355f5d8cb8cce40c55e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/scripts/frame-template.html
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:6a8a4e58bd6a44b904e2e3c57de774481d909204597e1498de53f1b2fecc4c4e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/scripts/helper.js
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:43c6d69954a46ec34a2a262bcc62a9a7e83e839c739f199cb72646d397c686e3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/scripts/server.cjs
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:763abf96510e0b892a1141397b31aa82ef900cf87ed34dde94bc8782baf4a7ca
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/scripts/start-server.sh
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:a4e5ae84275bcaacd2f84345afeabe59cf7b00ba080e123da7cc1fb226f12847
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/scripts/stop-server.sh
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:0b5ccbbd57f62d3ed88993f7940b5ee0e5c0fc9b21c550c623da4f6292e47daf
+- kind: project-relative
+  target: claude
+  value: .claude/skills/brainstorming/visual-companion.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:6ffcb038b53254bd31debaa15e12dcd4ff24bd63d690e0b644ac6396701cf2e2
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:3d838a7d72419c1da42247fef56fd74a1936fcb87acbc92f3726816d99394cb9
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/integration-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:2d235f49c8b6ea4c84156f49e33853a2729b7454c541a85845c3013cb309d155
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-dotnet.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:ed962b18f37971495bb396fcaf79a4a2b2612195d663ed49219dd3ccae2d4a6b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-java.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:b76f303645aae4985789b28a43b56b6c1d9089bd99b368c4ac6f739bfd455af3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-php.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:cf51aa96a55fe47d7eca9f5497614b99fd4673a90d169e2f0e34cb58278f9c1d
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-python.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:de8cb2dfbb58180783d8bd45f24db9789cb14cb5d4ace1682c56b3c042c34f62
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-rust.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:49d2d0ac9abbacbbf42d77c787a01ff662b86174d63f21167b32674e74e2724a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-scala.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:c4c57c0c63751dba809602e8e3586e607bb7913440b572a5e319400dfd139df2
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/lang-typescript.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:8acb5681db614f6c051a1e8c2ca09d8444255a8aeb048864462f0c5fd2ffee35
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/mutation-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:215c37bf671229ebb620df59ced7e7a414f62102f7dfb67eb80af867a338e662
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/regression-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:8ff688550c053151bce7fd70e09aa823f3b2aa915843b2aaab2a444ed40791ee
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/test-design-principles.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:c14ae4304a73e17f69ec8d53e3101281cfef80a5f544719bee4ec018cbb10027
+- kind: project-relative
+  target: claude
+  value: .claude/skills/proper-testing/references/unit-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:31461bbb897314b7026236c5c87603fea0eb6215bae421b068fd7c20be1822b9
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/CREATION-LOG.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:c24733a5b1821bd6bed1fc950261f0b9f4e90097e0bbb96459d8179713730789
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/condition-based-waiting-example.ts
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:40ae5ebe497fdf310200e43fe986552546d0a22837c0d39e855db1cfd33eb88e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/condition-based-waiting.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:e89fec8400d6cd50f43407cec9fab50976ba4d55d0ec2eb51c0bd68036b54c26
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/defense-in-depth.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:1e175fb86fc357e58c6aebf5441e481e1b7868b4380c0456b63a17eefbd18ba7
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/find-polluter.sh
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:dd7b8f13c4cc2a24b33ff87b18da9248f3e1c80a085c3316224f69ff0fa5c43c
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/root-cause-tracing.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:75b933b6a8c40bdb2031b10f21654395b56ec6ab6bc7b018c18d3fe57aeb7fb8
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/test-academic.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:fe2ba480d78ac0d686dc025f41c2a32a43d642bf533f91b0c6053a04d35d6486
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/test-pressure-1.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:0b6a915db0054577819834c79be9eb614e97bddba10d73768e1fbe91cfed048a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/test-pressure-2.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:b2030aeffba07050e8ad573ddf87486457c4a016a786bb326235bebd856f2016
+- kind: project-relative
+  target: claude
+  value: .claude/skills/systematic-debugging/test-pressure-3.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:96b50a52e2c7989c9cf20fb752c47c1e9a3a70dc362f8f7989f8f5b64dac7708
+- kind: project-relative
+  target: claude
+  value: .claude/skills/writing-plans
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/writing-plans
+  active_owner: obra/superpowers/skills/writing-plans
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/writing-plans/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/writing-plans
+  active_owner: obra/superpowers/skills/writing-plans
+  content_hash: sha256:a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a
+- kind: uri
+  target: mcp
+  value: atlassian
+  runtime: claude
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
+  value: serena
+  runtime: claude
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
+  value: v0
+  runtime: claude
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
+  value: atlassian
+  runtime: opencode
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
+  value: serena
+  runtime: opencode
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: uri
+  target: mcp
+  value: v0
+  runtime: opencode
+  scope: project
+  owners:
+  - .
+  active_owner: .
+  content_hash: null
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: null
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:61a7ef918652108c76a3fd01e02dd92d39996c6b46d4cb2819cbd03f6c45e46a
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/builder-check-prompt.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:36d51a4723d6f0a3ce5811a0ea3b3a8424f07533947e1355f5d8cb8cce40c55e
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/scripts/frame-template.html
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:6a8a4e58bd6a44b904e2e3c57de774481d909204597e1498de53f1b2fecc4c4e
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/scripts/helper.js
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:43c6d69954a46ec34a2a262bcc62a9a7e83e839c739f199cb72646d397c686e3
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/scripts/server.cjs
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:763abf96510e0b892a1141397b31aa82ef900cf87ed34dde94bc8782baf4a7ca
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/scripts/start-server.sh
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:a4e5ae84275bcaacd2f84345afeabe59cf7b00ba080e123da7cc1fb226f12847
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/scripts/stop-server.sh
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:0b5ccbbd57f62d3ed88993f7940b5ee0e5c0fc9b21c550c623da4f6292e47daf
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/brainstorming/visual-companion.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/brainstorming
+  active_owner: obra/superpowers/skills/brainstorming
+  content_hash: sha256:6ffcb038b53254bd31debaa15e12dcd4ff24bd63d690e0b644ac6396701cf2e2
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: null
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:3d838a7d72419c1da42247fef56fd74a1936fcb87acbc92f3726816d99394cb9
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/integration-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:2d235f49c8b6ea4c84156f49e33853a2729b7454c541a85845c3013cb309d155
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-dotnet.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:ed962b18f37971495bb396fcaf79a4a2b2612195d663ed49219dd3ccae2d4a6b
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-java.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:b76f303645aae4985789b28a43b56b6c1d9089bd99b368c4ac6f739bfd455af3
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-php.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:cf51aa96a55fe47d7eca9f5497614b99fd4673a90d169e2f0e34cb58278f9c1d
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-python.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:de8cb2dfbb58180783d8bd45f24db9789cb14cb5d4ace1682c56b3c042c34f62
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-rust.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:49d2d0ac9abbacbbf42d77c787a01ff662b86174d63f21167b32674e74e2724a
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-scala.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:c4c57c0c63751dba809602e8e3586e607bb7913440b572a5e319400dfd139df2
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/lang-typescript.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:8acb5681db614f6c051a1e8c2ca09d8444255a8aeb048864462f0c5fd2ffee35
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/mutation-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:215c37bf671229ebb620df59ced7e7a414f62102f7dfb67eb80af867a338e662
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/regression-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:8ff688550c053151bce7fd70e09aa823f3b2aa915843b2aaab2a444ed40791ee
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/test-design-principles.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:c14ae4304a73e17f69ec8d53e3101281cfef80a5f544719bee4ec018cbb10027
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/proper-testing/references/unit-testing.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:31461bbb897314b7026236c5c87603fea0eb6215bae421b068fd7c20be1822b9
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: null
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/CREATION-LOG.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:c24733a5b1821bd6bed1fc950261f0b9f4e90097e0bbb96459d8179713730789
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:51c6435d98c83c42c96ba7c35725a0b2c376cd487fb1a4e6bd0ddbe7e33ef202
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/condition-based-waiting-example.ts
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:40ae5ebe497fdf310200e43fe986552546d0a22837c0d39e855db1cfd33eb88e
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/condition-based-waiting.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:e89fec8400d6cd50f43407cec9fab50976ba4d55d0ec2eb51c0bd68036b54c26
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/defense-in-depth.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:1e175fb86fc357e58c6aebf5441e481e1b7868b4380c0456b63a17eefbd18ba7
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/find-polluter.sh
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:dd7b8f13c4cc2a24b33ff87b18da9248f3e1c80a085c3316224f69ff0fa5c43c
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/root-cause-tracing.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:75b933b6a8c40bdb2031b10f21654395b56ec6ab6bc7b018c18d3fe57aeb7fb8
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/test-academic.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:fe2ba480d78ac0d686dc025f41c2a32a43d642bf533f91b0c6053a04d35d6486
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/test-pressure-1.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:0b6a915db0054577819834c79be9eb614e97bddba10d73768e1fbe91cfed048a
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/test-pressure-2.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:b2030aeffba07050e8ad573ddf87486457c4a016a786bb326235bebd856f2016
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/systematic-debugging/test-pressure-3.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/systematic-debugging
+  active_owner: obra/superpowers/skills/systematic-debugging
+  content_hash: sha256:96b50a52e2c7989c9cf20fb752c47c1e9a3a70dc362f8f7989f8f5b64dac7708
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/writing-plans
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/writing-plans
+  active_owner: obra/superpowers/skills/writing-plans
+  content_hash: null
+- kind: project-relative
+  target: opencode
+  value: .agents/skills/writing-plans/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - obra/superpowers/skills/writing-plans
+  active_owner: obra/superpowers/skills/writing-plans
+  content_hash: sha256:a6c67c1900064347c2a329990dd3c555657c51c3ec53b259a08aa01a2c26139a
+- kind: project-relative
+  target: opencode
+  value: .opencode/agents/architect.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:32a1a4fef3f04b2412212d8c94e76544055caf10e26d69838c5b74b5df29a98a
+- kind: project-relative
+  target: opencode
+  value: .opencode/agents/researcher-agent.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:d3ac6902dd77b86ff1238c0951cad7065c5e16fd987d7637049822f49a910338
+- kind: project-relative
+  target: opencode
+  value: .opencode/agents/tdd-developer.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:abad344457b38c49c046733dcf009753363c4c8b194001d6ab1b26ad298ae7d6
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/code-review.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:6f55b3a85773c470c72289c76dc4f7f2d10503259f36de5177960d2cf171b628
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/create-wiki.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:47f7c2012d6f4dbc3011ce7390d9f840297d3eb8d8e2bd3a0af835bb9d6666ee
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/jira-comment.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:901271dd63a094a8c433b856a4c7429d36fa480a1430a5947cb6c09d72546e6f
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/jira-issue-refiner.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:6619d441262ba3ab28df36ae6288dced896d06af6470b87ae837b7bf88bb2902
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/prop-and-apply.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:c1645af3accb352dc8ebef8561240d2f5a56fc84d4d4f157bab3e96427fb9df6
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/refine-requirement.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:69b5623b5c667fa918fd17a4b942291de66277bf1d34c43466928d6e1c0a3741
+- kind: project-relative
+  target: opencode
+  value: .opencode/commands/rpa.md
+  runtime: null
+  scope: project
+  owners:
+  - ~/Proyectos/APM/ai-apm
+  active_owner: ~/Proyectos/APM/ai-apm
+  content_hash: sha256:fd3f6e5e616761068c9e2a787ec17c87612f7fd87ec9bc024b7a5d4433dd378c
+mcp_servers:
+- atlassian
+- serena
+- v0
+mcp_configs:
+  atlassian:
+    name: atlassian
+    transport: http
+    registry: false
+    url: https://mcp.atlassian.com/v1/mcp
+  serena:
+    name: serena
+    transport: stdio
+    args:
+    - --from
+    - git+https://github.com/oraios/serena
+    - serena
+    - start-mcp-server
+    - --context
+    - ide
+    registry: false
+    command: uvx
+  v0:
+    name: v0
+    transport: stdio
+    args:
+    - mcp-remote
+    - https://v0.app/api/mcp
+    registry: false
+    command: npx
+mcp_target_servers:
+  claude:
+  - atlassian
+  - serena
+  - v0
+  opencode:
+  - atlassian
+  - serena
+  - v0
+mcp_config_provenance:
+  atlassian: ai-apm
+  serena: ai-apm

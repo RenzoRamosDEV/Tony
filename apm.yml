@@ -1,0 +1,24 @@
+name: Tony
+version: 1.0.0
+targets:
+- claude
+- opencode
+dependencies:
+  apm:
+  - ~/Proyectos/APM/ai-apm
+  mcp:
+  - name: v0
+    registry: false
+    transport: stdio
+    command: npx
+    args:
+    - mcp-remote
+    - https://v0.app/api/mcp
+includes: auto
+compilation:
+  strategy: distributed
+  source_attribution: true
+  exclude:
+  - tmp/**
+  placement:
+    min_instructions_per_file: 1

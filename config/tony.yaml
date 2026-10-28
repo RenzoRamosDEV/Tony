@@ -1,0 +1,24 @@
+# Configuración global de Tony. Todos los campos son opcionales: los valores
+# comentados son los que se aplican por defecto cuando no se indican.
+#
+# front: jarvis
+# worker: viernes
+# reply_mode: auto            # auto | voice | text | both
+# models:
+#   claude-haiku: claude-haiku-5-5
+#   claude-sonnet: claude-sonnet-5-5
+# voice:
+#   stt: faster-whisper/small
+#   tts: kokoro/ef_dora
+#   vad: silero
+# channels: [cli, web]
+# web:
+#   port: 8787
+#   host: 127.0.0.1
+# limits:
+#   tool_timeout_s: 20
+#   task_timeout_s: 300
+#   confirm_timeout_s: 60
+#   mcp_connect_timeout_s: 10
+#   token_alert: 50000
+#   memory_max_lines: 200
