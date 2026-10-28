@@ -224,12 +224,24 @@ def test_command_is_not_substituted(tmp_repo: Path, settings) -> None:
     assert tools.mcpServers["s"].args == ["x"]
 
 
-@pytest.mark.parametrize("tool_json", [[], {"mcpServers": []}, {"mcpServers": {"x": "cmd"}}])
-def test_malformed_tool_json_root_is_a_load_error(tmp_repo: Path, settings, tool_json) -> None:
+@pytest.mark.parametrize(
+    ("tool_json", "message"),
+    [
+        ([], "tool.json: debe ser un objeto JSON"),
+        ({"mcpServers": []}, "tool.json: mcpServers: mcpServers debe ser un objeto"),
+        ({"mcpServers": {"x": "cmd"}}, "tool.json: mcpServers: servidor x: debe ser un objeto"),
+    ],
+)
+def test_malformed_tool_json_root_is_a_load_error(
+    tmp_repo: Path, settings, tool_json, message: str
+) -> None:
     folder = make_agent(tmp_repo, tool_json)
 
-    with pytest.raises(AgentLoadError, match="tool.json"):
+    with pytest.raises(AgentLoadError) as exc_info:
         load_agent(folder, settings, {})
+
+    assert exc_info.value.agent == "a"
+    assert exc_info.value.message == message
 
 
 def test_substituted_env_values_are_exposed_as_secrets(tmp_repo: Path, settings) -> None:

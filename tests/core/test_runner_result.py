@@ -316,13 +316,27 @@ def test_sdk_error_prevails_over_valid_structured_output() -> None:
     assert result_from_message(message, fallback_text="x").status == "error"
 
 
-async def test_sdk_error_run_finishes_with_error_status() -> None:
+async def test_sdk_error_run_finishes_with_error_status_and_keeps_steps() -> None:
     client = FakeClient([result_message(is_error=True, subtype="error_max_turns", result="max")])
+    runner, _ = make_runner(client)
+    sink = ListEventSink()
 
-    result, sink, _ = await run(client)
+    async def call_echo():
+        await runner.proxy_handler("fake.echo")({"text": "hola"})
+
+    client.before_messages = [call_echo]
+
+    result = await runner.run(worker_spec(), TaskRequest(objetivo="o"), fake_catalog(), sink)
 
     assert result.status == "error"
+    assert result.pasos == ["fake.echo(hola)"]
     assert sink.payloads("task.finished")[0]["status"] == "error"
+
+
+async def test_partial_without_any_text_has_an_empty_summary() -> None:
+    result, _, _ = await run(FakeClient([result_message(result=None, structured_output=None)]))
+
+    assert result == TaskResult(status="partial", resumen="", errores=["respuesta no estructurada"])
 
 
 async def test_slow_client_connect_counts_towards_the_task_timeout() -> None:

@@ -288,10 +288,20 @@ async def test_cancellation_during_confirmation_blocks_the_approved_call() -> No
 
     reply = await factory.handler("fake.destroy")({})
 
-    assert reply["is_error"] is True
-    assert "Tarea cancelada" in reply["content"][0]["text"]
+    assert reply == {
+        "content": [{"type": "text", "text": "Tarea cancelada; no se ejecuta fake.destroy"}],
+        "is_error": True,
+    }
     assert caller.calls == []
     assert state.cancel_reason == "fake.other"
+    assert sink.payloads("tool.result") == [
+        {
+            "tool": "fake.destroy",
+            "ok": False,
+            "duration_ms": 0,
+            "error": "Tarea cancelada; no se ejecuta fake.destroy",
+        }
+    ]
 
 
 async def server_handlers(factory: ToolProxyFactory, server: str):

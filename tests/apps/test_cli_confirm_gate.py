@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import threading
 import time
 
 import pytest
@@ -138,3 +139,57 @@ def test_timed_out_confirmation_does_not_block_loop_shutdown() -> None:
         stream.close()
 
     assert time.monotonic() - started < 1
+
+
+async def test_stdin_is_pumped_by_a_named_daemon_thread() -> None:
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "r")
+    lines = StdinLines(stream)
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(lines.readline(), 0.05)
+
+        pump = [t for t in threading.enumerate() if t.name == "tony-stdin"]
+        assert len(pump) == 1
+        assert pump[0].daemon is True
+    finally:
+        os.close(write_fd)
+        stream.close()
+
+
+async def test_type_ahead_is_kept_once_the_stale_answer_was_discarded() -> None:
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "r")
+    lines = StdinLines(stream)
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(lines.readline(), 0.05)
+        os.write(write_fd, b"stale\n")
+        await asyncio.sleep(0.1)
+        pending = asyncio.ensure_future(lines.readline())
+        await asyncio.sleep(0.1)
+        os.write(write_fd, b"fresh\n")
+        assert await asyncio.wait_for(pending, 1) == "fresh\n"
+        os.write(write_fd, b"a\nb\n")
+        await asyncio.sleep(0.1)
+
+        assert await asyncio.wait_for(lines.readline(), 1) == "a\n"
+        assert await asyncio.wait_for(lines.readline(), 1) == "b\n"
+    finally:
+        os.close(write_fd)
+        stream.close()
+
+
+async def test_eof_after_an_abandoned_read_is_reported_promptly() -> None:
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "r")
+    lines = StdinLines(stream)
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(lines.readline(), 0.05)
+        os.close(write_fd)
+        await asyncio.sleep(0.1)
+
+        assert await asyncio.wait_for(lines.readline(), 1) is None
+    finally:
+        stream.close()

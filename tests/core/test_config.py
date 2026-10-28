@@ -156,9 +156,9 @@ def test_dotenv_secrets_of_missing_file_is_empty(tmp_repo: Path) -> None:
 @pytest.mark.parametrize(
     ("body", "fragment"),
     [
-        ("- 1\n- 2\n", "mapa"),
-        ("models: null\n", "models"),
-        ("limits: [\n", "YAML"),
+        ("- 1\n- 2\n", "config: debe ser un mapa YAML"),
+        ("models: null\n", "models: Value error, debe ser un mapa de alias"),
+        ("limits: [\n", "YAML inválido"),
     ],
 )
 def test_malformed_root_or_section_becomes_config_error(

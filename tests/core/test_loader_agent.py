@@ -172,5 +172,8 @@ def test_reserved_frontmatter_keys_are_rejected(tmp_repo: Path, settings, key: s
         f"---\nname: x\nrole: worker\nmodel: claude-sonnet\n{key}: 1\n---\n",
     )
 
-    with pytest.raises(AgentLoadError, match=key):
+    with pytest.raises(AgentLoadError) as exc_info:
         load_agent(folder, settings, {})
+
+    assert exc_info.value.agent == "x"
+    assert key in exc_info.value.message
