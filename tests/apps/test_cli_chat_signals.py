@@ -8,6 +8,9 @@ import os
 import signal
 import time
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from tests.core.channels.test_chat_session import Harness, delegating
 from tests.fakes.stdin import FakeStdin
@@ -96,3 +99,19 @@ async def test_ctrl_c_without_a_task_exits_the_repl(tmp_path: Path) -> None:
     send_sigint()
 
     assert await asyncio.wait_for(running, 1) == 0
+
+
+async def failing_turn(prompt: str, handlers: Any) -> dict[str, Any]:
+    raise ConnectionError("cli died")
+
+
+async def test_turn_error_still_closes_the_session(tmp_path: Path) -> None:
+    h = Harness(tmp_path, [failing_turn])
+    await h.start()
+    repl = make_repl(h, FakeStdin(["hola\n"]), io.StringIO())
+
+    with pytest.raises(ConnectionError):
+        await asyncio.wait_for(repl.run(), 1)
+
+    assert h.runner.closed is True
+    assert h.factory.closed is True

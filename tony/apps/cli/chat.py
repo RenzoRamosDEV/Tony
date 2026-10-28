@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -151,14 +152,14 @@ async def run_chat(
         catalog=front_manager.catalog if front_manager else ToolCatalog.empty(),
         secrets=all_secrets,
     )
-    try:
+    async with AsyncExitStack() as stack:
+        stack.callback(memory.conversations.close)
+        stack.callback(session_log.close)
+        if front_manager is not None:
+            stack.push_async_callback(front_manager.stop)
+        stack.push_async_callback(session.close)
         await session.start(conversation_id)
         return await ChatRepl(session, lines, memory, settings, out, stdout).run()
-    finally:
-        if front_manager is not None:
-            await front_manager.stop()
-        session_log.close()
-        memory.conversations.close()
 
 
 async def _front_tools(

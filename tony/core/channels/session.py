@@ -99,6 +99,7 @@ class ChatSession:
         self.conversation_id: str | None = None
         self.active_task_ids: set[str] = set()
         self._supervisors: set[asyncio.Task[None]] = set()
+        self._closed = False
 
     @property
     def has_active_task(self) -> bool:
@@ -139,9 +140,14 @@ class ChatSession:
         await self._runner.interrupt()
 
     async def close(self) -> None:
-        await self._runner.close()
-        await self._orchestrator.close()
-        await asyncio.gather(*self._supervisors, return_exceptions=True)
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            await self._runner.close()
+        finally:
+            await self._orchestrator.close()
+            await asyncio.gather(*self._supervisors, return_exceptions=True)
 
     async def delegate(self, request: TaskRequest) -> TaskResult:
         try:

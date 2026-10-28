@@ -57,7 +57,7 @@ class ChatRepl:
         finally:
             with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
                 loop.remove_signal_handler(signal.SIGINT)
-        await self._shutdown()
+            await self._shutdown()
         return 0
 
     async def _step(self) -> bool:

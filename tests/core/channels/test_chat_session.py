@@ -499,3 +499,39 @@ async def test_cancelling_during_a_confirmation_releases_delegate_promptly(
 
     assert reply.display_text.startswith("Resultado: Tarea cancelada")
     assert h.channel.cancelled_reads == 1
+
+
+async def test_close_reaches_the_orchestrator_even_if_the_front_fails_to_close(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [])
+    await h.start()
+
+    async def broken_close() -> None:
+        raise ConnectionError("cli died")
+
+    h.runner.close = broken_close  # type: ignore[method-assign]
+
+    with pytest.raises(ConnectionError):
+        await h.session.close()
+
+    assert h.factory.closed is True
+
+
+async def test_close_twice_is_harmless(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, [])
+    await h.start()
+    closes = 0
+    original = h.runner.close
+
+    async def counting_close() -> None:
+        nonlocal closes
+        closes += 1
+        await original()
+
+    h.runner.close = counting_close  # type: ignore[method-assign]
+
+    await h.session.close()
+    await h.session.close()
+
+    assert closes == 1

@@ -363,6 +363,22 @@ def test_worker_secrets_from_the_environment_are_redacted_everywhere(
     assert "env-token-secret-123" not in rows[0][0]
 
 
+async def delegating_then_dying(prompt: str, handlers: Any) -> dict[str, Any]:
+    await handlers.delegate(TaskRequest(objetivo="lista"))
+    raise ConnectionError("cli died")
+
+
+def test_turn_error_releases_the_worker_manager_and_the_front(cli) -> None:
+    cli["turns"] = [delegating_then_dying]
+    cli["stdin"] = ["lista\n", "/salir\n"]
+
+    result = invoke()
+
+    assert result.exit_code != 0
+    assert cli["managers"][0].stopped is True
+    assert cli["conversations"][0].closed is True
+
+
 def test_front_text_is_logged_in_a_chat_jsonl(cli) -> None:
     cli["turns"] = ["Hola, señor."]
     cli["stdin"] = ["hola\n", "/salir\n"]
