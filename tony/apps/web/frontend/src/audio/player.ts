@@ -1,4 +1,7 @@
+import { normalizeLevel, rms } from "../orb/amplitude";
+
 export const OUTPUT_RATE = 24000;
+const ANALYSER_FFT_SIZE = 512;
 
 export function int16ToFloat32(buffer: ArrayBuffer): Float32Array {
   const samples = new Int16Array(buffer);
@@ -17,6 +20,8 @@ function defaultContext(): AudioContext {
 export class PcmPlayer {
   onDrain: (() => void) | null = null;
   private context: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private readonly samples = new Float32Array(ANALYSER_FFT_SIZE);
   private nextStartTime = 0;
   private lastSeq = -1;
   private readonly sources = new Set<AudioBufferSourceNode>();
@@ -43,13 +48,22 @@ export class PcmPlayer {
     buffer.getChannelData(0).set(floats);
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.connect(context.destination);
+    source.connect(this.analyserOf(context));
     const start = Math.max(this.nextStartTime, context.currentTime);
     source.onended = () => this.finished(source);
     source.start(start);
     this.nextStartTime = start + buffer.duration;
     this.sources.add(source);
     return true;
+  }
+
+  /** Output level in [0, 1], read by the orb once per frame; 0 when nothing is sounding. */
+  amplitude(): number {
+    if (this.analyser === null || this.sources.size === 0) {
+      return 0;
+    }
+    this.analyser.getFloatTimeDomainData(this.samples);
+    return normalizeLevel(rms(this.samples));
   }
 
   stop(): void {
@@ -70,6 +84,17 @@ export class PcmPlayer {
       void this.context.resume();
     }
     return this.context;
+  }
+
+  /** A passive tap between the sources and the speakers: it reads the signal without changing it. */
+  private analyserOf(context: AudioContext): AnalyserNode {
+    if (this.analyser === null) {
+      this.analyser = context.createAnalyser();
+      this.analyser.fftSize = ANALYSER_FFT_SIZE;
+      this.analyser.smoothingTimeConstant = 0;
+      this.analyser.connect(context.destination);
+    }
+    return this.analyser;
   }
 
   private finished(source: AudioBufferSourceNode): void {

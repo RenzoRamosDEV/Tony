@@ -8,7 +8,8 @@ const BACKEND = "http://127.0.0.1:8787";
 
 export default defineConfig({
   plugins: [react()],
-  build: { outDir: "dist", emptyOutDir: true },
+  // Three.js sits alone in the orb's lazily loaded chunk (~590 kB, ~150 kB gzip).
+  build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 650 },
   server: {
     proxy: {
       "/api": { target: BACKEND, changeOrigin: true, headers: { Origin: BACKEND } },

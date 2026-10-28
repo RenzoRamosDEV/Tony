@@ -37,14 +37,17 @@ export function contrast(a: string, b: string): number {
   return (light + 0.05) / (dark + 0.05);
 }
 
-const light = block(/:root \{[^}]*\}/);
-const dark = block(/@media \(prefers-color-scheme: dark\) \{\s*:root \{[^}]*\}/);
+const theme = block(/:root \{[^}]*\}/);
 
 describe("colour contrast (WCAG AA)", () => {
-  it.each([
-    ["light", light],
-    ["dark", dark],
-  ])("%s theme keeps fg, muted and warn readable over bg and surface", (_name, theme) => {
+  it("has a single dark HUD theme, independent of the system preference", () => {
+    expect(css.match(/:root \{/g)).toHaveLength(1);
+    expect(css).not.toContain("prefers-color-scheme");
+    expect(theme).toContain("color-scheme: dark");
+    expect(luminance(variable(theme, "--bg"))).toBeLessThan(0.01);
+  });
+
+  it("keeps fg, muted, warn and accent readable over bg and surface", () => {
     const bg = variable(theme, "--bg");
     const surface = variable(theme, "--surface");
     for (const name of ["--fg", "--muted", "--warn", "--accent"]) {
@@ -54,9 +57,27 @@ describe("colour contrast (WCAG AA)", () => {
     expect(contrast(variable(theme, "--accent-fg"), variable(theme, "--accent"))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("declares focus rings and reduced motion", () => {
+  it("declares focus rings, reduced motion and the 80ch measure", () => {
     expect(css).toContain(":focus-visible");
     expect(css).toContain("prefers-reduced-motion");
     expect(css).toContain("max-width: 80ch");
+  });
+});
+
+describe("HUD layout", () => {
+  it("puts the orb stage behind a click-through HUD", () => {
+    const stage = block(/\.stage \{[^}]*\}/);
+    const hud = block(/\.hud \{[^}]*\}/);
+
+    expect(stage).toContain("position: fixed");
+    expect(stage).toContain("inset: 0");
+    expect(hud).toContain("pointer-events: none");
+  });
+
+  it("overlays the debug panel as a drawer fixed to the right", () => {
+    const debug = block(/\.debug \{[^}]*\}/);
+
+    expect(debug).toContain("position: fixed");
+    expect(debug).toContain("right: 0");
   });
 });

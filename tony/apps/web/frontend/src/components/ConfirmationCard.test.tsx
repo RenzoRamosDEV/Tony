@@ -65,4 +65,10 @@ describe("ConfirmationCard", () => {
     expect(screen.queryByRole("button", { name: "Confirmar" })).toBeNull();
     expect(screen.getByText("Confirmación caducada")).toBeInTheDocument();
   });
+
+  it("puts the focus on the safe option when it appears", () => {
+    card(60);
+
+    expect(screen.getByRole("button", { name: "Rechazar" })).toHaveFocus();
+  });
 });

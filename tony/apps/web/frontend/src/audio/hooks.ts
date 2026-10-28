@@ -79,5 +79,6 @@ export function usePcmPlayer(createContext: (() => AudioContext) | undefined) {
     player.current?.stop();
     setPlaying(false);
   }, []);
-  return { begin, enqueue, stop, playing };
+  const amplitude = useCallback(() => player.current?.amplitude() ?? 0, []);
+  return { begin, enqueue, stop, amplitude, playing };
 }

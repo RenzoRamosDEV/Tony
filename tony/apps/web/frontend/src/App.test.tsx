@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -128,6 +128,15 @@ class FakeOutputContext {
   createBuffer(_c: number, length: number, rate: number) {
     const data = new Float32Array(length);
     return { duration: length / rate, getChannelData: () => data };
+  }
+  outputLevel = 0;
+  createAnalyser() {
+    return {
+      fftSize: 2048,
+      smoothingTimeConstant: 0.8,
+      connect: () => undefined,
+      getFloatTimeDomainData: (out: Float32Array) => out.fill(this.outputLevel),
+    };
   }
   createBufferSource() {
     const source = new FakeSource();
@@ -617,5 +626,124 @@ describe("App (review of change 05)", () => {
 
     expect(audio.output.sources[0]!.stopped).toBe(true);
     expect(ws.sent.some((m) => m.type === "cancel")).toBe(false);
+  });
+});
+
+describe("App (orb and HUD)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    seq = 0;
+    window.localStorage.clear();
+    storage = window.localStorage;
+  });
+
+  function orbState(): string | null {
+    return document.querySelector(".stage")?.getAttribute("data-orb-state") ?? null;
+  }
+
+  async function ready(audio?: FakeAudio, routes: Record<string, unknown> = {}) {
+    const mounted = mount({ "/api/conversations/c-1/messages": [], ...routes }, audio);
+    act(() => mounted.ws.open());
+    act(() => mounted.ws.receive(helloOk()));
+    await waitFor(() => expect(screen.getByPlaceholderText("Escribe a Jarvis…")).toBeEnabled());
+    return mounted;
+  }
+
+  it("shows the decorative orb, as a CSS orb when there is no WebGL", async () => {
+    await ready();
+
+    expect(document.querySelector(".stage")).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelector(".orb-fallback")).not.toBeNull();
+    expect(orbState()).toBe("idle");
+  });
+
+  it("thinks from user.accepted until the final answer", async () => {
+    const { ws } = await ready();
+    await userEvent.type(screen.getByPlaceholderText("Escribe a Jarvis…"), "hola{Enter}");
+
+    act(() => ws.receive(env("user.accepted", { message_id: "u1", effective_mode: "text" }, { message_id: "u1" })));
+    expect(orbState()).toBe("thinking");
+
+    act(() => ws.receive(env("assistant.final", { display_text: "Hola.", speech_text: null, message_id: "a1" }, { message_id: "a1" })));
+    expect(orbState()).toBe("idle");
+  });
+
+  it("thinks while a task runs without a turn", async () => {
+    const { ws } = await ready();
+
+    act(() => ws.receive(env("task.queued", { objetivo: "x" }, { task_id: "t-9" })));
+
+    expect(orbState()).toBe("thinking");
+  });
+
+  it("listens with the microphone on and speaks while the reply plays", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await ready(audio, { "/api/health": HEALTH });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Activar micrófono" })).toBeEnabled());
+
+    await userEvent.click(screen.getByRole("button", { name: "Activar micrófono" }));
+    await waitFor(() => expect(orbState()).toBe("listening"));
+
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => ws.receive(env("tts.end", { message_id: "a-1" }, { message_id: "a-1" })));
+    expect(orbState()).toBe("speaking");
+
+    act(() => audio.output.finishAll());
+    expect(orbState()).toBe("listening");
+  });
+
+  it("puts the controls in the bottom HUD bar", async () => {
+    await ready();
+    const bar = screen.getByRole("group", { name: "Controles de Jarvis" });
+
+    expect(bar).toContainElement(screen.getByPlaceholderText("Escribe a Jarvis…"));
+    expect(bar).toContainElement(screen.getByRole("button", { name: "Activar micrófono" }));
+    expect(bar).toContainElement(screen.getByRole("radiogroup", { name: "Modo de respuesta" }));
+  });
+
+  it("cancels from the HUD bar", async () => {
+    const { ws } = await ready();
+    act(() => ws.receive(env("task.queued", { objetivo: "x" }, { task_id: "t-9" })));
+    act(() => ws.receive(env("task.running", {}, { task_id: "t-9" })));
+    const bar = screen.getByRole("group", { name: "Controles de Jarvis" });
+
+    await userEvent.click(within(bar).getByRole("button", { name: /Cancelar tarea/ }));
+
+    expect(ws.sent.at(-1)).toMatchObject({ type: "cancel", payload: { task_id: "t-9" } });
+  });
+
+  it("shows the last exchange as subtitles and the whole history in the transcript", async () => {
+    storage.setItem("tony.conversation_id", "c-1");
+    const history = [
+      { id: "m1", role: "user", content: "primera", reply_mode: null, created_at: "t" },
+      { id: "m2", role: "assistant", content: "respuesta uno", reply_mode: "text", created_at: "t" },
+      { id: "m3", role: "user", content: "segunda", reply_mode: null, created_at: "t" },
+      { id: "m4", role: "assistant", content: "respuesta dos", reply_mode: "text", created_at: "t" },
+    ];
+    await ready(undefined, { "/api/conversations/c-1/messages": history });
+    await waitFor(() => expect(screen.getByText("respuesta dos")).toBeInTheDocument());
+    const subtitles = screen.getByRole("region", { name: "Subtítulos" });
+
+    expect(subtitles).toHaveTextContent("segunda");
+    expect(subtitles).not.toHaveTextContent("primera");
+
+    await userEvent.click(screen.getByRole("button", { name: "Mostrar transcripción" }));
+
+    expect(screen.getByRole("region", { name: "Transcripción" }).querySelectorAll("article")).toHaveLength(4);
+  });
+
+  it("centres the confirmation card and focuses Rechazar", async () => {
+    const { ws } = await ready();
+    act(() => ws.receive(env("task.queued", { objetivo: "x" }, { task_id: "t-9" })));
+
+    act(() =>
+      ws.receive(
+        env("task.needs_confirmation", { confirmation_id: "a3f", tool: "filesystem.move_file", args: {}, expires_in_s: 60 }, { task_id: "t-9" }),
+      ),
+    );
+
+    expect(screen.getByRole("button", { name: "Rechazar" })).toHaveFocus();
   });
 });

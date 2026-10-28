@@ -88,3 +88,13 @@ export function MicIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function TranscriptIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M4 6h16" />
+      <path d="M4 12h16" />
+      <path d="M4 18h10" />
+    </svg>
+  );
+}

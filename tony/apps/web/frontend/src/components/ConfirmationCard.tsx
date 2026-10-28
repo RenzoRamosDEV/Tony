@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { EXPIRED_NOTICE, type PendingConfirmation } from "../protocol/reducer";
 
@@ -13,6 +13,11 @@ function remainingSeconds(deadline: number): number {
 
 export function ConfirmationCard({ confirmation, onAnswer }: Props) {
   const [remaining, setRemaining] = useState(() => remainingSeconds(confirmation.deadline));
+  const reject = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    reject.current?.focus();
+  }, [confirmation.confirmationId]);
 
   useEffect(() => {
     setRemaining(remainingSeconds(confirmation.deadline));
@@ -21,7 +26,7 @@ export function ConfirmationCard({ confirmation, onAnswer }: Props) {
   }, [confirmation.deadline]);
 
   return (
-    <section className="confirmation" aria-labelledby="confirmation-title">
+    <section className="confirmation hud-panel" aria-labelledby="confirmation-title">
       <h2 id="confirmation-title">Confirmación requerida</h2>
       <p>
         Viernes quiere ejecutar <code className="tool-name">{confirmation.tool}</code>
@@ -33,6 +38,7 @@ export function ConfirmationCard({ confirmation, onAnswer }: Props) {
             Confirmar
           </button>
           <button
+            ref={reject}
             type="button"
             className="secondary"
             onClick={() => onAnswer(confirmation.confirmationId, false)}

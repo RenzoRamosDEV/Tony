@@ -3,16 +3,15 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { createApi } from "./api/client";
 import type { MicCaptureDeps } from "./audio/capture";
 import { PERMISSION_DENIED, useMicCapture, usePcmPlayer } from "./audio/hooks";
-import { ChatList } from "./components/ChatList";
-import { Composer } from "./components/Composer";
 import { ConfirmationCard } from "./components/ConfirmationCard";
 import { DebugPanel } from "./components/DebugPanel";
-import { PlusIcon, StopIcon } from "./components/icons";
-import { MicButton } from "./components/MicButton";
-import { ModeSelector } from "./components/ModeSelector";
+import { HudBar } from "./components/HudBar";
+import { PlusIcon } from "./components/icons";
 import { StatusBanner } from "./components/StatusBanner";
-import { StopAudioButton } from "./components/StopAudioButton";
-import { VoiceStatus } from "./components/VoiceStatus";
+import { Subtitles } from "./components/Subtitles";
+import { TranscriptDrawer } from "./components/TranscriptDrawer";
+import { deriveOrbState } from "./orb/orbState";
+import { OrbStage } from "./orb/OrbStage";
 import { initialState, reduce } from "./protocol/reducer";
 import { ChatSocket, defaultSocketUrl } from "./protocol/socket";
 import { AUDIO_START_PAYLOAD, type Envelope, type ReplyMode } from "./protocol/types";
@@ -218,32 +217,46 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
 
   const inputDisabled = !state.connected || !historyReady || state.turnInProgress || state.pendingText !== null;
 
+  const orbState = deriveOrbState({
+    phase: state.voice.phase,
+    mic: state.voice.mic,
+    playing: player.playing,
+    turnInProgress: state.turnInProgress,
+    activeRootId: activeRoot,
+  });
+
   return (
-    <div className="layout">
-      <main className="app">
-        <header className="toolbar">
-          <h1>Tony</h1>
-          <ModeSelector value={state.replyMode} onChanged={onModeChanged} fetchImpl={fetchImpl} />
-          <button type="button" className="icon" aria-label="Nueva conversación" onClick={newConversation}>
-            <PlusIcon />
-          </button>
+    <>
+      <OrbStage state={orbState} level={mic.level} getAmplitude={player.amplitude} />
+      <main className="hud">
+        <header className="hud-top">
+          <h1 className="brand">Tony</h1>
+          <div className="hud-actions">
+            <TranscriptDrawer messages={state.messages} waitText={state.waitText} />
+            <button type="button" className="icon" aria-label="Nueva conversación" onClick={newConversation}>
+              <PlusIcon />
+            </button>
+          </div>
         </header>
         <StatusBanner connected={state.connected} notice={state.notice} onDismiss={dismiss} />
-        <ChatList messages={state.messages} waitText={state.waitText} />
-        {state.confirmation ? <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} /> : null}
-        {activeRoot !== null ? (
-          <button type="button" className="secondary cancel" onClick={cancel}>
-            <StopIcon /> Cancelar tarea
-          </button>
-        ) : null}
-        <div className="voice-bar">
-          <MicButton voice={state.voice} onToggle={() => void toggleMic()} />
-          <VoiceStatus voice={speaking ? { ...state.voice, phase: "speaking" } : state.voice} level={mic.level} />
-          <StopAudioButton visible={speaking} onStop={stopAudio} />
-        </div>
-        <Composer disabled={inputDisabled} onSend={send} />
+        <Subtitles messages={state.messages} waitText={state.waitText} />
+        <HudBar
+          voice={state.voice}
+          level={mic.level}
+          speaking={speaking}
+          replyMode={state.replyMode}
+          onModeChanged={onModeChanged}
+          fetchImpl={fetchImpl}
+          inputDisabled={inputDisabled}
+          onSend={send}
+          onToggleMic={() => void toggleMic()}
+          onStopAudio={stopAudio}
+          canCancel={activeRoot !== null}
+          onCancel={cancel}
+        />
       </main>
+      {state.confirmation ? <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} /> : null}
       <DebugPanel state={state} storage={store} />
-    </div>
+    </>
   );
 }

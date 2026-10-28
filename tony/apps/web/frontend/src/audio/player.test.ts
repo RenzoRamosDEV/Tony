@@ -6,10 +6,12 @@ class FakeSource {
   started: number | null = null;
   stopped = false;
   connected = false;
+  target: unknown = null;
   onended: (() => void) | null = null;
   constructor(public buffer: { duration: number }) {}
-  connect(): void {
+  connect(target: unknown): void {
     this.connected = true;
+    this.target = target;
   }
   start(when: number): void {
     this.started = when;
@@ -23,7 +25,26 @@ class FakeSource {
   }
 }
 
+class FakeAnalyser {
+  fftSize = 2048;
+  smoothingTimeConstant = 0.8;
+  target: unknown = null;
+  signal = 0;
+  connect(target: unknown): void {
+    this.target = target;
+  }
+  getFloatTimeDomainData(out: Float32Array): void {
+    out.fill(this.signal);
+  }
+}
+
 class FakeContext {
+  analysers: FakeAnalyser[] = [];
+  createAnalyser() {
+    const analyser = new FakeAnalyser();
+    this.analysers.push(analyser);
+    return analyser as unknown as AnalyserNode;
+  }
   currentTime = 0;
   sampleRate = 24000;
   destination = {};
@@ -141,5 +162,77 @@ describe("PcmPlayer", () => {
 
     expect(ctx.buffers[0]![0]).toBeCloseTo(0.5);
     expect(ctx.buffers[0]!.length).toBe(24);
+  });
+
+  it("routes every source through one passive analyser into the destination", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    ctx.currentTime = 1;
+
+    player.enqueue(0, pcm(500));
+    player.enqueue(1, pcm(500));
+
+    expect(ctx.analysers).toHaveLength(1);
+    const analyser = ctx.analysers[0]!;
+    expect(analyser.target).toBe(ctx.destination);
+    expect(analyser.fftSize).toBe(512);
+    expect(analyser.smoothingTimeConstant).toBe(0);
+    expect(ctx.sources.map((s) => s.target)).toEqual([analyser, analyser]);
+    expect(ctx.sources.map((s) => s.started)).toEqual([1, 1.5]);
+  });
+
+  it("reports the playback amplitude normalised to the meter's full scale", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    player.enqueue(0, pcm(500));
+
+    ctx.analysers[0]!.signal = 0.1;
+    expect(player.amplitude()).toBeCloseTo(0.5, 6);
+    ctx.analysers[0]!.signal = 0.9;
+    expect(player.amplitude()).toBe(1);
+    ctx.analysers[0]!.signal = 0;
+    expect(player.amplitude()).toBe(0);
+  });
+
+  it("reports 0 before any audio context exists", () => {
+    expect(new PcmPlayer(() => new FakeContext() as unknown as AudioContext).amplitude()).toBe(0);
+  });
+
+  it("reports 0 once stopped and after the queue drains", () => {
+    const ctx = new FakeContext();
+    const player = new PcmPlayer(() => ctx as unknown as AudioContext);
+    player.enqueue(0, pcm(500));
+    ctx.analysers[0]!.signal = 0.1;
+
+    player.stop();
+    expect(player.amplitude()).toBe(0);
+
+    player.begin();
+    player.enqueue(0, pcm(100));
+    expect(player.amplitude()).toBeGreaterThan(0);
+    ctx.sources[1]!.finish();
+    expect(player.amplitude()).toBe(0);
+  });
+
+  it("creates its audio context once and resumes it only while suspended", () => {
+    const ctx = new FakeContext();
+    let created = 0;
+    let resumed = 0;
+    ctx.resume = async () => {
+      resumed += 1;
+      ctx.state = "running";
+    };
+    const player = new PcmPlayer(() => {
+      created += 1;
+      return ctx as unknown as AudioContext;
+    });
+
+    player.enqueue(0, pcm(100));
+    expect(resumed).toBe(0);
+    ctx.state = "suspended";
+    player.enqueue(1, pcm(100));
+
+    expect(created).toBe(1);
+    expect(resumed).toBe(1);
   });
 });

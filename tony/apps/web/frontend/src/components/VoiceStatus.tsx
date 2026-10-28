@@ -1,3 +1,4 @@
+import { normalizeLevel } from "../orb/amplitude";
 import type { VoicePhase, VoiceState } from "../protocol/types";
 
 export const PHASE_TEXT: Record<VoicePhase, string | null> = {
@@ -6,8 +7,6 @@ export const PHASE_TEXT: Record<VoicePhase, string | null> = {
   transcribing: "Transcribiendo…",
   speaking: "Hablando…",
 };
-/** RMS of 0.2 already fills the meter: speech levels are small numbers. */
-const FULL_SCALE_RMS = 0.2;
 
 interface Props {
   voice: VoiceState;
@@ -19,7 +18,7 @@ export function VoiceStatus({ voice, level }: Props) {
   if (text === null && voice.mic === "off") {
     return null;
   }
-  const percent = Math.round(Math.min(1, level / FULL_SCALE_RMS) * 100);
+  const percent = Math.round(normalizeLevel(level) * 100);
   return (
     <div className="voice-status">
       {text !== null ? (
