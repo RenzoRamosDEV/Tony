@@ -13,7 +13,7 @@ from tests.fakes.fake_runner import FakeAgentRunner
 from tony import __version__
 from tony.apps.cli import main
 from tony.apps.cli.confirm_gate import CliConfirmGate
-from tony.core.mcp import McpServerStatus
+from tony.core.mcp import ConfirmRequest, McpServerStatus
 from tony.core.runner import TaskResult
 
 runner = CliRunner()
@@ -265,3 +265,32 @@ def test_env_values_substituted_into_tool_config_are_redacted(
     assert "newsecret456" not in raw
     assert "oldsecret123" not in raw
     assert '"text": "uso *** y ***"' in raw
+
+
+class ConfirmingRunner(FakeAgentRunner):
+    """Asks the gate once, then behaves like FakeAgentRunner."""
+
+    def __init__(self, gate, result: TaskResult) -> None:
+        super().__init__(result)
+        self.gate = gate
+        self.answers: list[bool] = []
+
+    async def run(self, spec, request, tools, events):
+        request_ = ConfirmRequest.create("t", "fs.write_file", {"path": "a.md"})
+        self.answers.append(await self.gate.confirm(request_))
+        return await super().run(spec, request, tools, events)
+
+
+def test_confirmation_under_json_keeps_stdout_parseable(cli) -> None:
+    def runner_factory(settings, task_id, gate, call):
+        cli["runner"] = ConfirmingRunner(gate, OK_RESULT)
+        return cli["runner"]
+
+    main.runner_factory = runner_factory
+
+    result = runner.invoke(main.app, ["run", "viernes", "x", "--json"], input="s\n")
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["status"] == "ok"
+    assert "¿Confirmas? [s/N]" in result.stderr
+    assert cli["runner"].answers == [True]
