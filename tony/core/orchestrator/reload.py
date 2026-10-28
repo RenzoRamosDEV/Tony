@@ -18,6 +18,7 @@ CONFIG_RELOAD_FAILED = "config.reload_failed"
 RESTART_NOTICE = "El agente '{agent}' ha cambiado, pero el front requiere reinicio de tony chat."
 RELOADED_NOTICE = "Configuración de '{agent}' recargada; servidores MCP: {servers}."
 FAILED_NOTICE = "No se pudo recargar '{agent}'; se conserva la configuración anterior: {error}"
+CANCELLED_ERROR = "recarga cancelada antes de arrancar los servidores nuevos"
 
 Notify = Callable[[str], Awaitable[None]]
 logger = logging.getLogger(__name__)
@@ -62,9 +63,11 @@ class AgentReloader:
     async def _apply(self, agent: str) -> None:
         spec = load_agent(self._agents_dir / agent, self._settings, self._env)
         try:
-            self._factory.update_spec(spec)
-            await self._factory.pool.swap(spec.tools)
-        except Exception as exc:  # noqa: BLE001 - the previous generation stays in place
+            await self._factory.reload_spec(spec)
+        except asyncio.CancelledError:
+            await self._failed(agent, CANCELLED_ERROR)
+            raise
+        except Exception as exc:  # noqa: BLE001 - the previous spec and generation stay
             await self._failed(agent, str(exc) or exc.__class__.__name__)
             return
         servers = list(spec.tools.mcpServers)

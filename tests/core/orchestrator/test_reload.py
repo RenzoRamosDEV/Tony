@@ -226,3 +226,99 @@ async def test_generation_swap_failure_is_reported_and_keeps_the_old_one(h: Harn
     assert h.events.payloads(CONFIG_RELOAD_FAILED) == [{"agent": "viernes", "error": "npx missing"}]
     assert h.factory.pool.current is current
     await h.factory.close()
+
+
+# --- spec and generation are published together (review of change 03) --------------------------
+
+
+class GatedSecondManager:
+    """Managers after the first wait on `gate` before completing their start."""
+
+    def __init__(self, h: Harness) -> None:
+        self.h = h
+        self.gate = asyncio.Event()
+
+    def __call__(self, settings) -> FakeManager:
+        gate = self.gate if self.h.managers else None
+
+        class Manager(FakeManager):
+            async def start(self, tool_config, server_filter=None) -> None:
+                if gate is not None:
+                    await gate.wait()
+                await super().start(tool_config, server_filter)
+
+        manager = Manager()
+        self.h.managers.append(manager)
+        return manager
+
+
+def add_skill_and_server(h: Harness) -> None:
+    skill = h.agents / "viernes" / "skills" / "nueva" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: nueva\ndescription: d\n---\ncuerpo\n", encoding="utf-8")
+    h.write_tool_json({"mcpServers": {"fake": FAKE, "fake2": FAKE}})
+
+
+async def test_new_tasks_keep_the_old_spec_and_catalog_until_the_new_generation_starts(
+    h: Harness,
+) -> None:
+    gated = GatedSecondManager(h)
+    h.factory.pool._manager_factory = gated  # noqa: SLF001
+    await h.build("t1")
+    add_skill_and_server(h)
+    reload = asyncio.ensure_future(h.reloader.reload("viernes"))
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    during = await h.build("t2")
+    assert during.spec.skills == [] and set(during.spec.tools.mcpServers) == {"fake"}
+    assert during.catalog is h.managers[0].catalog
+    assert h.events.payloads(CONFIG_RELOADED) == []
+
+    gated.gate.set()
+    await asyncio.wait_for(reload, 1)
+    after = await h.build("t3")
+    assert [s.name for s in after.spec.skills] == ["nueva"]
+    assert after.catalog is h.managers[1].catalog
+    await h.factory.close()
+
+
+async def test_swap_failure_keeps_the_old_spec_for_new_tasks(h: Harness) -> None:
+    await h.build("t1")
+
+    class Broken(FakeManager):
+        async def start(self, tool_config, server_filter=None) -> None:
+            raise RuntimeError("npx missing")
+
+    h.factory.pool._manager_factory = lambda settings: Broken()  # noqa: SLF001
+    add_skill_and_server(h)
+
+    await h.reloader.reload("viernes")
+    worker = await h.build("t2")
+
+    assert worker.spec.skills == [] and set(worker.spec.tools.mcpServers) == {"fake"}
+    assert worker.catalog is h.managers[0].catalog
+    await h.factory.close()
+
+
+async def test_cancelled_reload_keeps_the_old_spec_and_reports_it(h: Harness) -> None:
+    gated = GatedSecondManager(h)
+    h.factory.pool._manager_factory = gated  # noqa: SLF001
+    await h.build("t1")
+    add_skill_and_server(h)
+    reload = asyncio.ensure_future(h.reloader.reload("viernes"))
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    reload.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await reload
+    gated.gate.set()
+
+    failed = h.events.payloads(CONFIG_RELOAD_FAILED)
+    assert len(failed) == 1 and failed[0]["agent"] == "viernes"
+    assert "cancel" in failed[0]["error"]
+    worker = await h.build("t2")
+    assert worker.spec.skills == [] and worker.catalog is h.managers[0].catalog
+    await asyncio.wait_for(h.factory.close(), 1)
+    assert all(m.stopped for m in h.managers)

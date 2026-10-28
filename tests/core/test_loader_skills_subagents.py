@@ -148,3 +148,17 @@ def test_subagents_folder_with_a_loose_file_is_ignored(viernes: Path) -> None:
     (viernes / "subagents" / "notas.txt").write_text("x", encoding="utf-8")
 
     assert load_agent(viernes, SETTINGS, {}).subagents == {}
+
+
+def test_all_secrets_collects_the_subagent_secrets_without_duplicates(viernes: Path) -> None:
+    write_tool_json(viernes, {"mcpServers": {"a": {"url": "https://a", "headers": {"X": "${T}"}}}})
+    child = write_agent(viernes / "subagents" / "investigador", "investigador")
+    write_tool_json(
+        child,
+        {"mcpServers": {"b": {"url": "https://b", "headers": {"X": "${T}", "Y": "${CHILD}"}}}},
+    )
+
+    spec = load_agent(viernes, SETTINGS, {"T": "token-largo-1", "CHILD": "clave-del-hijo"})
+
+    assert spec.secrets == ["token-largo-1"]
+    assert spec.all_secrets() == ["token-largo-1", "clave-del-hijo"]

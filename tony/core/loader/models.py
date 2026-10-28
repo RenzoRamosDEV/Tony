@@ -107,6 +107,13 @@ class AgentSpec(StrictModel):
             raise ValueError(f"debe estar en el rango {low}..{high}")
         return value
 
+    def all_secrets(self) -> list[str]:
+        """Own secrets plus those of every subagent, so redaction covers the whole tree."""
+        secrets = list(self.secrets)
+        for child in self.subagents.values():
+            secrets.extend(s for s in child.all_secrets() if s not in secrets)
+        return secrets
+
     @model_validator(mode="after")
     def name_is_not_blank(self) -> AgentSpec:
         if not self.name.strip():
