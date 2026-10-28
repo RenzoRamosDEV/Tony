@@ -3,7 +3,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Tipos de mensaje del cliente
-El servidor SHALL aceptar exactamente los tipos de texto `hello`, `user.text`, `confirm`, `cancel`, `set_mode`, `audio.start` y `audio.end`, y los frames binarios WebSocket como fragmentos de audio de la intervención abierta; cualquier otro tipo SHALL responder `error {code: "unknown_type"}`. Cualquier mensaje distinto de `hello` antes de un `hello` aceptado SHALL responder `error {code: "hello_required"}`; un frame binario antes del `hello` SHALL descartarse con `error {code: "hello_required"}`.
+El servidor SHALL aceptar exactamente los tipos de texto `hello`, `user.text`, `confirm`, `cancel`, `set_mode`, `audio.start` y `audio.end`, y los frames binarios como fragmentos de audio de la intervención abierta; cualquier otro tipo SHALL responder `error {code: "unknown_type"}`. Cualquier mensaje distinto de `hello` antes de un `hello` aceptado SHALL responder `error {code: "hello_required"}`; un frame binario antes del `hello` SHALL descartarse con `error {code: "hello_required"}`.
 
 #### Scenario: Apertura de audio aceptada
 - **GIVEN** un `hello` aceptado y la voz disponible
@@ -51,3 +51,16 @@ Además de los tipos existentes, el servidor SHALL emitir `stt.final {text, mess
 #### Scenario: Cancelar un mensaje sin síntesis
 - **WHEN** el cliente envía `cancel {message_id: "nope"}`
 - **THEN** recibe `error {code: "unknown_task"}`
+
+### Requirement: Audio de entrada ligado a la conexión
+La sesión de audio de entrada SHALL descartarse en cada `hello` y al cerrarse el socket. El cliente SHALL detener su captura al desconectarse, al recibir un `hello.ok` o un `error` `voice_unavailable`/`unsupported_audio`, y enviar un nuevo `audio.start` para volver a capturar. `error {code: "audio_backpressure"}` SHALL indicar audio descartado por exceso de audio pendiente.
+
+#### Scenario: Reconexión con el micrófono activo
+- **GIVEN** el micrófono activo y una intervención abierta
+- **WHEN** el socket se cierra y el cliente reconecta
+- **THEN** la captura está detenida, el micrófono aparece desactivado y no se envía ningún frame sin un nuevo `audio.start`
+
+#### Scenario: Contrapresión
+- **GIVEN** audio pendiente por encima del presupuesto
+- **WHEN** llega otro frame binario
+- **THEN** el cliente recibe `error {code: "audio_backpressure"}` y la conexión sigue abierta

@@ -158,6 +158,19 @@ tests/fixtures/audio/       generate.py + WAV sintéticos cortos (≤ 3 s)
 - D8: `bench` mide `load` con una sola muestra (la primera carga del proceso) y repite 5 veces `stt_3s` y `tts_12w`; la muestra de 3 s se genera en memoria (tono modulado, sin fixtures de `tests/`). `tony doctor` añade `Environment.model_cache` (`HF_HUB_CACHE` o `~/.cache/huggingface/hub`) y reporta `voice-models` siempre (✓ en caché, informativo si falta alguno).
 - D10: `tests/core/voice/test_engines_real.py` hace los `importorskip` dentro de una fixture `autouse`, no a nivel de módulo: con `-m 'not voice'` la recolección ya no importa `torch`.
 
+## Revisión post-implementación
+
+Una revisión externa del cambio encontró 15 defectos; todos se corrigieron con TDD (pruebas `review05`/`finding N`):
+
+- Voz y secretos: `SpeechStreamer` redacta cada frase con los secretos del entorno antes del `SpeechPipeline` (parámetro `sanitize`) y la marca `***` se pronuncia «dato oculto».
+- Entrada: una sola `AudioSession` por conversación, reutilizada por cada `audio.start`; un consumidor serie lleva `feed`/`flush`/`reset` al ejecutor (el VAD ya no corre en el bucle); presupuesto de 60 s de muestras pendientes y 2 intervenciones en STT; el exceso se descarta (lo más reciente) con `audio_backpressure`. Las transcripciones se atan a su sesión: tras un `hello`, cierre o cambio de conversación se ignoran. Cada `audio.start` reinicia el VAD; el `discard()` no lo hace porque el siguiente `audio.start` lo reinicia en orden con las inferencias.
+- Ejecutor: `VoiceExecutor.run_serial(lane, …)` mantiene ocupado el carril (`tts`, `stt`, `vad`) hasta que el hilo vuelve de verdad; una síntesis cancelada ya no se solapa con la siguiente y ocupa como mucho un hilo, así STT conserva el otro (se mantienen 2 hilos). Interrumpir una inferencia nativa a mitad exigiría un proceso terminable: fuera de alcance.
+- Hub: admisión de turnos bajo un lock (`stt.final` y `user.text` ya no arrancan dos); `OutboundQueue.purge()` despierta productores y `drained()`; el presupuesto de cierre cubre la cancelación de la voz.
+- Utterances: el mínimo de 300 ms cuenta ventanas de habla y el máximo de 30 s la duración total.
+- Bench: solo un fragmento real resuelve la latencia; fallos, respuestas vacías y timeouts (60 s) se excluyen de los percentiles y se cuentan.
+- UI: `ChatSocket` empareja `tts.chunk.meta` con el binario siguiente de forma síncrona (el reductor ya no guarda `pendingMeta`); `MicCapture.start` es idempotente, libera recursos parciales y `stop` abandona arranques pendientes; la captura se detiene al desconectar, en cada `hello.ok` y ante `voice_unavailable`/`unsupported_audio` (hay que reactivar el micrófono); `speakingMessageId` vive hasta que el reproductor drena, `user.accepted` detiene el audio sobrante y «Detener audio» tras `tts.end` solo para localmente (sin `cancel` obsoleto); el remuestreo del worklet conserva fase y residuo entre bloques.
+- Hallado durante el análisis de mutación: un frame cuyo VAD fallaba no liberaba su presupuesto; ahora se libera en un `finally`.
+
 ## Open Questions
 
 - Resueltas durante la implementación: el `OnnxWrapper` de `silero-vad` 6.2 exige `torch.Tensor` (`SileroVad` envuelve con `torch.from_numpy`); `KPipeline` 0.9.4 cede `torch.FloatTensor` (el adaptador acepta tensor o `ndarray`); la primera carga de `WhisperModel("small")` int8 tarda ~1 s con el modelo en caché (Kokoro ~3,7 s). Los números reales están en el README.

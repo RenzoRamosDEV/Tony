@@ -42,7 +42,7 @@ Tras `audio.start`, cada frame binario WebSocket SHALL contener PCM Float32 a 16
 - **THEN** el cliente recibe `error {code: "audio_not_started"}`
 
 ### Requirement: Segmentación en el servidor y transcripción
-El servidor SHALL alimentar el detector de voz con cada frame y, por cada intervención completa (silencio ≥ 700 ms, corte a 30 s o `audio.end` con habla pendiente ≥ 300 ms), transcribirla y emitir `stt.final {text, message_id}`. `stt.partial` SHALL NOT emitirse en la versión 1 del protocolo.
+El servidor SHALL alimentar el detector de voz con cada frame y, por cada intervención completa (silencio ≥ 700 ms, corte a 30 s de duración acumulada o `audio.end` con ≥ 300 ms de habla pendiente), transcribirla y emitir `stt.final {text, message_id}`. `stt.partial` SHALL NOT emitirse en la versión 1 del protocolo.
 
 #### Scenario: Intervención por silencio
 - **GIVEN** una intervención abierta
@@ -99,3 +99,37 @@ El audio del usuario SHALL vivir solo en memoria: nunca SHALL escribirse en disc
 #### Scenario: Evento de log sin contenido
 - **WHEN** se emite `stt.final` con 13 caracteres y 1 500 ms de audio
 - **THEN** el JSONL de la sesión contiene `stt.final {chars: 13, duration_ms: 1500}` sin campo `text`
+
+### Requirement: Presupuesto de audio pendiente
+Cada conversación SHALL tener una única sesión de audio, reutilizada por cada `audio.start`, con un presupuesto acotado: como máximo 60 s de muestras pendientes (frames sin clasificar más intervenciones sin transcribir) y 2 intervenciones esperando o en transcripción. Lo que exceda SHALL descartarse (el frame o la intervención más reciente) con `error {code: "audio_backpressure"}`, sin cerrar la conexión.
+
+#### Scenario: Tercera intervención pendiente
+- **GIVEN** un transcriptor lento con dos intervenciones pendientes
+- **WHEN** se completa una tercera intervención
+- **THEN** el cliente recibe `error {code: "audio_backpressure"}`, la tercera se descarta y las dos primeras se transcriben
+
+#### Scenario: Frames por encima del presupuesto
+- **GIVEN** 60 s de muestras pendientes de procesar
+- **WHEN** llega otro frame binario
+- **THEN** el cliente recibe `error {code: "audio_backpressure"}`, el frame se descarta y la conexión sigue abierta
+
+#### Scenario: Reapertura sin segundo consumidor
+- **GIVEN** una intervención cerrada con `audio.end`
+- **WHEN** el cliente envía otro `audio.start`
+- **THEN** se reutiliza la misma sesión de audio de la conversación
+
+### Requirement: Detector reiniciado en cada captura
+Cada `audio.start` SHALL reiniciar el estado del detector de voz compartido antes de clasificar el primer frame de la nueva captura, en orden con las clasificaciones pendientes, de modo que el estado de una captura descartada nunca afecte a la siguiente.
+
+#### Scenario: Captura descartada y nueva captura
+- **GIVEN** una captura con habla interrumpida por el cierre del socket
+- **WHEN** se abre una nueva captura y llega su primer frame
+- **THEN** el detector recibe `reset` antes de clasificar ese frame
+
+### Requirement: Transcripción ligada a su conversación
+Una transcripción SHALL publicarse solo si su sesión de audio sigue siendo la de la conversación activa; al cerrarse el socket o cambiar de conversación, la sesión SHALL descartarse y sus transcripciones tardías SHALL ignorarse.
+
+#### Scenario: Transcripción tardía tras cambiar de conversación
+- **GIVEN** una intervención en transcripción lenta
+- **WHEN** el cliente abre otra conversación y la transcripción termina
+- **THEN** no se emite `stt.final` ni se inicia ningún turno en la nueva conversación

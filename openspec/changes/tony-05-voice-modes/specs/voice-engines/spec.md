@@ -7,7 +7,7 @@ Define los puertos de voz de Tony (detección de actividad, transcripción y sí
 ## ADDED Requirements
 
 ### Requirement: Puerto de detección de actividad de voz
-El detector de voz SHALL recibir audio PCM Float32 a 16 kHz mono en fragmentos y devolver cero o más intervenciones completas por llamada, manteniendo estado por sesión. Una intervención SHALL terminar tras ≥ 700 ms de silencio después de habla; los tramos con < 300 ms de habla SHALL descartarse; una intervención SHALL cortarse forzosamente a los 30 s de habla continua.
+El detector de voz SHALL recibir audio PCM Float32 a 16 kHz mono en fragmentos y devolver cero o más intervenciones completas por llamada, manteniendo estado por sesión. Una intervención SHALL terminar tras ≥ 700 ms de silencio después de habla; los tramos con < 300 ms de habla (sin contar silencios interiores) SHALL descartarse; una intervención SHALL cortarse forzosamente a los 30 s de duración acumulada, alterne o no habla y silencio.
 
 #### Scenario: Silencio cierra la intervención
 - **GIVEN** un detector nuevo que recibe 1,5 s de habla seguidos de 700 ms de silencio
@@ -23,6 +23,11 @@ El detector de voz SHALL recibir audio PCM Float32 a 16 kHz mono en fragmentos y
 - **GIVEN** 31 s de habla continua sin silencio
 - **WHEN** se alimenta el fragmento que completa los 30 s
 - **THEN** devuelve una intervención de 30 s y el segundo restante inicia una intervención nueva
+
+#### Scenario: Habla breve separada por silencios
+- **GIVEN** dos ventanas de habla separadas por 20 ventanas de silencio (64 ms de habla)
+- **WHEN** se cierra la intervención
+- **THEN** se descarta aunque dure más de 300 ms
 
 #### Scenario: Silencio insuficiente no cierra
 - **GIVEN** 1 s de habla, 500 ms de silencio y 1 s de habla

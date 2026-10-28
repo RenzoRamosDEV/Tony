@@ -112,3 +112,19 @@ Al terminar o cancelar la síntesis de una respuesta, el JSONL de la sesión SHA
 #### Scenario: Evento tts
 - **WHEN** se sintetizan 2 frases que suman 3 200 ms de audio
 - **THEN** el JSONL contiene `tts {sentences: 2, duration_ms: 3200, cancelled: false}` sin campo de texto ni de audio
+
+### Requirement: Secretos nunca se pronuncian
+El texto hablado, tanto de la respuesta completa como de sus fragmentos, SHALL redactarse con los secretos del entorno antes de llegar al sintetizador, frase a frase para cubrir secretos partidos entre fragmentos, y la marca de redacción SHALL pronunciarse como «dato oculto».
+
+#### Scenario: Secreto en la respuesta
+- **GIVEN** un secreto conocido presente en `speech_text` o partido entre dos fragmentos hablados
+- **WHEN** se sintetiza la respuesta
+- **THEN** el sintetizador nunca recibe el secreto ni `***`, sino «dato oculto»
+
+### Requirement: Un trabajo de síntesis a la vez
+El motor de síntesis SHALL ejecutar una frase a la vez: tras cancelar una síntesis bloqueada en el motor, la siguiente SHALL esperar a que la anterior termine realmente, y la cancelación SHALL comprobarse antes de pedir cada fragmento. La transcripción SHALL poder ejecutarse mientras tanto.
+
+#### Scenario: Síntesis cancelada aún en curso
+- **GIVEN** una síntesis cancelada bloqueada dentro del motor
+- **WHEN** empieza la síntesis de otra respuesta
+- **THEN** esta no entra en el motor hasta que la anterior devuelve el control y una transcripción se completa entretanto
