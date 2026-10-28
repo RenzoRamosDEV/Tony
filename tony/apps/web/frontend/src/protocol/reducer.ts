@@ -4,9 +4,12 @@ import type {
   HistoryMessage,
   PendingConfirmationPayload,
   ReplyMode,
+  SttFinalPayload,
   TaskStatus,
   ToolResultPayload,
+  TtsChunkMetaPayload,
   UsagePayload,
+  VoiceState,
 } from "./types";
 
 export interface Message {
@@ -17,6 +20,8 @@ export interface Message {
   seq: number;
   effectiveMode?: string;
   streaming?: boolean;
+  /** "voice" when the text came from a transcription (stt.final). */
+  source?: "voice";
 }
 
 export interface ToolRow {
@@ -89,6 +94,7 @@ export interface ChatState {
   reloads: ReloadEntry[];
   notice: string | null;
   resyncRequested: boolean;
+  voice: VoiceState;
 }
 
 export type Action =
@@ -98,7 +104,13 @@ export type Action =
   | { type: "tick"; now: number }
   | { type: "connection"; connected: boolean }
   | { type: "dismiss_notice" }
-  | { type: "set_reply_mode"; mode: ReplyMode };
+  | { type: "set_reply_mode"; mode: ReplyMode }
+  | { type: "voice_health"; available: boolean; reason: string | null }
+  | { type: "mic"; on: boolean }
+  | { type: "silence_after_speech" }
+  | { type: "binary_consumed" }
+  | { type: "stop_audio" }
+  | { type: "notice"; text: string };
 
 export const EXPIRED_NOTICE = "Confirmación caducada";
 
@@ -131,6 +143,14 @@ export const initialState: ChatState = {
   reloads: [],
   notice: null,
   resyncRequested: false,
+  voice: {
+    available: null,
+    reason: null,
+    mic: "off",
+    phase: "idle",
+    speakingMessageId: null,
+    pendingMeta: null,
+  },
 };
 
 export function reduce(state: ChatState, action: Action): ChatState {
@@ -150,9 +170,30 @@ export function reduce(state: ChatState, action: Action): ChatState {
       return { ...state, connected: action.connected };
     case "dismiss_notice":
       return { ...state, notice: null };
+    case "notice":
+      return { ...state, notice: action.text };
     case "set_reply_mode":
       return { ...state, replyMode: action.mode };
+    case "voice_health":
+      return withVoice(state, { available: action.available, reason: action.reason });
+    case "mic":
+      return withVoice(state, { mic: action.on ? "on" : "off", phase: action.on ? "listening" : "idle" });
+    case "silence_after_speech":
+      return state.voice.phase === "listening" ? withVoice(state, { phase: "transcribing" }) : state;
+    case "binary_consumed":
+      return withVoice(state, { pendingMeta: null });
+    case "stop_audio":
+      return withVoice(state, { phase: restingPhase(state.voice), speakingMessageId: null, pendingMeta: null });
   }
+}
+
+function withVoice(state: ChatState, patch: Partial<VoiceState>): ChatState {
+  return { ...state, voice: { ...state.voice, ...patch } };
+}
+
+/** The phase to return to when nothing is being spoken or transcribed. */
+function restingPhase(voice: VoiceState): VoiceState["phase"] {
+  return voice.mic === "on" ? "listening" : "idle";
 }
 
 /** Loaded history wins for the ids it contains; messages that arrived after the snapshot survive. */
@@ -180,12 +221,7 @@ function onEnvelope(state: ChatState, envelope: Envelope, now: number): ChatStat
   const payload = envelope.payload;
   switch (envelope.type) {
     case "error":
-      return {
-        ...next,
-        notice: String(payload.detail ?? payload.code ?? "error"),
-        pendingText: null,
-        pendingClientId: null,
-      };
+      return onError(next, envelope);
     case "user.accepted":
       return onUserAccepted(next, envelope);
     case "assistant.delta":
@@ -200,6 +236,19 @@ function onEnvelope(state: ChatState, envelope: Envelope, now: number): ChatStat
       return addReload(next, String(payload.agent), true, (payload.servers as string[]).join(", "));
     case "config.reload_failed":
       return addReload(next, String(payload.agent), false, String(payload.error));
+    case "stt.final":
+      return onSttFinal(next, envelope);
+    case "tts.start":
+      return withVoice(next, { phase: "speaking", speakingMessageId: String(envelope.message_id), pendingMeta: null });
+    case "tts.chunk.meta": {
+      const meta = payload as unknown as TtsChunkMetaPayload;
+      return withVoice(next, {
+        pendingMeta: { messageId: String(envelope.message_id), seq: meta.seq, sentenceIndex: meta.sentence_index },
+      });
+    }
+    case "tts.end":
+    case "tts.cancelled":
+      return withVoice(next, { phase: restingPhase(next.voice), speakingMessageId: null, pendingMeta: null });
     default:
       return envelope.task_id ? onTaskEvent(next, envelope, envelope.task_id, now) : next;
   }
@@ -240,7 +289,7 @@ function isAnotherConversation(state: ChatState, hello: HelloOkPayload): boolean
 }
 
 function resetForConversation(state: ChatState): ChatState {
-  return { ...initialState, connected: state.connected, replyMode: state.replyMode, reloads: state.reloads };
+  return { ...initialState, connected: state.connected, replyMode: state.replyMode, reloads: state.reloads, voice: state.voice };
 }
 
 function toConfirmation(
@@ -257,7 +306,37 @@ function toConfirmation(
   };
 }
 
+function onError(state: ChatState, envelope: Envelope): ChatState {
+  const payload = envelope.payload;
+  const base = {
+    ...state,
+    notice: String(payload.detail ?? payload.code ?? "error"),
+    pendingText: null,
+    pendingClientId: null,
+  };
+  if (payload.code === "voice_unavailable") {
+    return withVoice(base, { available: false, reason: base.notice, mic: "off", phase: "idle" });
+  }
+  if (state.voice.phase === "transcribing") {
+    return withVoice(base, { phase: "listening" });
+  }
+  return base;
+}
+
+function onSttFinal(state: ChatState, envelope: Envelope): ChatState {
+  const final = envelope.payload as unknown as SttFinalPayload;
+  const message: Message = { id: final.message_id, role: "user", content: final.text, seq: envelope.seq, source: "voice" };
+  const phase = state.voice.phase === "transcribing" ? "listening" : state.voice.phase;
+  return withVoice({ ...state, messages: [...state.messages, message] }, { phase });
+}
+
 function onUserAccepted(state: ChatState, envelope: Envelope): ChatState {
+  const id = String(envelope.payload.message_id ?? envelope.message_id);
+  if (state.messages.some((m) => m.id === id)) {
+    const mode = String(envelope.payload.effective_mode);
+    const messages = state.messages.map((m) => (m.id === id ? { ...m, effectiveMode: mode } : m));
+    return { ...state, messages, turnInProgress: true };
+  }
   const clientId = envelope.payload.client_id;
   if (clientId != null && clientId !== state.pendingClientId) {
     return { ...state, turnInProgress: true };

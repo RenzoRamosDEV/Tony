@@ -9,7 +9,7 @@ from typing import Annotated
 import typer
 
 from tony import __version__
-from tony.apps.cli import agents_cli, doctor_cli, mcp_cli, replay_cli
+from tony.apps.cli import agents_cli, doctor_cli, mcp_cli, replay_cli, voice_cli
 from tony.apps.cli import chat as chat_app
 from tony.apps.cli import run_task as orchestration
 from tony.apps.cli.chat import ChatError, ChatOptions
@@ -34,6 +34,7 @@ app.add_typer(doctor_cli.config_app, name="config", help="Valida la configuraci√
 app.command("replay", help="Muestra los eventos de un registro JSONL o lo convierte en eval.")(
     replay_cli.replay
 )
+app.add_typer(voice_cli.app, name="voice", help="Calienta y mide los modelos de voz locales.")
 
 # Factories are module attributes so tests can inject doubles.
 runner_factory = orchestration.default_runner_factory

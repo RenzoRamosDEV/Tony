@@ -120,3 +120,18 @@ def test_front_prompt_includes_the_skills_index_without_bodies() -> None:
 
 def test_front_prompt_without_skills_has_no_index() -> None:
     assert "Skills disponibles" not in build_front_system_prompt(SPEC, ["delegate"])
+
+
+def test_preamble_states_the_input_modality() -> None:
+    spoken = build_turn_preamble(
+        datetime.now(UTC), EffectiveMode("voice", "yaml"), SPEC.style, "", input_modality="audio"
+    )
+    typed = build_turn_preamble(
+        datetime.now(UTC), EffectiveMode("text", "yaml"), SPEC.style, "", input_modality="text"
+    )
+    default = build_turn_preamble(datetime.now(UTC), EffectiveMode("text", "yaml"), SPEC.style, "")
+
+    assert "Modalidad de entrada: voice\n" in spoken
+    assert "Modalidad de entrada: text\n" in typed
+    assert "Modalidad de entrada: text\n" in default
+    assert "Modalidad de entrada: audio" not in spoken

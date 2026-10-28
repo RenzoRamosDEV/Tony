@@ -42,7 +42,7 @@ El transcriptor SHALL recibir una intervención y devolver `{text, language, dur
 - **THEN** devuelve `text: ""` y `duration_ms` igual a la duración del audio
 
 ### Requirement: Puerto de síntesis
-El sintetizador SHALL recibir un texto y una voz, y devolver un flujo asíncrono de fragmentos de audio PCM Int16 a 24 kHz mono. La voz SHALL tomarse del alias de configuración `voice.tts` con el formato `motor/voz` (por defecto `kokoro/ef_dora`); un alias cuyo motor o voz no existan SHALL fallar al cargar el motor con un mensaje en español que nombre el alias.
+El sintetizador SHALL recibir un texto y una voz, y devolver un flujo de fragmentos de audio PCM Int16 a 24 kHz mono que el pipeline consume de forma asíncrona (frase a frase en el ejecutor de voz). La voz SHALL tomarse del alias de configuración `voice.tts` con el formato `motor/voz` (por defecto `kokoro/ef_dora`); un alias cuyo motor o voz no existan SHALL fallar al cargar el motor con un mensaje en español que nombre el alias.
 
 #### Scenario: Flujo de fragmentos
 - **WHEN** se sintetiza `Buenos días, señor.` con `kokoro/ef_dora`

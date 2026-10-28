@@ -19,6 +19,14 @@ class AssistantDelta:
 
 
 @dataclass(frozen=True)
+class AssistantSpeechDelta:
+    """A fragment of the spoken text of a reply, when the front streams it (voice/both)."""
+
+    message_id: str
+    text: str
+
+
+@dataclass(frozen=True)
 class AssistantReply:
     display_text: str
     speech_text: str | None
@@ -68,6 +76,7 @@ class TaskEvent:
 ChannelMessage = (
     UserAccepted
     | AssistantDelta
+    | AssistantSpeechDelta
     | AssistantReply
     | AssistantWait
     | TaskProgress

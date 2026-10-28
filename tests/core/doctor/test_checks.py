@@ -78,6 +78,7 @@ def environment(
     find_spec: Callable[[str], Any] = lambda name: None,
     probe: Probe | None = None,
     connector: Connector | None = None,
+    model_cache: Path = Path("/nonexistent/huggingface/hub"),
 ) -> Environment:
     return Environment(
         which=which,
@@ -85,6 +86,7 @@ def environment(
         find_spec=find_spec,
         probe_model=probe or Probe(),
         connect_mcp=connector or Connector(),
+        model_cache=model_cache,
     )
 
 
@@ -229,10 +231,46 @@ async def test_voice_extras_and_espeak_are_informative(tmp_repo: Path) -> None:
     )
 
     assert missing["voice"].ok is None and "voice" in missing["voice"].detail
+    assert "uv sync --extra voice" in missing["voice"].detail
     assert missing["espeak-ng"].ok is None and missing["espeak-ng"].failed is False
+    assert "rpm-ostree install espeak-ng" in missing["espeak-ng"].detail
+    assert "brew install espeak-ng" in missing["espeak-ng"].detail
     assert present["voice"].ok is None and "instalad" in present["voice"].detail
     assert present["espeak-ng"].ok is True
-    assert exit_code(missing.values()) == 0
+
+
+async def test_voice_aliases_are_checked_and_an_invalid_one_fails(tmp_repo: Path) -> None:
+    valid = await check(tmp_repo)
+    p = healthy_repo(tmp_repo)
+    p.config_path.write_text("worker: viernes\nvoice:\n  tts: kokoro/no_existe\n", encoding="utf-8")
+    invalid = await check(tmp_repo, paths=p)
+
+    assert valid["voice.stt"] == CheckResult("voice.stt", True, "faster-whisper/small")
+    assert valid["voice.tts"] == CheckResult("voice.tts", True, "kokoro/ef_dora")
+    assert invalid["voice.tts"].failed and "kokoro/no_existe" in invalid["voice.tts"].detail
+    assert "ef_dora, em_alex, em_santa" in invalid["voice.tts"].detail
+    assert invalid["voice.tts"].hint.startswith("corrige voice.tts")
+    assert failed(invalid) == ["voice.tts"]
+
+
+async def test_voice_models_cache_is_informative(tmp_repo: Path) -> None:
+    cache = tmp_repo / "hub"
+    empty = await check(tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache))
+    (cache / "models--Systran--faster-whisper-small").mkdir(parents=True)
+    (cache / "models--hexgrad--Kokoro-82M").mkdir()
+    cached = await check(tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache))
+    (cache / "models--Systran--faster-whisper-small").rmdir()
+    partial = await check(tmp_repo, environment(find_spec=lambda n: object(), model_cache=cache))
+
+    assert empty["voice-models"].ok is None and "tony voice warmup" in empty["voice-models"].detail
+    assert cached["voice-models"] == CheckResult(
+        "voice-models", True, "faster-whisper-small y Kokoro-82M en caché"
+    )
+    assert (
+        partial["voice-models"].ok is None
+        and "faster-whisper-small" in partial["voice-models"].detail
+    )
+    assert exit_code(empty.values()) == 0
 
 
 async def test_mcp_connection_results_and_patterns(tmp_repo: Path) -> None:
@@ -309,6 +347,9 @@ HEALTHY_ORDER = [
     "node/npx",
     "voice",
     "espeak-ng",
+    "voice.stt",
+    "voice.tts",
+    "voice-models",
     "mcp viernes/fake",
 ]
 
@@ -327,9 +368,14 @@ async def test_healthy_results_are_exact_and_ordered(tmp_repo: Path) -> None:
     assert results["agente viernes"] == CheckResult("agente viernes", True, "worker, claude-sonnet")
     assert results["node/npx"] == CheckResult("node/npx", None, "ningún MCP usa node/npx; omitido")
     assert results["voice"] == CheckResult(
-        "voice", None, "extras de voz no instalados (tony[voice])"
+        "voice",
+        None,
+        "extra tony[voice] no instalado: instala el extra de voz con `uv sync --extra voice`",
     )
     assert results["espeak-ng"] == CheckResult("espeak-ng", True, "/usr/bin/espeak-ng")
+    assert results["voice-models"] == CheckResult(
+        "voice-models", None, "modelos de voz no descargados: ejecuta tony voice warmup"
+    )
     assert results["mcp viernes/fake"] == CheckResult("mcp viernes/fake", True, "4 tools")
 
 
@@ -377,9 +423,11 @@ async def test_failure_results_are_exact(tmp_repo: Path) -> None:
         "faltan node, npx en el PATH; los usan viernes/fs",
         "instala Node.js (incluye npx), por ejemplo con nvm",
     )
-    assert results["voice"] == CheckResult("voice", None, "extras de voz instalados")
+    assert results["voice"] == CheckResult("voice", None, "extra tony[voice] instalado")
     assert results["espeak-ng"] == CheckResult(
-        "espeak-ng", None, "no encontrado (solo necesario para la voz)"
+        "espeak-ng",
+        None,
+        "no encontrado (lo necesita la voz): rpm-ostree install espeak-ng o brew install espeak-ng",
     )
     assert results["mcp viernes/broken"] == CheckResult(
         "mcp viernes/broken",

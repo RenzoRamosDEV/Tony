@@ -101,6 +101,10 @@ class ChatRuntime:
     def session_log(self) -> JsonlEventSink | None:
         return self._link.log
 
+    def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Record an event in the JSONL of the open session, if there is one."""
+        self._link.emit(event_type, payload)
+
     async def open_session(self, conversation_id: str, channel: Channel) -> ChatSession:
         if self._link.session is not None:
             raise RuntimeError("ya hay una sesión de chat abierta")

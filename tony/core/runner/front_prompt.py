@@ -6,7 +6,7 @@ from datetime import datetime
 
 from tony.core.loader import AgentSpec, Style
 from tony.core.runner.prompt import format_moment
-from tony.core.runner.reply_mode import EffectiveMode, style_instruction
+from tony.core.runner.reply_mode import EffectiveMode, InputModality, style_instruction
 from tony.core.skills.index import skills_index
 
 PREAMBLE_START = "<contexto_del_turno>"
@@ -65,13 +65,19 @@ def build_front_system_prompt(spec: AgentSpec, native: list[str]) -> str:
 
 
 def build_turn_preamble(
-    now: datetime, mode: EffectiveMode, style: Style, preferences_block: str
+    now: datetime,
+    mode: EffectiveMode,
+    style: Style,
+    preferences_block: str,
+    input_modality: InputModality = "text",
 ) -> str:
     preferences = as_untrusted_text(preferences_block.strip()) or "(ninguna)"
+    spoken_or_typed = "voice" if input_modality == "audio" else "text"
     return (
         f"{PREAMBLE_START}\n"
         f"Fecha y hora: {format_moment(now)}\n"
         f"Modo de respuesta: {mode.mode} (origen: {mode.source})\n"
+        f"Modalidad de entrada: {spoken_or_typed}\n"
         f"{style_instruction(style, mode.mode)}\n"
         f"Preferencias del usuario ({UNTRUSTED_DATA_NOTE}):\n{preferences}\n"
         f"{PREAMBLE_END}\n\n"

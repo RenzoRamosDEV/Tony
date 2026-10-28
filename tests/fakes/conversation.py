@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -13,6 +14,7 @@ from tony.core.runner.native_tools import NativeToolHandlers
 
 ScriptedTurn = str | dict[str, Any] | FrontTurn | Callable[[str, Any], Awaitable[Any]]
 DEFAULT_TEXT = "Sin guion."
+SPEECH_CHUNK_PAUSE_S = 0.05
 
 
 def to_front_turn(item: Any) -> FrontTurn:
@@ -49,15 +51,26 @@ class FakeConversationRunner:
         self.handlers = handlers
         self.opened.append(spec)
 
-    async def turn(self, prompt: str, on_text: TextCallback | None = None) -> FrontTurn:
+    async def turn(
+        self,
+        prompt: str,
+        on_text: TextCallback | None = None,
+        on_speech: TextCallback | None = None,
+    ) -> FrontTurn:
         self.prompts.append(prompt)
         item: Any = self.turns.pop(0) if self.turns else DEFAULT_TEXT
         if callable(item):
             item = await item(prompt, self.handlers)
         turn = to_front_turn(item)
+        structured = turn.structured or {}
         if on_text is not None:
-            for chunk in (turn.structured or {}).get("chunks", []):
+            for chunk in structured.get("chunks", []):
                 await on_text(chunk)
+        if on_speech is not None:
+            # A real model streams over time; the pause lets the speech pipeline keep up.
+            for chunk in structured.get("speech_chunks", []):
+                await on_speech(chunk)
+                await asyncio.sleep(SPEECH_CHUNK_PAUSE_S)
         return turn
 
     async def interrupt(self) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import shutil
 import stat
 import sys
@@ -17,13 +18,23 @@ from tony.core.doctor.validate import CheckResult, validate_agent
 from tony.core.loader import AgentLoadError, AgentSpec, StdioServer, ToolConfig, load_all
 from tony.core.mcp import McpManager, McpServerStatus, ToolCatalog
 from tony.core.runner.oneshot import one_shot
+from tony.core.voice.aliases import ENGINE_FOR_KEY, parse_alias
+from tony.core.voice.engines import EXTRA_HINT, REQUIRED_MODULES
+from tony.core.voice.ports import VoiceConfigError
 
 REQUIRED_PYTHON = (3, 12)
 PROBE_PROMPT = "Responde exactamente: OK"
 PROBE_MODEL = "claude-haiku"
 NODE_COMMANDS = frozenset({"npx", "node"})
-VOICE_MODULES = ("faster_whisper", "kokoro")
 GROUP_OR_OTHER_READABLE = stat.S_IRWXG | stat.S_IRWXO
+ESPEAK_HINT = "rpm-ostree install espeak-ng o brew install espeak-ng"
+WARMUP_HINT = "ejecuta tony voice warmup"
+KOKORO_MODEL_DIR = "models--hexgrad--Kokoro-82M"
+WHISPER_MODEL_DIR = "models--Systran--faster-whisper-{size}"
+
+
+def default_model_cache() -> Path:
+    return Path(os.environ.get("HF_HUB_CACHE") or Path.home() / ".cache" / "huggingface" / "hub")
 
 
 @dataclass(frozen=True)
@@ -60,6 +71,7 @@ class Environment:
     find_spec: Callable[[str], Any] = importlib.util.find_spec
     probe_model: Callable[[TonySettings], Awaitable[str]] = probe_model
     connect_mcp: Callable[[TonySettings, ToolConfig], Awaitable[ConnectResult]] = connect_mcp
+    model_cache: Path = field(default_factory=default_model_cache)
 
 
 async def run_checks(
@@ -73,7 +85,7 @@ async def run_checks(
     agents = load_agents(paths, settings)
     results.extend(check_agents(paths, agents, settings))
     results.append(check_node(env, agents))
-    results.extend(check_voice(env))
+    results.extend(check_voice(env, settings))
     if connect:
         results.extend(await check_servers(env, settings, agents))
     return results
@@ -216,17 +228,59 @@ def check_node(env: Environment, agents: dict[str, AgentSpec | AgentLoadError]) 
     return CheckResult("node/npx", True, f"disponibles; los usan {', '.join(users)}")
 
 
-def check_voice(env: Environment) -> list[CheckResult]:
-    installed = all(env.find_spec(module) is not None for module in VOICE_MODULES)
-    voice = CheckResult(
-        "voice",
-        None,
-        "extras de voz instalados" if installed else "extras de voz no instalados (tony[voice])",
+def check_voice(env: Environment, settings: TonySettings) -> list[CheckResult]:
+    """Extra, espeak-ng and model cache only inform; an invalid alias is a failure."""
+    installed = all(env.find_spec(module) is not None for module in REQUIRED_MODULES)
+    extra = (
+        "extra tony[voice] instalado"
+        if installed
+        else f"extra tony[voice] no instalado: {EXTRA_HINT}"
     )
     espeak = env.which("espeak-ng")
-    if espeak:
-        return [voice, CheckResult("espeak-ng", True, espeak)]
-    return [voice, CheckResult("espeak-ng", None, "no encontrado (solo necesario para la voz)")]
+    espeak_result = (
+        CheckResult("espeak-ng", True, espeak)
+        if espeak
+        else CheckResult("espeak-ng", None, f"no encontrado (lo necesita la voz): {ESPEAK_HINT}")
+    )
+    return [
+        CheckResult("voice", None, extra),
+        espeak_result,
+        *check_voice_aliases(settings),
+        check_voice_models(env, settings),
+    ]
+
+
+def check_voice_aliases(settings: TonySettings) -> list[CheckResult]:
+    results = []
+    for key in ENGINE_FOR_KEY:
+        alias = getattr(settings.voice, key.split(".")[1])
+        try:
+            engine, _ = parse_alias(alias)
+            if engine != ENGINE_FOR_KEY[key]:
+                raise VoiceConfigError(
+                    f"alias de voz '{alias}' inválido; el motor de {key} es {ENGINE_FOR_KEY[key]}"
+                )
+        except VoiceConfigError as exc:
+            results.append(CheckResult(key, False, str(exc), f"corrige {key} en config/tony.yaml"))
+            continue
+        results.append(CheckResult(key, True, alias))
+    return results
+
+
+def check_voice_models(env: Environment, settings: TonySettings) -> CheckResult:
+    size = settings.voice.stt.partition("/")[2] or "small"
+    wanted = {
+        f"faster-whisper-{size}": env.model_cache / WHISPER_MODEL_DIR.format(size=size),
+        "Kokoro-82M": env.model_cache / KOKORO_MODEL_DIR,
+    }
+    missing = [name for name, path in wanted.items() if not path.is_dir()]
+    if not missing:
+        return CheckResult("voice-models", True, f"{' y '.join(wanted)} en caché")
+    if len(missing) == len(wanted):
+        return CheckResult("voice-models", None, f"modelos de voz no descargados: {WARMUP_HINT}")
+    return CheckResult(
+        "voice-models", None, f"falta {', '.join(missing)} en la caché: {WARMUP_HINT}"
+    )
 
 
 async def check_servers(

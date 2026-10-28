@@ -22,6 +22,10 @@ El servidor SHALL aceptar exactamente los tipos de texto `hello`, `user.text`, `
 - **WHEN** el cliente envía `type: "ping"`
 - **THEN** recibe `error {code: "unknown_type"}`
 
+#### Scenario: Tipo reservado de audio
+- **WHEN** el cliente envía un sobre de texto con `type: "audio.chunk"`
+- **THEN** recibe `error {code: "unknown_type"}`: el audio solo viaja como frames binarios tras `audio.start`, y `audio.start`/`audio.end` ya no responden `not_implemented`
+
 ## ADDED Requirements
 
 ### Requirement: Tipos de mensaje de voz del servidor

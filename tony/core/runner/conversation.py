@@ -59,7 +59,12 @@ class ConversationRunner(Protocol):
         resume: str | None = None,
     ) -> None: ...
 
-    async def turn(self, prompt: str, on_text: TextCallback | None = None) -> FrontTurn: ...
+    async def turn(
+        self,
+        prompt: str,
+        on_text: TextCallback | None = None,
+        on_speech: TextCallback | None = None,
+    ) -> FrontTurn: ...
 
     async def interrupt(self) -> None: ...
 
@@ -153,9 +158,14 @@ class ClaudeSdkConversation:
         self._events = events
         await self._connect(self._options)
 
-    async def turn(self, prompt: str, on_text: TextCallback | None = None) -> FrontTurn:
-        # The structured JSON output has no readable partial text, so `on_text` stays unused
-        # until partial messages are enabled.
+    async def turn(
+        self,
+        prompt: str,
+        on_text: TextCallback | None = None,
+        on_speech: TextCallback | None = None,
+    ) -> FrontTurn:
+        # The structured JSON output has no readable partial text, so `on_text` and
+        # `on_speech` stay unused until partial messages are enabled.
         client = await self._live_client()
         self._turn_state = TaskState(FRONT_OWNER_ID, interrupt=self.interrupt)
         try:

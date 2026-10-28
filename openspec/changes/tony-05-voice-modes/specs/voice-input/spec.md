@@ -64,7 +64,7 @@ El texto de cada `stt.final` SHALL procesarse exactamente como un `user.text {te
 #### Scenario: Secuencia de una respuesta por voz
 - **GIVEN** `reply_mode: "auto"` y un `front` de prueba que responde `{display_text: "Son las diez y media.", speech_text: "Son las diez y media."}`
 - **WHEN** el cliente envía `audio.start`, frames con habla, silencio y `audio.end` y el transcriptor devuelve `¿qué hora es?`
-- **THEN** recibe, en orden, `stt.final {text: "¿qué hora es?"}`, `user.accepted {effective_mode: "voice"}`, `tts.start`, `tts.chunk.meta {seq: 0, sentence_index: 0}`, un frame binario, `assistant.final` y `tts.end`
+- **THEN** recibe, en orden, `stt.final {text: "¿qué hora es?"}`, `user.accepted {effective_mode: "voice"}`, `assistant.final` (el motor sin fragmentos entrega la respuesta completa antes de sintetizar), `tts.start`, `tts.chunk.meta {seq: 0, sentence_index: 0}`, un frame binario y `tts.end`, todos los `tts.*` con el `message_id` de `assistant.final`
 
 #### Scenario: Transcripción con prefijo
 - **GIVEN** `reply_mode: "auto"`

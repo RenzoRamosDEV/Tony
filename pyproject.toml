@@ -17,7 +17,15 @@ dependencies = [
 
 [project.optional-dependencies]
 web = ["fastapi>=0.162,<1", "uvicorn[standard]>=0.30,<1", "websockets>=12,<16"]
-voice = []
+voice = [
+    "faster-whisper>=1.2,<2",
+    "kokoro>=0.9.4,<1",
+    "silero-vad>=6,<7",
+    "onnxruntime>=1.17,<2",
+    "numpy>=1.26,<3",
+    "soundfile>=0.12,<1",
+    "torch>=2.5,<3",
+]
 
 [project.scripts]
 tony = "tony.apps.cli.main:app"
@@ -43,7 +51,19 @@ packages = ["tony"]
 asyncio_mode = "auto"
 timeout = 30
 testpaths = ["tests"]
-markers = ["evals: pruebas con modelo real (solo con TONY_EVALS=1)"]
+markers = [
+    "evals: pruebas con modelo real (solo con TONY_EVALS=1)",
+    "voice: pruebas con los motores de voz reales (uv run pytest -m voice)",
+]
+addopts = "-m 'not voice'"
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 line-length = 100

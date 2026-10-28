@@ -66,6 +66,43 @@ export interface HistoryMessage {
 }
 
 export interface ClientMessage {
-  type: "hello" | "user.text" | "confirm" | "cancel" | "set_mode";
+  type: "hello" | "user.text" | "confirm" | "cancel" | "set_mode" | "audio.start" | "audio.end";
   payload: Record<string, unknown>;
+}
+
+export const AUDIO_START_PAYLOAD = { sample_rate: 16000, channels: 1, format: "f32" } as const;
+
+export interface VoiceHealth {
+  available: boolean;
+  reason: string | null;
+  stt: string;
+  tts: string;
+}
+
+export interface SttFinalPayload {
+  text: string;
+  message_id: string;
+}
+
+export interface TtsChunkMetaPayload {
+  seq: number;
+  sentence_index: number;
+}
+
+export type VoicePhase = "idle" | "listening" | "transcribing" | "speaking";
+
+export interface PendingMeta {
+  messageId: string;
+  seq: number;
+  sentenceIndex: number;
+}
+
+export interface VoiceState {
+  /** null until /api/health answers. */
+  available: boolean | null;
+  reason: string | null;
+  mic: "off" | "on";
+  phase: VoicePhase;
+  speakingMessageId: string | null;
+  pendingMeta: PendingMeta | null;
 }

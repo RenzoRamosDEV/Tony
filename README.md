@@ -4,7 +4,8 @@ Asistente personal local con dos agentes: **Jarvis** (`front`, habla contigo) y
 **Viernes** (`worker`, ejecuta tareas con MCPs). Incluye el núcleo (carga de agentes
 desde ficheros, gestor de MCPs, ejecución sobre Claude Agent SDK con resultado
 estructurado y log JSONL por tarea), el orquestador de tareas, la memoria de usuario,
-la conversación por terminal con `tony chat` y el chat web con panel de debug con `tony web`.
+la conversación por terminal con `tony chat` y el chat web con panel de debug y voz (micrófono,
+VAD, STT y TTS locales) con `tony web`.
 
 ## Requisitos
 
@@ -138,12 +139,108 @@ API HTTP (JSON; errores siempre `{"error", "detail"}`):
 | `GET /api/memory` | `{content, lines}` de `memory/preferences.md` |
 
 WebSocket `/ws/chat` (protocolo `v: 1`, sobre `{v, type, seq, conversation_id, message_id?,
-task_id?, payload}`): el cliente envía `hello`, `user.text`, `confirm`, `cancel` y `set_mode`; el
-servidor responde `hello.ok`, `user.accepted`, `assistant.delta`, `assistant.wait`,
-`assistant.final`, `usage`, los eventos `task.*`/`tool.*`/`subtask.*`, `config.*` y `error`.
-Cada conversación numera sus mensajes con `seq`; al reconectar, `hello {conversation_id,
-last_seq}` reenvía solo los posteriores (o `resync: true` si son demasiado antiguos). Mensajes de
-más de 32 KiB se rechazan con cierre `1009`; los tipos `audio.*` quedan reservados para la voz.
+task_id?, payload}`): el cliente envía `hello`, `user.text`, `confirm`, `cancel`, `set_mode`,
+`audio.start`, `audio.end` y frames binarios de audio; el servidor responde `hello.ok`,
+`user.accepted`, `assistant.delta`, `assistant.wait`, `assistant.final`, `usage`, los eventos
+`task.*`/`tool.*`/`subtask.*`, `config.*`, `error` y los de voz `stt.final`, `tts.start`,
+`tts.chunk.meta` (seguido de un frame binario), `tts.end` y `tts.cancelled`. Cada conversación
+numera sus mensajes con `seq`; al reconectar, `hello {conversation_id, last_seq}` reenvía solo los
+posteriores (o `resync: true` si son demasiado antiguos); los frames binarios no llevan `seq` ni se
+reenvían. Mensajes de texto de más de 32 KiB se rechazan con cierre `1009`; un frame de audio de
+más de 16 KiB responde `audio_frame_too_large` sin cerrar. `GET /api/health` incluye
+`voice: {available, reason, stt, tts}`.
+
+## Voz: micrófono, VAD, STT y TTS
+
+Hablar con Jarvis y oírle funciona en local con tres motores: Silero VAD (detección de voz,
+`onnxruntime`), faster-whisper `small` en CPU con pesos `int8` (transcripción) y Kokoro con voz
+española (síntesis). Kokoro necesita `espeak-ng` instalado en el sistema (en Bazzite/Fedora
+Atomic, `rpm-ostree install espeak-ng`; en macOS, `brew install espeak-ng`).
+
+```bash
+uv sync --extra web --extra voice     # motores en CPU: torch se resuelve del índice CPU de PyTorch
+uv run tony voice warmup              # descarga los modelos a ~/.cache/huggingface/hub y los carga
+uv run tony doctor --offline          # ✓ espeak-ng, voice.stt, voice.tts y voice-models
+cd tony/apps/web/frontend && npm install && npm run build && cd -
+uv run tony web --open
+```
+
+Sin el extra, `tony web` arranca con la voz desactivada: `GET /api/health` responde
+`voice.available: false` con la razón, el botón de micrófono aparece deshabilitado con un tooltip
+que indica `uv sync --extra voice` y `audio.start` responde `error voice_unavailable`.
+`tony chat`, `tony run` y el resto de comandos no cambian.
+
+En el navegador, el botón de micrófono (conmutable, `aria-pressed`) pide permiso, envía
+`audio.start {sample_rate: 16000, channels: 1, format: "f32"}` y captura con un `AudioWorklet`
+que re-muestrea a 16 kHz mono y envía frames de 30 ms (480 muestras Float32) como mensajes
+binarios; un indicador de nivel acompaña a "Escuchando…". El servidor segmenta las intervenciones
+con el VAD (fin de frase tras 700 ms de silencio, mínimo 300 ms de habla, corte a 30 s), transcribe
+y emite `stt.final {text, message_id}`, que se procesa igual que un `user.text` con modalidad
+`audio`: `auto` se resuelve a `voice`, los prefijos `/v`, `/t`, `/b` funcionan también dichos
+("barra t qué hora es" no; el texto transcrito debe empezar por `/t`), y la transcripción aparece
+como mensaje tuyo con un icono de micrófono y su modo efectivo.
+
+Modos de respuesta por voz:
+
+- Botón: el selector `auto | voice | text | both` persiste el modo (`PATCH /api/settings`).
+- Por frase: "respóndeme por escrito" hace que Jarvis llame a `set_reply_mode("text")`; el selector
+  lo refleja al terminar el turno y el siguiente mensaje se acepta en `text`.
+- Por prefijo: `/v qué hora es` escrito fuerza voz solo en ese mensaje.
+
+En `voice` y `both` la respuesta se trocea en frases (`.`, `?`, `!`, `…`, `;`, doble salto de
+línea; `Sr.`, `p. ej.`, `10.5` o `10:30` no cortan) y cada frase se sintetiza y se envía mientras
+se sintetizan las siguientes: `tts.start`, `tts.chunk.meta {seq, sentence_index}` + frame binario
+PCM Int16 a 24 kHz, `tts.end`. El navegador reproduce los frames en una cola sin huecos, silencia
+la captura mientras suena audio ("Hablando…") y muestra el botón "Detener audio", que vacía la
+cola y envía `cancel {message_id}` (respuesta `tts.cancelled`). Si el `front` no produce
+`speech_text` (por ejemplo una tabla o código en `display_text`), se lee `display_text` sin
+markdown, truncado a 600 caracteres y con el cierre "…te lo muestro en pantalla"; en pantalla
+siempre aparece `display_text` completo. Si la síntesis falla, llega `tts.cancelled` + `error
+tts_failed` y la respuesta queda en texto.
+
+Streaming en v1: el motor del `front` entrega la respuesta completa al final del turno, así que
+`assistant.final` llega antes que `tts.start` y el audio de la primera frase suena mientras se
+sintetizan las siguientes; el pipeline ya acepta fragmentos de `speech_text` (`AssistantSpeechDelta`)
+para cuando el motor los entregue, y entonces el primer `tts.chunk` precederá a `assistant.final`.
+
+Privacidad: el audio solo vive en memoria (nunca en disco ni en SQLite); solo la transcripción se
+persiste como mensaje de usuario. El JSONL de la sesión registra `stt.final {chars, duration_ms}` y
+`tts {sentences, duration_ms, cancelled}`, nunca audio ni texto. Si una clave de `config/.env`
+aparece en el texto hablado, se pronuncia "dato oculto" en vez de la máscara.
+
+Configuración (`config/tony.yaml`, sección `voice`): `stt: faster-whisper/<modelo>` con `tiny`,
+`base`, `small`, `medium`, `large-v3` (y variantes `.en`/`distil`); `tts: kokoro/<voz>` con
+`ef_dora`, `em_alex` o `em_santa`; `vad: silero`. Un alias inválido es `✗` en `tony doctor` y en
+`tony config validate`. El idioma del STT es `persona.language` del `front` (`es` por defecto).
+
+Limitaciones: `AudioWorklet` y `getUserMedia` exigen un contexto seguro, así que con
+`--allow-remote` sin HTTPS el micrófono no funciona fuera de `localhost`/`127.0.0.1`; no hay wake
+word ni barge-in (la captura se silencia mientras Jarvis habla); el audio perdido durante una
+reconexión no se reenvía (el texto sí); no hay voz en `tony chat`.
+
+Pruebas con los motores reales (excluidas de `uv run pytest` por `addopts = "-m 'not voice'"`):
+
+```bash
+uv run pytest -m voice                # VAD, STT y TTS reales sobre WAV sintéticos (sin voz humana)
+uv run tony voice bench               # p50/p95 de 5 repeticiones
+TONY_EVALS=1 uv run tony voice bench  # además la ida y vuelta completa con el modelo
+```
+
+Medidas en un AMD Ryzen 5 7535U (12 hilos, 14 GB, sin GPU), modelos ya en caché:
+
+| Medida | p50 | p95 | Nota |
+|---|---|---|---|
+| `warmup` | vad 999 ms · stt 1 008 ms · tts 3 738 ms | | carga única por proceso |
+| `load` | 5 636 ms | 5 636 ms | suma de las tres cargas (1 muestra) |
+| `stt_3s` | 1 390 ms | 1 407 ms | faster-whisper `small` int8, muestra sintética de 3 s |
+| `tts_12w` | 3 186 ms | 3 211 ms | Kokoro `ef_dora`, frase de 12 palabras |
+| `roundtrip` | 9 384 ms | 10 075 ms | `TONY_EVALS=1`: turno del modelo (claude-haiku) + primera frase sintetizada; la transcripción va aparte en `stt_3s` |
+
+Con estos tiempos el objetivo de p50 < 2 s de ida y vuelta no se alcanza en esta CPU (`tony voice
+bench` lo marca como "objetivo no alcanzado"): la transcripción de 3 s cuesta ~1,4 s, el turno del
+modelo ~5 s y la primera frase de Kokoro ~3 s.
+Opciones: `voice.stt: faster-whisper/base` (más rápido, menos preciso), frases cortas en
+`style.voice`, o un equipo con más núcleos; `compute_type` sigue fijo en `int8` en v1.
 
 ## Memoria
 
@@ -301,8 +398,9 @@ uv run tony config validate     # sin red ni procesos (lo mismo que usa la recar
 Cada comprobación es una línea `✓`, `✗` (con una sugerencia debajo) o `·` (informativa): Python
 3.12, CLI `claude`, modelo, `config/tony.yaml`, `config/.env` (debe existir con permisos `600`),
 cada agente, subagente y skill (incluidas las variables `${VAR}`), `node`/`npx` si algún MCP los
-usa, extras de voz y `espeak-ng` (solo informan), conexión a cada MCP y patrones de
-`allow`/`confirm` que no coinciden con ninguna tool. El código de salida es `1` si hay algún `✗`.
+usa, el extra de voz, `espeak-ng` y la caché de modelos (solo informan), los alias `voice.stt` y
+`voice.tts` (`✗` si son inválidos), conexión a cada MCP y patrones de `allow`/`confirm` que no
+coinciden con ninguna tool. El código de salida es `1` si hay algún `✗`.
 
 ## Recarga en caliente de `tool.json`
 
@@ -332,7 +430,8 @@ Antes de escribir, Tony redacta con `***` los valores de las claves `authorizati
 ## Desarrollo
 
 ```bash
-uv run pytest -q        # suite sin red ni modelo real (< 60 s); tests/apps/web/ requiere el extra web
+uv run pytest -q        # suite sin red, modelo ni motores de voz (< 60 s); tests/apps/web/ requiere el extra web
+uv run pytest -m voice  # motores de voz reales (requiere uv sync --extra voice y los modelos en caché)
 uv run ruff check .
 cd tony/apps/web/frontend && npm test && npm run lint && npm run build   # frontend (Vitest + tsc)
 ```

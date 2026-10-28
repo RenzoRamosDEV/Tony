@@ -6,6 +6,7 @@ export interface ChatSocketOptions {
   url: string;
   onEnvelope: (envelope: Envelope) => void;
   onStatus: (connected: boolean) => void;
+  onBinary?: (buffer: ArrayBuffer) => void;
   conversationId: () => string | null;
   lastSeq: () => number;
   factory?: (url: string) => WebSocket;
@@ -31,12 +32,19 @@ export class ChatSocket {
     }
     const factory = this.options.factory ?? ((url: string) => new WebSocket(url));
     const ws = factory(this.options.url);
+    ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
       this.options.onStatus(true);
       this.hello(this.options.conversationId());
     };
-    ws.onmessage = (event) => this.receive(String(event.data));
+    ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        this.options.onBinary?.(event.data);
+      } else {
+        this.receive(String(event.data));
+      }
+    };
     ws.onerror = () => undefined;
     ws.onclose = () => {
       if (this.ws === ws) {
@@ -63,6 +71,16 @@ export class ChatSocket {
         payload: message.payload,
       }),
     );
+    return true;
+  }
+
+  /** Audio frames go out as binary WebSocket messages; false when the socket is not open. */
+  sendBinary(buffer: ArrayBuffer): boolean {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    ws.send(buffer);
     return true;
   }
 

@@ -23,6 +23,7 @@ from tony.apps.web import api
 from tony.apps.web.hub import ConversationHub, error_envelope
 from tony.apps.web.options import WebOptions
 from tony.apps.web.protocol import CLOSE_POLICY_VIOLATION, ProtocolError, parse_client_message
+from tony.apps.web.voice import VoiceRuntime
 from tony.core.channels.bootstrap import ChatRuntime, build_chat_runtime
 from tony.core.orchestrator.clock import SystemClock
 
@@ -128,9 +129,14 @@ def _chat_socket(policy: OriginPolicy) -> Callable[[WebSocket], Awaitable[None]]
         hub: ConversationHub = websocket.app.state.hub
         try:
             while True:
-                text = await websocket.receive_text()
+                received = await websocket.receive()
+                if received["type"] == "websocket.disconnect":
+                    return
+                if received.get("bytes") is not None:
+                    await hub.audio_frame(websocket, received["bytes"])
+                    continue
                 try:
-                    message = parse_client_message(text)
+                    message = parse_client_message(received.get("text") or "")
                 except ProtocolError as exc:
                     envelope = error_envelope(exc.code, exc.detail, hub.conversation_id)
                     await websocket.send_text(envelope.to_json())
@@ -170,7 +176,7 @@ async def serve(options: WebOptions, **factories: Any) -> None:
     runtime = await build_chat_runtime(
         options.runtime, hub.gate_factory, err=sys.stderr, **factories
     )
-    hub.bind(runtime)
+    hub.bind(runtime, VoiceRuntime.detect(runtime.settings.voice))
 
     async def boot() -> tuple[ConversationHub, ChatRuntime]:
         return hub, runtime

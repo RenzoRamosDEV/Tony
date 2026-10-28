@@ -142,9 +142,9 @@ def test_set_mode_persists_or_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("type_", "code"), [("audio.start", "not_implemented"), ("ping", "unknown_type")]
+    ("type_", "code"), [("audio.start", "voice_unavailable"), ("ping", "unknown_type")]
 )
-def test_reserved_and_unknown_types(tmp_path: Path, type_: str, code: str) -> None:
+def test_audio_start_is_a_known_type_and_ping_is_not(tmp_path: Path, type_: str, code: str) -> None:
     with build_test_app(tmp_path) as client:
         with open_chat(client) as (ws, _):
             send(ws, type_, {})
@@ -153,6 +153,7 @@ def test_reserved_and_unknown_types(tmp_path: Path, type_: str, code: str) -> No
             settle(client)
 
     assert error["type"] == "error" and error["payload"]["code"] == code
+    assert error["payload"]["code"] != "not_implemented"
 
 
 def test_oversized_envelope_closes_with_1009(tmp_path: Path) -> None:

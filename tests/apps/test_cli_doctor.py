@@ -121,6 +121,24 @@ def test_help_is_in_spanish() -> None:
     assert "sin" in validate and "--agents-dir" in validate
 
 
+def test_invalid_voice_alias_is_a_failure_in_doctor_and_config_validate(cli) -> None:
+    (cli / "config" / "tony.yaml").write_text(
+        "worker: viernes\nvoice:\n  tts: kokoro/no_existe\n", encoding="utf-8"
+    )
+
+    doctor = runner.invoke(main.app, ["doctor", "--offline"])
+    validate = runner.invoke(main.app, ["config", "validate"])
+
+    assert doctor.exit_code == 1 and validate.exit_code == 1
+    for output in (doctor.stdout, validate.stdout):
+        failure = next(line for line in lines(output, "✗") if "voice.tts" in line)
+        assert "kokoro/no_existe" in failure
+        for voice_name in ("ef_dora", "em_alex", "em_santa"):
+            assert voice_name in failure
+        assert any("voice.stt" in line for line in lines(output, "✓"))
+    assert not {"kokoro", "faster_whisper", "silero_vad"} & set(sys.modules)
+
+
 def test_config_validate_fails_when_the_configured_agents_are_missing(cli) -> None:
     import shutil
 

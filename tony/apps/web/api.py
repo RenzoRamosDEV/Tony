@@ -65,6 +65,7 @@ async def health(request: Request) -> dict[str, Any]:
             {"name": name, "state": status.state, "tool_count": status.tool_count}
             for name, status in statuses.items()
         ],
+        "voice": hub_of(request).voice.availability.as_dict(),
     }
 
 

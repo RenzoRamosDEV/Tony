@@ -17,9 +17,11 @@ from tony.apps.web.protocol import (
     USER_ACCEPTED,
     ConversationStream,
 )
+from tony.apps.web.tts_stream import SpeechStreamer
 from tony.core.channels.ports import (
     AssistantDelta,
     AssistantReply,
+    AssistantSpeechDelta,
     AssistantWait,
     ChannelMessage,
     NeedsConfirmation,
@@ -196,6 +198,7 @@ class WebChannel:
         logs_dir: Path,
         confirm_timeout_s: float,
         clock: Clock | None = None,
+        speech: SpeechStreamer | None = None,
     ) -> None:
         self._stream = stream
         self._router = router
@@ -204,6 +207,7 @@ class WebChannel:
         self._confirm_timeout_s = confirm_timeout_s
         self.client_id: str | None = None
         self.streamer = TaskStreamer(stream, router, source, usage, logs_dir, clock)
+        self.speech = speech
 
     async def send(self, message: ChannelMessage) -> None:
         if isinstance(message, UserAccepted):
@@ -212,6 +216,9 @@ class WebChannel:
             await self._stream.publish(
                 ASSISTANT_DELTA, {"text": message.text}, message_id=message.message_id
             )
+        elif isinstance(message, AssistantSpeechDelta):
+            if self.speech is not None:
+                self.speech.on_delta(message.message_id, message.text)
         elif isinstance(message, AssistantWait):
             await self._stream.publish(ASSISTANT_WAIT, {"text": message.text})
         elif isinstance(message, AssistantReply):
@@ -224,6 +231,8 @@ class WebChannel:
             await self.streamer.forward(message)
 
     async def close(self) -> None:
+        if self.speech is not None:
+            await self.speech.aclose()
         await self.streamer.close()
 
     async def _send_accepted(self, accepted: UserAccepted) -> None:
@@ -250,6 +259,8 @@ class WebChannel:
             },
             message_id=reply.message_id,
         )
+        if self.speech is not None:
+            self.speech.start(reply)
 
     async def _ask(self, request: NeedsConfirmation) -> None:
         async def resolver(approved: bool) -> None:

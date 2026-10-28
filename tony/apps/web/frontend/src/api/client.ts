@@ -1,4 +1,4 @@
-import type { HistoryMessage, ReplyMode } from "../protocol/types";
+import type { HistoryMessage, ReplyMode, VoiceHealth } from "../protocol/types";
 
 export interface ApiErrorBody {
   error: string;
@@ -37,6 +37,7 @@ export interface HealthView {
   front: string;
   worker: string;
   mcp: { name: string; state: string; tool_count: number }[];
+  voice: VoiceHealth;
 }
 
 type Fetch = typeof fetch;

@@ -487,3 +487,118 @@ describe("review of change 04", () => {
     expect(state.messages).toEqual([]);
   });
 });
+
+describe("voice", () => {
+  function listening(): ChatState {
+    let state = fresh();
+    state = reduce(state, { type: "voice_health", available: true, reason: null });
+    return reduce(state, { type: "mic", on: true });
+  }
+
+  it("starts unknown, then takes the availability from /api/health", () => {
+    expect(fresh().voice).toEqual({
+      available: null,
+      reason: null,
+      mic: "off",
+      phase: "idle",
+      speakingMessageId: null,
+      pendingMeta: null,
+    });
+
+    const state = reduce(fresh(), { type: "voice_health", available: false, reason: "sin extra" });
+
+    expect(state.voice.available).toBe(false);
+    expect(state.voice.reason).toBe("sin extra");
+  });
+
+  it("a voice_unavailable error disables the microphone with its reason", () => {
+    const state = apply(listening(), oob("error", { code: "voice_unavailable", detail: "falta kokoro: uv sync --extra voice" }));
+
+    expect(state.voice).toMatchObject({ available: false, reason: "falta kokoro: uv sync --extra voice", mic: "off", phase: "idle" });
+    expect(state.notice).toBe("falta kokoro: uv sync --extra voice");
+  });
+
+  it("mic on means listening and mic off means idle", () => {
+    const on = listening();
+    expect(on.voice).toMatchObject({ mic: "on", phase: "listening" });
+
+    const off = reduce(on, { type: "mic", on: false });
+
+    expect(off.voice).toMatchObject({ mic: "off", phase: "idle" });
+  });
+
+  it("stt.final adds a voice user message and user.accepted sets its mode", () => {
+    let state = listening();
+    state = reduce(state, { type: "silence_after_speech" });
+    expect(state.voice.phase).toBe("transcribing");
+
+    state = apply(state, env("stt.final", { text: "¿qué hora es?", message_id: "m-1" }, { message_id: "m-1" }));
+    expect(state.messages).toEqual([{ id: "m-1", role: "user", content: "¿qué hora es?", seq: 1, source: "voice" }]);
+    expect(state.voice.phase).toBe("listening");
+
+    state = apply(state, env("user.accepted", { message_id: "m-1", effective_mode: "voice", client_id: null }, { message_id: "m-1" }));
+
+    expect(state.messages).toEqual([{ id: "m-1", role: "user", content: "¿qué hora es?", seq: 1, source: "voice", effectiveMode: "voice" }]);
+    expect(state.turnInProgress).toBe(true);
+  });
+
+  it("silence after speech only matters while listening", () => {
+    const idle = reduce(fresh(), { type: "silence_after_speech" });
+
+    expect(idle.voice.phase).toBe("idle");
+  });
+
+  it("tts.start speaks, chunk.meta is kept pending, tts.end returns to listening", () => {
+    let state = listening();
+    state = apply(state, env("tts.start", { message_id: "a-2" }, { message_id: "a-2" }));
+    expect(state.voice).toMatchObject({ phase: "speaking", speakingMessageId: "a-2" });
+
+    state = apply(state, env("tts.chunk.meta", { seq: 3, sentence_index: 1 }, { message_id: "a-2" }));
+    expect(state.voice.pendingMeta).toEqual({ messageId: "a-2", seq: 3, sentenceIndex: 1 });
+
+    state = reduce(state, { type: "binary_consumed" });
+    expect(state.voice.pendingMeta).toBeNull();
+
+    state = apply(state, env("tts.end", { message_id: "a-2" }, { message_id: "a-2" }));
+
+    expect(state.voice).toMatchObject({ phase: "listening", speakingMessageId: null, pendingMeta: null });
+  });
+
+  it("tts.cancelled returns to idle when the microphone is off", () => {
+    let state = reduce(fresh(), { type: "voice_health", available: true, reason: null });
+    state = apply(state, env("tts.start", { message_id: "a-2" }, { message_id: "a-2" }));
+    state = apply(state, env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-2" }));
+
+    state = apply(state, env("tts.cancelled", { message_id: "a-2" }, { message_id: "a-2" }));
+
+    expect(state.voice).toMatchObject({ phase: "idle", speakingMessageId: null, pendingMeta: null });
+  });
+
+  it("a local stop ends the speaking phase at once", () => {
+    let state = listening();
+    state = apply(state, env("tts.start", { message_id: "a-2" }, { message_id: "a-2" }));
+
+    state = reduce(state, { type: "stop_audio" });
+
+    expect(state.voice).toMatchObject({ phase: "listening", speakingMessageId: null });
+  });
+
+  it("a transcription error returns from transcribing to listening", () => {
+    let state = reduce(listening(), { type: "silence_after_speech" });
+
+    state = apply(state, oob("error", { code: "stt_failed", detail: "boom" }));
+
+    expect(state.voice.phase).toBe("listening");
+  });
+});
+
+describe("local notices", () => {
+  it("a local notice shows like a server error and can be dismissed", () => {
+    let state = reduce(fresh(), { type: "notice", text: "No se pudo acceder al micrófono" });
+    expect(state.notice).toBe("No se pudo acceder al micrófono");
+
+    state = reduce(state, { type: "dismiss_notice" });
+
+    expect(state.notice).toBeNull();
+  });
+});

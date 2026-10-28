@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from tony.core.channels.ports import (
     AssistantDelta,
     AssistantReply,
+    AssistantSpeechDelta,
     AssistantWait,
     Channel,
     NeedsConfirmation,
@@ -133,14 +134,18 @@ class ChatSession:
             await self._channel.send(Notice(RESUME_FAILED_NOTICE))
             await self._runner.open(self._front, self._catalog, self, self._events)
 
-    async def handle(self, text: str, modality: InputModality = "text") -> AssistantReply | None:
-        accepted = await self._accept(text, modality)
+    async def handle(
+        self, text: str, modality: InputModality = "text", message_id: str | None = None
+    ) -> AssistantReply | None:
+        accepted = await self._accept(text, modality, message_id)
         if accepted is None:
             return None
         mode, message = accepted
         reply_id = uuid.uuid4().hex
         turn = await self._runner.turn(
-            self._prompt_for(message, mode), on_text=self._delta_sender(reply_id)
+            self._prompt_for(message, mode, modality),
+            on_text=self._delta_sender(reply_id),
+            on_speech=self._speech_sender(reply_id) if mode.mode != "text" else None,
         )
         self._persist_sdk_session()
         front_reply = parse_front_reply(turn.structured, turn.text, mode.mode)
@@ -156,7 +161,9 @@ class ChatSession:
         await self._channel.send(reply)
         return reply
 
-    async def _accept(self, text: str, modality: InputModality) -> tuple[EffectiveMode, str] | None:
+    async def _accept(
+        self, text: str, modality: InputModality, message_id: str | None = None
+    ) -> tuple[EffectiveMode, str] | None:
         prefix, message = strip_prefix(text)
         if prefix is not None and not message:
             notice = MISSING_TEXT_NOTICE.format(prefix=PREFIX_FOR_MODE[prefix])
@@ -165,13 +172,17 @@ class ChatSession:
         mode = resolve_reply_mode(
             prefix, self._memory.settings.load().reply_mode, self._settings.reply_mode, modality
         )
-        user_id = self._store_message("user", message, None)
+        user_id = self._store_message("user", message, None, message_id)
         await self._channel.send(UserAccepted(user_id, mode.mode))
         return mode, message
 
-    def _prompt_for(self, message: str, mode: EffectiveMode) -> str:
+    def _prompt_for(self, message: str, mode: EffectiveMode, modality: InputModality) -> str:
         preamble = build_turn_preamble(
-            self._now(), mode, self._front.style, self._memory.preferences.injection_block()
+            self._now(),
+            mode,
+            self._front.style,
+            self._memory.preferences.injection_block(),
+            input_modality=modality,
         )
         for skill in matched_skills(message, self._front.skills):
             self._events.emit(SKILL_ACTIVATED, {"skill": skill.name})
@@ -182,6 +193,12 @@ class ChatSession:
             await self._channel.send(AssistantDelta(reply_id, text))
 
         return on_text
+
+    def _speech_sender(self, reply_id: str) -> Callable[[str], Awaitable[None]]:
+        async def on_speech(text: str) -> None:
+            await self._channel.send(AssistantSpeechDelta(reply_id, text))
+
+        return on_speech
 
     async def cancel_active(self) -> None:
         if self.active_task_ids:

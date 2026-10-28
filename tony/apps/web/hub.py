@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from tony.apps.web.audio_ws import AudioSession
 from tony.apps.web.confirmations import ConfirmationRouter, InvalidConfirmation, WebConfirmGate
 from tony.apps.web.protocol import (
+    AUDIO_END,
+    AUDIO_FRAME_MAX_BYTES,
+    AUDIO_START,
     CANCEL,
     CLOSE_GOING_AWAY,
     CLOSE_POLICY_VIOLATION,
@@ -17,12 +22,16 @@ from tony.apps.web.protocol import (
     HELLO,
     HELLO_OK,
     SET_MODE,
+    STT_FINAL,
     USER_TEXT,
+    BinaryFrame,
     ClientMessage,
     ConversationStream,
     Envelope,
     OutboundQueue,
 )
+from tony.apps.web.tts_stream import SpeechStreamer
+from tony.apps.web.voice import VoiceRuntime
 from tony.apps.web.ws_channel import UsageTracker, WebChannel
 from tony.core.channels.bootstrap import ChatRuntime
 from tony.core.channels.ports import AssistantReply
@@ -30,6 +39,8 @@ from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.orchestrator.clock import Clock
 from tony.core.orchestrator.errors import OrchestratorError
+from tony.core.runner.reply_mode import InputModality
+from tony.core.voice.ports import Transcript
 
 WEB_CHANNEL = "web"
 TURN_CRASHED = "No pude completar el turno por un error interno: {error}"
@@ -38,11 +49,19 @@ UNKNOWN_CONVERSATION = "la conversación {} no existe"
 SOCKET_BUSY = "la conversación ya tiene un socket activo"
 CONVERSATION_BUSY = "hay otra conversación en curso"
 TURN_CLOSE_BUDGET_S = 5.0
+DRAIN_BUDGET_S = 1.0
+AUDIO_IN_PROGRESS = "ya hay una intervención de audio abierta"
+AUDIO_NOT_STARTED = "envía audio.start antes de los frames de audio"
+FRAME_TOO_LARGE = "frame de audio de {size} bytes; el máximo es {limit}"
+NO_SPEECH = "no hay síntesis en curso para el mensaje {}"
+NO_TARGET = "cancel necesita task_id o message_id"
 HelloDecision = Literal["open", "attach", "switch", "busy_same", "busy_other", "unknown"]
 
 
 class SocketLike(Protocol):
     async def send_text(self, text: str) -> None: ...
+
+    async def send_bytes(self, data: bytes) -> None: ...
 
     async def close(self, code: int = 1000) -> None: ...
 
@@ -83,8 +102,11 @@ class ConversationHub:
         self.conversation_id: str | None = None
         self.socket: SocketLike | None = None
         self.turn: asyncio.Task[None] | None = None
+        self.audio: AudioSession | None = None
         self._emitter: asyncio.Task[None] | None = None
+        self._queue: OutboundQueue | None = None
         self._runtime: ChatRuntime | None = None
+        self._voice: VoiceRuntime | None = None
         self._transition = asyncio.Lock()
 
     def gate_factory(self, settings: TonySettings, front: AgentSpec) -> WebConfirmGate:
@@ -96,13 +118,19 @@ class ConversationHub:
         self.gate = WebConfirmGate(self.router, None, limits.confirm_timeout_s, self._clock)
         return self.gate
 
-    def bind(self, runtime: ChatRuntime) -> None:
+    def bind(self, runtime: ChatRuntime, voice: VoiceRuntime | None = None) -> None:
         self._runtime = runtime
+        self._voice = voice or VoiceRuntime.disabled(runtime.settings.voice)
 
     @property
     def runtime(self) -> ChatRuntime:
         assert self._runtime is not None, "bind() must run before serving"
         return self._runtime
+
+    @property
+    def voice(self) -> VoiceRuntime:
+        assert self._voice is not None, "bind() must run before serving"
+        return self._voice
 
     @property
     def turn_in_progress(self) -> bool:
@@ -130,9 +158,13 @@ class ConversationHub:
                 payload.get("task_id"),
             )
         elif message.type == CANCEL:
-            await self.cancel(payload.get("task_id", ""))
+            await self.cancel(payload.get("task_id"), payload.get("message_id"))
         elif message.type == SET_MODE:
             await self.set_mode(payload.get("reply_mode", ""))
+        elif message.type == AUDIO_START:
+            await self.audio_start()
+        elif message.type == AUDIO_END:
+            await self.audio_end()
 
     async def hello(self, socket: SocketLike, requested: str | None, last_seq: int) -> None:
         async with self._transition:
@@ -161,13 +193,21 @@ class ConversationHub:
         if socket is not self.socket:
             return
         self.socket = None
+        self._discard_audio()
         if self.stream is not None:
             self.stream.detach()
+        self._queue = None
         emitter, self._emitter = self._emitter, None
         if emitter is not None and emitter is not asyncio.current_task():
             emitter.cancel()
 
-    async def user_text(self, text: str, client_id: str | None = None) -> None:
+    async def user_text(
+        self,
+        text: str,
+        client_id: str | None = None,
+        modality: InputModality = "text",
+        message_id: str | None = None,
+    ) -> None:
         assert self.socket is not None and self.channel is not None
         if self.turn_in_progress:
             await self._error(self.socket, "turn_in_progress", "espera a que termine la respuesta")
@@ -175,8 +215,81 @@ class ConversationHub:
         if not text.strip():
             await self._error(self.socket, "empty_text", "el mensaje está vacío")
             return
+        await self._cancel_speech()
         self.channel.client_id = client_id
-        self.turn = asyncio.create_task(self._run_turn(text))
+        self.turn = asyncio.create_task(self._run_turn(text, modality, message_id))
+
+    # --- audio input ------------------------------------------------------------------------
+
+    async def audio_start(self) -> None:
+        assert self.socket is not None
+        voice = self.voice
+        if not voice.available or voice.registry is None:
+            await self._error(self.socket, "voice_unavailable", voice.availability.reason or "")
+            return
+        if self.audio is not None:
+            await self._error(self.socket, "audio_in_progress", AUDIO_IN_PROGRESS)
+            return
+        await self._cancel_speech()
+        registry = voice.registry
+        try:
+            vad = await voice.executor.run(registry.get_vad)
+        except Exception as exc:  # noqa: BLE001 - a broken engine is reported, not fatal
+            detail = f"{exc.__class__.__name__}: {exc}"
+            await self._error(self.socket, "voice_unavailable", detail)
+            return
+        self.audio = AudioSession(
+            vad,
+            lambda: registry.get_stt(registry.stt_alias),
+            voice.executor,
+            self.runtime.front.persona.language,
+            self._on_transcript,
+            self._on_audio_error,
+            self.runtime,
+        )
+
+    async def audio_frame(self, socket: SocketLike, data: bytes) -> None:
+        if socket is not self.socket:
+            await self._error(socket, "hello_required", HELLO_REQUIRED)
+            return
+        if len(data) > AUDIO_FRAME_MAX_BYTES:
+            detail = FRAME_TOO_LARGE.format(size=len(data), limit=AUDIO_FRAME_MAX_BYTES)
+            await self._error(socket, "audio_frame_too_large", detail)
+            return
+        if self.audio is None:
+            await self._error(socket, "audio_not_started", AUDIO_NOT_STARTED)
+            return
+        self.audio.feed(data)
+
+    async def audio_end(self) -> None:
+        assert self.socket is not None
+        audio, self.audio = self.audio, None
+        if audio is None:
+            await self._error(self.socket, "audio_not_started", AUDIO_NOT_STARTED)
+            return
+        audio.end()
+
+    async def _on_transcript(self, transcript: Transcript) -> None:
+        if self.socket is None or self.stream is None:
+            return
+        message_id = uuid.uuid4().hex
+        await self.stream.publish(
+            STT_FINAL, {"text": transcript.text, "message_id": message_id}, message_id=message_id
+        )
+        await self.user_text(transcript.text, modality="audio", message_id=message_id)
+
+    async def _on_audio_error(self, code: str, detail: str) -> None:
+        if self.socket is not None:
+            await self._error(self.socket, code, detail)
+
+    def _discard_audio(self) -> None:
+        audio, self.audio = self.audio, None
+        if audio is not None:
+            audio.discard()
+
+    async def _cancel_speech(self) -> None:
+        if self.channel is not None and self.channel.speech is not None:
+            await self.channel.speech.cancel_all()
 
     async def confirm(
         self, confirmation_id: str, approved: bool, task_id: str | None = None
@@ -188,12 +301,20 @@ class ConversationHub:
             if self.socket is not None:
                 await self._error(self.socket, exc.code, exc.detail)
 
-    async def cancel(self, task_id: str) -> None:
+    async def cancel(self, task_id: str | None, message_id: str | None = None) -> None:
+        assert self.socket is not None
+        if message_id is not None:
+            speech = self.channel.speech if self.channel is not None else None
+            if speech is None or not await speech.cancel(message_id):
+                await self._error(self.socket, "unknown_task", NO_SPEECH.format(message_id))
+            return
+        if task_id is None:
+            await self._error(self.socket, "unknown_task", NO_TARGET)
+            return
         try:
             await self.cancel_task(task_id)
         except OrchestratorError as exc:
-            if self.socket is not None:
-                await self._error(self.socket, exc.code, f"la tarea {task_id} no existe")
+            await self._error(self.socket, exc.code, f"la tarea {task_id} no existe")
 
     async def cancel_task(self, task_id: str) -> None:
         session = self.runtime.session
@@ -215,6 +336,8 @@ class ConversationHub:
 
     async def aclose(self) -> None:
         try:
+            await self._cancel_speech()
+            await self._drain_outbound()
             socket = self.socket
             if socket is not None:
                 self.detach(socket)
@@ -225,7 +348,18 @@ class ConversationHub:
                 await session.interrupt()
             await self._settle_turn()
         finally:
-            await self._close_conversation()
+            try:
+                await self._close_conversation()
+            finally:
+                self.voice.close()
+
+    async def _drain_outbound(self) -> None:
+        """Give the pump a moment to deliver what is queued (the `tts.cancelled` of a close)."""
+        queue = self._queue
+        if queue is None:
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(queue.drained(), DRAIN_BUDGET_S)
 
     async def _settle_turn(self) -> None:
         turn = self.turn
@@ -251,11 +385,26 @@ class ConversationHub:
             runtime.options.logs_dir,
             runtime.settings.limits.confirm_timeout_s,
             self._clock,
+            speech=self._speech_streamer(self.stream),
         )
         self.conversation_id = conversation_id
         await runtime.open_session(conversation_id, self.channel)
 
+    def _speech_streamer(self, stream: ConversationStream) -> SpeechStreamer | None:
+        voice = self.voice
+        if not voice.available or voice.registry is None:
+            return None
+        registry = voice.registry
+        return SpeechStreamer(
+            stream,
+            lambda: registry.get_tts(registry.tts_alias),
+            voice.executor,
+            registry.tts_voice,
+            self.runtime,
+        )
+
     async def _close_conversation(self) -> None:
+        self._discard_audio()
         channel, self.channel = self.channel, None
         self.conversation_id = None
         self.stream = None
@@ -271,6 +420,7 @@ class ConversationHub:
         queue = OutboundQueue()
         queue.prefill(replay or [])
         self.socket = socket
+        self._queue = queue
         self.stream.attach(queue)
         greeting = self._hello_ok(replay is None).to_json()
         try:
@@ -322,11 +472,13 @@ class ConversationHub:
             },
         }
 
-    async def _run_turn(self, text: str) -> None:
+    async def _run_turn(
+        self, text: str, modality: InputModality = "text", message_id: str | None = None
+    ) -> None:
         session, channel = self.runtime.session, self.channel
         assert session is not None and channel is not None
         try:
-            await session.handle(text)
+            await session.handle(text, modality, message_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - the socket must learn that the turn died
@@ -338,8 +490,12 @@ class ConversationHub:
     async def _pump(self, socket: SocketLike, queue: OutboundQueue) -> None:
         try:
             while True:
-                envelope = await queue.get()
-                await socket.send_text(envelope.to_json())
+                item = await queue.get()
+                if isinstance(item, BinaryFrame):
+                    await socket.send_bytes(item.data)
+                else:
+                    await socket.send_text(item.to_json())
+                queue.done()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - a dead socket just detaches; the turn goes on

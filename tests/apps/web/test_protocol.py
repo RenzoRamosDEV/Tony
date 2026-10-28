@@ -12,16 +12,18 @@ from tony.apps.web.protocol import (
     PROTOCOL_VERSION,
     BadEnvelope,
     BadPayload,
+    BinaryFrame,
     ConversationStream,
     Envelope,
     MessageTooLarge,
-    NotImplementedType,
     OutboundQueue,
     ProtocolError,
     QueueClosed,
     UnknownType,
+    UnsupportedAudio,
     coalesce_deltas,
     parse_client_message,
+    validate_audio_start,
 )
 
 
@@ -67,12 +69,44 @@ def test_invalid_json_or_missing_type_is_a_bad_envelope_without_closing(text: st
     assert "\n" not in info.value.detail
 
 
-@pytest.mark.parametrize("type_", ["audio.start", "audio.chunk", "audio.end"])
-def test_audio_types_are_reserved(type_: str) -> None:
-    with pytest.raises(NotImplementedType) as info:
-        parse_client_message(envelope_of(200, type_))
-    assert info.value.code == "not_implemented" and info.value.close_code is None
-    assert type_ in info.value.detail and "voz" in info.value.detail
+def test_audio_start_and_end_are_client_types_and_audio_chunk_is_not() -> None:
+    start = parse_client_message(client_text("audio.start", {}))
+    end = parse_client_message(client_text("audio.end", {}))
+
+    assert start.payload == {"sample_rate": 16000, "channels": 1, "format": "f32"}
+    assert end.type == "audio.end" and end.payload == {}
+    with pytest.raises(UnknownType):
+        parse_client_message(client_text("audio.chunk", {}))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"sample_rate": 44100, "channels": 2, "format": "f32"},
+        {"sample_rate": 48000},
+        {"channels": 2},
+        {"format": "i16"},
+    ],
+)
+def test_audio_start_with_other_parameters_is_unsupported_without_closing(payload) -> None:
+    with pytest.raises(UnsupportedAudio) as info:
+        parse_client_message(client_text("audio.start", payload))
+
+    assert info.value.code == "unsupported_audio" and info.value.close_code is None
+    assert "16000" in info.value.detail and "f32" in info.value.detail
+
+
+@pytest.mark.parametrize(
+    ("payload", "ok"),
+    [
+        ({"sample_rate": 16000, "channels": 1, "format": "f32"}, True),
+        ({"sample_rate": 16001, "channels": 1, "format": "f32"}, False),
+        ({"sample_rate": 16000, "channels": 0, "format": "f32"}, False),
+        ({"sample_rate": 16000, "channels": 1, "format": "F32"}, False),
+    ],
+)
+def test_validate_audio_start_table(payload, ok: bool) -> None:
+    assert (validate_audio_start(payload) is None) is ok
 
 
 def test_unknown_type_is_reported() -> None:
@@ -301,8 +335,11 @@ async def test_finding_3_concurrent_publishers_keep_seq_order_under_backpressure
         ("user.text", {}),
         ("user.text", {"text": ["x"]}),
         ("user.text", {"text": "x", "client_id": 9}),
-        ("cancel", {}),
+        ("cancel", {"task_id": 1}),
+        ("cancel", {"message_id": 1}),
         ("set_mode", {"reply_mode": None}),
+        ("audio.start", {"sample_rate": "16000"}),
+        ("audio.start", {"channels": 1.0}),
     ],
 )
 def test_finding_7_invalid_payloads_are_rejected_before_dispatch(type_: str, payload) -> None:
@@ -325,7 +362,9 @@ def test_finding_7_invalid_payloads_are_rejected_before_dispatch(type_: str, pay
         ),
         ("user.text", {"text": ""}, {"text": "", "client_id": None}),
         ("user.text", {"text": "hola", "client_id": "r-1"}, {"text": "hola", "client_id": "r-1"}),
-        ("cancel", {"task_id": "t"}, {"task_id": "t"}),
+        ("cancel", {"task_id": "t"}, {"task_id": "t", "message_id": None}),
+        ("cancel", {"message_id": "m"}, {"task_id": None, "message_id": "m"}),
+        ("cancel", {}, {"task_id": None, "message_id": None}),
         ("set_mode", {"reply_mode": "nope"}, {"reply_mode": "nope"}),
     ],
 )
@@ -354,3 +393,90 @@ async def test_finding_1_stream_redacts_secrets_before_buffering_and_queueing() 
     assert envelope.payload == expected
     assert (await queue.get()).payload == expected
     assert (stream.replay(0) or [])[0].payload == expected
+
+
+# --- binary frames: outside seq and replay, never merged, purgeable (specs/ws-chat-protocol) ---
+
+
+def meta(seq: int, message_id: str, index: int) -> Envelope:
+    return Envelope(
+        type="tts.chunk.meta",
+        seq=seq,
+        conversation_id="c1",
+        message_id=message_id,
+        payload={"seq": index, "sentence_index": 0},
+    )
+
+
+async def test_publish_binary_goes_behind_the_last_envelope_without_seq_or_replay() -> None:
+    stream = ConversationStream("c1")
+    queue = OutboundQueue()
+    stream.attach(queue)
+
+    first = await stream.publish("tts.chunk.meta", {"seq": 0, "sentence_index": 0}, message_id="m")
+    frame = await stream.publish_binary(b"\x01\x02", "m")
+    second = await stream.publish("tts.end", {}, message_id="m")
+
+    assert stream.last_seq == 2 and (first.seq, second.seq) == (1, 2)
+    assert frame == BinaryFrame(b"\x01\x02", "m")
+    assert [await queue.get() for _ in range(3)] == [first, frame, second]
+    assert stream.replay(0) == [first, second]
+
+
+async def test_full_queue_never_merges_or_drops_meta_and_binaries() -> None:
+    queue = OutboundQueue(6)
+    await queue.put(delta(1, "m", "a"))
+    await queue.put(delta(2, "m", "b"))
+    await queue.put(meta(3, "m", 0))
+    await queue.put(BinaryFrame(b"\x00", "m"))
+    await queue.put(meta(4, "m", 1))
+    await queue.put(BinaryFrame(b"\x01", "m"))
+
+    await queue.put(task(5, "task.result"))
+
+    drained = [await queue.get() for _ in range(len(queue))]
+    assert [getattr(item, "type", "bin") for item in drained] == [
+        "assistant.delta",
+        "tts.chunk.meta",
+        "bin",
+        "tts.chunk.meta",
+        "bin",
+        "task.result",
+    ]
+    assert drained[0].payload["text"] == "ab"
+
+
+async def test_purge_removes_only_the_meta_and_binaries_of_one_message() -> None:
+    queue = OutboundQueue()
+    kept_meta, kept_frame = meta(1, "other", 0), BinaryFrame(b"\x09", "other")
+    final = task(5, "assistant.final")
+    for item in (meta(2, "m", 0), BinaryFrame(b"\x00", "m"), kept_meta, kept_frame, final):
+        await queue.put(item)
+    await queue.put(meta(6, "m", 1))
+    await queue.put(BinaryFrame(b"\x01", "m"))
+
+    removed = queue.purge("m")
+
+    assert removed == 4
+    assert [await queue.get() for _ in range(len(queue))] == [kept_meta, kept_frame, final]
+
+
+async def test_drained_waits_until_the_consumer_has_finished_with_every_item() -> None:
+    queue = OutboundQueue()
+    await queue.put(task(1))
+    await queue.put(task(2))
+
+    drained = asyncio.ensure_future(queue.drained())
+    await queue.get()
+    queue.done()
+    taken = await queue.get()
+    await asyncio.sleep(0)
+    assert not drained.done() and taken.seq == 2
+
+    queue.done()
+    await asyncio.wait_for(drained, 1)
+
+    closed = OutboundQueue()
+    await closed.put(task(3))
+    closed.close()
+    await asyncio.wait_for(closed.drained(), 1)

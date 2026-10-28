@@ -8,6 +8,8 @@ class FakeWebSocket {
   static OPEN = 1;
   readyState = 0;
   sent: string[] = [];
+  sentBinary: ArrayBuffer[] = [];
+  binaryType = "blob";
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
@@ -27,8 +29,12 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(envelope) });
   }
 
-  send(text: string): void {
-    this.sent.push(text);
+  send(data: string | ArrayBuffer): void {
+    if (typeof data === "string") {
+      this.sent.push(data);
+    } else {
+      this.sentBinary.push(data);
+    }
   }
 
   close(): void {
@@ -185,6 +191,36 @@ describe("ChatSocket (review of change 04)", () => {
     expect(socket.send({ type: "user.text", payload: { text: "antes" } })).toBe(false);
     ws.open();
     expect(socket.send({ type: "user.text", payload: { text: "ahora" } })).toBe(true);
+    socket.close();
+  });
+});
+
+describe("ChatSocket binary frames", () => {
+  it("sends ArrayBuffers as binary frames only while open", () => {
+    FakeWebSocket.instances = [];
+    const binaries: ArrayBuffer[] = [];
+    const socket = new ChatSocket({
+      url: "ws://test/ws/chat",
+      factory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+      onEnvelope: () => undefined,
+      onStatus: () => undefined,
+      onBinary: (buffer) => binaries.push(buffer),
+      conversationId: () => "c-1",
+      lastSeq: () => 0,
+    });
+    const frame = new Float32Array(480).buffer;
+    expect(socket.sendBinary(frame)).toBe(false);
+
+    socket.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.open();
+    expect(socket.sendBinary(frame)).toBe(true);
+    expect(ws.binaryType).toBe("arraybuffer");
+    expect(ws.sentBinary).toEqual([frame]);
+
+    const incoming = new Int16Array([1, 2, 3]).buffer;
+    ws.onmessage?.({ data: incoming } as unknown as { data: string });
+    expect(binaries).toEqual([incoming]);
     socket.close();
   });
 });

@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from tests.fakes.channels import ListChannel
 from tests.fakes.clock import FakeClock
 from tests.fakes.conversation import FakeConversationRunner
@@ -375,3 +377,100 @@ async def test_fake_conversation_runner_streams_scripted_chunks_before_the_turn(
     third = await runner.turn("p3")
     assert seen == ["Hola", ", Renzo"]
     assert (second.text, third.text) == ("Sin trozos", "Sin guion.")
+
+
+async def test_fake_conversation_runner_streams_speech_chunks_to_on_speech() -> None:
+    turn = {"display_text": "Hola.", "speech_text": "Hola.", "speech_chunks": ["Ho", "la."]}
+    runner = FakeConversationRunner([turn])
+    seen: list[str] = []
+
+    async def on_speech(text: str) -> None:
+        seen.append(text)
+
+    result = await runner.turn("p", on_speech=on_speech)
+
+    assert seen == ["Ho", "la."] and result.text == "Hola."
+
+
+# --- voice doubles (specs/voice-engines) --------------------------------------------------------
+
+from tests.fakes.voice import FakeStt, FakeTts, FakeVad, ListSpeechSink  # noqa: E402
+from tests.fixtures.audio.generate import FIXTURES_DIR, read_wav_float32  # noqa: E402
+from tony.core.voice.ports import (  # noqa: E402
+    OUTPUT_SAMPLE_RATE,
+    SpeechSink,
+    Stt,
+    Transcript,
+    Tts,
+    Utterance,
+    Vad,
+)
+from tony.core.voice.utterances import VadSegmenter  # noqa: E402
+
+
+def test_voice_doubles_are_instances_of_the_ports() -> None:
+    assert isinstance(FakeVad(), Vad)
+    assert isinstance(FakeStt("x"), Stt)
+    assert isinstance(FakeTts(), Tts)
+    assert isinstance(ListSpeechSink(), SpeechSink)
+
+
+def test_fake_vad_classifies_by_energy_and_segments_the_fixtures() -> None:
+    vad = FakeVad()
+    loud = read_wav_float32(FIXTURES_DIR / "tone_3s.wav")[: 512 * 4]
+    quiet = read_wav_float32(FIXTURES_DIR / "silence_1s.wav")[: 512 * 4]
+    assert vad.classify(loud) is True
+    assert vad.classify(quiet) is False
+
+    speech = VadSegmenter(FakeVad())
+    utterances = speech.feed(read_wav_float32(FIXTURES_DIR / "speech_1500ms.wav"))
+    utterances += speech.flush()
+    short = VadSegmenter(FakeVad())
+    nothing = short.feed(read_wav_float32(FIXTURES_DIR / "short_200ms.wav")) + short.flush()
+
+    assert len(utterances) == 1 and 1_400 <= utterances[0].duration_ms <= 1_600
+    assert nothing == []
+
+
+def test_fake_stt_returns_the_fixed_text_with_language_and_duration() -> None:
+    utterance = Utterance(pcm=b"\0" * 4 * 16_000, duration_ms=1_000)
+
+    transcript = FakeStt("¿qué hora es?").transcribe(utterance, "en")
+
+    assert transcript == Transcript("¿qué hora es?", "en", 1_000)
+    with pytest.raises(RuntimeError):
+        FakeStt("x", fail=True).transcribe(utterance, "es")
+
+
+def test_fake_tts_yields_300ms_of_sine_per_sentence_in_two_chunks() -> None:
+    tts = FakeTts()
+
+    chunks = list(tts.synthesize("Son las diez.", "ef_dora"))
+
+    assert len(chunks) == 2
+    assert all(c.sample_rate == OUTPUT_SAMPLE_RATE for c in chunks)
+    assert sum(c.duration_ms for c in chunks) == 300
+    assert any(b != 0 for b in chunks[0].pcm16)
+    assert tts.sentences == ["Son las diez."] and tts.voices == ["ef_dora"]
+
+
+def test_fake_tts_fails_at_the_requested_sentence() -> None:
+    tts = FakeTts(fail_at_sentence=2)
+
+    assert len(list(tts.synthesize("Una.", "v"))) == 2
+    with pytest.raises(RuntimeError, match="frase 2"):
+        list(tts.synthesize("Dos.", "v"))
+
+
+async def test_list_speech_sink_records_every_call_in_order() -> None:
+    sink = ListSpeechSink()
+    chunk = next(FakeTts().synthesize("a", "v"))
+
+    await sink.start()
+    await sink.chunk(0, 0, chunk)
+    await sink.failed("boom")
+    await sink.cancelled()
+    await sink.end()
+
+    assert sink.types() == ["start", "chunk", "failed", "cancelled", "end"]
+    assert sink.chunks == [(0, 0, chunk)] and sink.failures == ["boom"]

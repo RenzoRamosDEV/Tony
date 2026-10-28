@@ -28,8 +28,19 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(envelope) });
   }
 
-  send(text: string): void {
-    this.sent.push(JSON.parse(text) as Record<string, unknown>);
+  sentBinary: ArrayBuffer[] = [];
+  binaryType = "blob";
+
+  send(data: string | ArrayBuffer): void {
+    if (typeof data === "string") {
+      this.sent.push(JSON.parse(data) as Record<string, unknown>);
+    } else {
+      this.sentBinary.push(data);
+    }
+  }
+
+  receiveBinary(buffer: ArrayBuffer): void {
+    (this.onmessage as unknown as (event: { data: ArrayBuffer }) => void)?.({ data: buffer });
   }
 
   close(): void {
@@ -75,13 +86,17 @@ function helloOk(conversationId = "c-1"): Envelope {
   };
 }
 
-function mount(routes: Record<string, unknown> = {}) {
+const VOICE_OK = { available: true, reason: null, stt: "faster-whisper/small", tts: "kokoro/ef_dora" };
+const HEALTH = { status: "ok", version: "x", front: "jarvis", worker: "viernes", mcp: [], voice: VOICE_OK };
+
+function mount(routes: Record<string, unknown> = {}, audio?: FakeAudio) {
   const calls: Call[] = [];
   render(
     <App
       socketFactory={(url) => new FakeWebSocket(url) as unknown as WebSocket}
-      fetchImpl={fakeFetch({ "/api/settings": SETTINGS, ...routes }, calls)}
+      fetchImpl={fakeFetch({ "/api/settings": SETTINGS, "/api/health": HEALTH, ...routes }, calls)}
       storage={storage}
+      {...(audio ? { micDeps: audio.micDeps, audioContextFactory: () => audio.output as unknown as AudioContext } : {})}
     />,
   );
   const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
@@ -89,6 +104,77 @@ function mount(routes: Record<string, unknown> = {}) {
 }
 
 let storage: Storage;
+
+class FakeSource {
+  started: number | null = null;
+  stopped = false;
+  onended: (() => void) | null = null;
+  buffer: unknown = null;
+  connect(): void {}
+  start(when: number): void {
+    this.started = when;
+  }
+  stop(): void {
+    this.stopped = true;
+  }
+}
+
+class FakeOutputContext {
+  currentTime = 0;
+  sampleRate = 24000;
+  destination = {};
+  state = "running";
+  sources: FakeSource[] = [];
+  createBuffer(_c: number, length: number, rate: number) {
+    const data = new Float32Array(length);
+    return { duration: length / rate, getChannelData: () => data };
+  }
+  createBufferSource() {
+    const source = new FakeSource();
+    this.sources.push(source);
+    return source;
+  }
+  async resume(): Promise<void> {}
+  async close(): Promise<void> {}
+  finishAll(): void {
+    for (const source of this.sources) {
+      source.onended?.();
+    }
+  }
+}
+
+class FakeAudio {
+  requests: MediaStreamConstraints[] = [];
+  tracks = [{ stopped: false, stop() { this.stopped = true; } }];
+  port = { onmessage: null as ((event: { data: Float32Array }) => void) | null };
+  output = new FakeOutputContext();
+  permission: "granted" | "denied" = "granted";
+  micDeps = {
+    getUserMedia: async (constraints: MediaStreamConstraints) => {
+      this.requests.push(constraints);
+      if (this.permission === "denied") {
+        throw new DOMException("denied", "NotAllowedError");
+      }
+      return { getTracks: () => this.tracks } as unknown as MediaStream;
+    },
+    createContext: () =>
+      ({
+        audioWorklet: { addModule: async () => undefined },
+        createMediaStreamSource: () => ({ connect: () => undefined }),
+        close: async () => undefined,
+      }) as unknown as AudioContext,
+    createNode: () => ({ port: this.port, connect: () => undefined, disconnect: () => undefined }) as unknown as AudioWorkletNode,
+    workletUrl: "worklet.js",
+  };
+
+  speak(value = 0.5): void {
+    this.port.onmessage?.({ data: new Float32Array(480).fill(value) });
+  }
+}
+
+function pcm(ms: number): ArrayBuffer {
+  return new Int16Array((24000 * ms) / 1000).fill(1000).buffer;
+}
 
 describe("App", () => {
   beforeEach(() => {
@@ -278,5 +364,161 @@ describe("App (review of change 04)", () => {
     await waitFor(() => expect(calls.some((c) => c.url === "/api/conversations/c-2/messages")).toBe(true));
     expect(screen.queryByText("Primera.")).toBeNull();
     expect(storage.getItem("tony.conversation_id")).toBe("c-2");
+  });
+});
+
+
+describe("App (voice)", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    seq = 0;
+    window.localStorage.clear();
+    storage = window.localStorage;
+  });
+
+  async function connected(audio: FakeAudio, routes: Record<string, unknown> = {}) {
+    const mounted = mount({ "/api/conversations/c-1/messages": [], ...routes }, audio);
+    act(() => mounted.ws.open());
+    act(() => mounted.ws.receive(helloOk()));
+    await waitFor(() => expect(mounted.calls.some((c) => c.url === "/api/health")).toBe(true));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Activar micrófono" })).toBeEnabled());
+    return mounted;
+  }
+
+  async function listening(audio: FakeAudio) {
+    const mounted = await connected(audio);
+    await userEvent.click(screen.getByRole("button", { name: "Activar micrófono" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Desactivar micrófono" })).toBeInTheDocument());
+    return mounted;
+  }
+
+  it("disables the microphone with the install hint when the server has no voice", async () => {
+    const { ws } = mount({
+      "/api/conversations/c-1/messages": [],
+      "/api/health": { ...HEALTH, voice: { ...VOICE_OK, available: false, reason: "extra tony[voice] no instalado" } },
+    });
+    act(() => ws.open());
+    act(() => ws.receive(helloOk()));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Activar micrófono" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Activar micrófono" })).toHaveAttribute("title", expect.stringContaining("uv sync --extra voice"));
+  });
+
+  it("the microphone sends audio.start and streams the worklet frames as binary", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    expect(audio.requests[0]).toMatchObject({ audio: { channelCount: 1, echoCancellation: true } });
+    expect(ws.sent.at(-1)).toMatchObject({ type: "audio.start", payload: { sample_rate: 16000, channels: 1, format: "f32" } });
+    expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
+
+    act(() => audio.speak());
+    act(() => audio.speak());
+
+    expect(ws.sentBinary).toHaveLength(2);
+    expect(ws.sentBinary[0]!.byteLength).toBe(480 * 4);
+    expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "100");
+
+    await userEvent.click(screen.getByRole("button", { name: "Desactivar micrófono" }));
+    expect(ws.sent.at(-1)).toMatchObject({ type: "audio.end" });
+    expect(audio.tracks[0]!.stopped).toBe(true);
+  });
+
+  it("mutes the capture from tts.start until the playback drains after tts.end", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+    expect(screen.getByRole("status")).toHaveTextContent("Hablando…");
+    act(() => audio.speak());
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 1, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+    act(() => audio.speak());
+
+    expect(ws.sentBinary).toHaveLength(0);
+    expect(audio.output.sources.map((s) => s.started)).toEqual([0, 0.5]);
+    act(() => ws.receive(env("tts.end", { message_id: "a-1" }, { message_id: "a-1" })));
+    expect(screen.getByRole("status")).toHaveTextContent("Hablando…");
+    act(() => audio.speak());
+    expect(ws.sentBinary).toHaveLength(0);
+
+    act(() => audio.output.finishAll());
+
+    expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
+    act(() => audio.speak());
+    expect(ws.sentBinary).toHaveLength(1);
+  });
+
+  it("a binary frame without a pending meta is discarded", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+
+    act(() => ws.receiveBinary(pcm(100)));
+
+    expect(audio.output.sources).toHaveLength(0);
+  });
+
+  it("tts.cancelled stops the playback at once", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+    act(() => ws.receive(env("tts.start", { message_id: "a-1" }, { message_id: "a-1" })));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-1" })));
+    act(() => ws.receiveBinary(pcm(500)));
+
+    act(() => ws.receive(env("tts.cancelled", { message_id: "a-1" }, { message_id: "a-1" })));
+
+    expect(audio.output.sources[0]!.stopped).toBe(true);
+    expect(screen.getByRole("status")).toHaveTextContent("Escuchando…");
+    act(() => audio.speak());
+    expect(ws.sentBinary).toHaveLength(1);
+  });
+
+  it("'Detener audio' stops the playback and sends cancel for the spoken message", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+    act(() => ws.receive(env("tts.start", { message_id: "a-2" }, { message_id: "a-2" })));
+    act(() => ws.receive(env("tts.chunk.meta", { seq: 0, sentence_index: 0 }, { message_id: "a-2" })));
+    act(() => ws.receiveBinary(pcm(500)));
+
+    await userEvent.click(screen.getByRole("button", { name: "Detener audio" }));
+
+    expect(audio.output.sources[0]!.stopped).toBe(true);
+    expect(ws.sent.at(-1)).toMatchObject({ type: "cancel", payload: { message_id: "a-2" } });
+    act(() => ws.receive(env("tts.cancelled", { message_id: "a-2" }, { message_id: "a-2" })));
+    expect(screen.queryByRole("button", { name: "Detener audio" })).toBeNull();
+  });
+
+  it("shows the transcription as a voice bubble and the full answer rendered", async () => {
+    const audio = new FakeAudio();
+    const { ws } = await listening(audio);
+
+    act(() => ws.receive(env("stt.final", { text: "¿qué hora es?", message_id: "m-1" }, { message_id: "m-1" })));
+    act(() => ws.receive(env("user.accepted", { message_id: "m-1", effective_mode: "voice", client_id: null }, { message_id: "m-1" })));
+    act(() =>
+      ws.receive(
+        env("assistant.final", { display_text: "| a | b |\n|---|---|\n| 1 | 2 |", speech_text: "Dos filas.", message_id: "a-1" }, { message_id: "a-1" }),
+      ),
+    );
+
+    const bubble = screen.getByRole("article", { name: "Mensaje tuyo por voz" });
+    expect(bubble).toHaveTextContent("¿qué hora es?");
+    expect(bubble).toHaveTextContent("voice");
+    expect(screen.getByTitle("Transcrito del micrófono")).toBeInTheDocument();
+    expect(document.querySelector("table")).not.toBeNull();
+  });
+
+  it("a denied permission shows a Spanish notice and never sends audio.start", async () => {
+    const audio = new FakeAudio();
+    audio.permission = "denied";
+    const { ws } = await connected(audio);
+
+    await userEvent.click(screen.getByRole("button", { name: "Activar micrófono" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("micrófono"));
+    expect(ws.sent.some((m) => m.type === "audio.start")).toBe(false);
+    expect(screen.getByRole("button", { name: "Activar micrófono" })).toHaveAttribute("aria-pressed", "false");
   });
 });

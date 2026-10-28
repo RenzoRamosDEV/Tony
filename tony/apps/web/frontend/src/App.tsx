@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { createApi } from "./api/client";
+import type { MicCaptureDeps } from "./audio/capture";
+import { PERMISSION_DENIED, useMicCapture, usePcmPlayer } from "./audio/hooks";
 import { ChatList } from "./components/ChatList";
 import { Composer } from "./components/Composer";
 import { ConfirmationCard } from "./components/ConfirmationCard";
 import { DebugPanel } from "./components/DebugPanel";
 import { PlusIcon, StopIcon } from "./components/icons";
+import { MicButton } from "./components/MicButton";
 import { ModeSelector } from "./components/ModeSelector";
 import { StatusBanner } from "./components/StatusBanner";
+import { StopAudioButton } from "./components/StopAudioButton";
+import { VoiceStatus } from "./components/VoiceStatus";
 import { initialState, reduce } from "./protocol/reducer";
 import { ChatSocket, defaultSocketUrl } from "./protocol/socket";
-import type { Envelope, ReplyMode } from "./protocol/types";
+import { AUDIO_START_PAYLOAD, type Envelope, type ReplyMode } from "./protocol/types";
 
 export const CONVERSATION_KEY = "tony.conversation_id";
 
@@ -25,6 +30,8 @@ interface Props {
   socketFactory?: (url: string) => WebSocket;
   fetchImpl?: typeof fetch;
   storage?: Storage;
+  micDeps?: MicCaptureDeps;
+  audioContextFactory?: () => AudioContext;
 }
 
 function readStorage(storage: Storage | undefined, key: string): string | null {
@@ -43,7 +50,7 @@ function writeStorage(storage: Storage | undefined, key: string, value: string):
   }
 }
 
-export function App({ socketFactory, fetchImpl, storage }: Props) {
+export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFactory }: Props) {
   const [state, dispatch] = useReducer(reduce, initialState);
   const [historyReady, setHistoryReady] = useState(false);
   const api = useMemo(() => createApi(fetchImpl), [fetchImpl]);
@@ -51,11 +58,33 @@ export function App({ socketFactory, fetchImpl, storage }: Props) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const socketRef = useRef<ChatSocket | null>(null);
+  const player = usePcmPlayer(audioContextFactory);
+  const playerRef = useRef(player);
+  playerRef.current = player;
+  const mic = useMicCapture(micDeps, {
+    onFrame: (frame) => void socketRef.current?.sendBinary(frame.buffer as ArrayBuffer),
+    onSilenceAfterSpeech: () => dispatch({ type: "silence_after_speech" }),
+  });
 
   useEffect(() => {
     const socket = new ChatSocket({
       url: defaultSocketUrl(window.location),
-      onEnvelope: (envelope: Envelope) => dispatch({ type: "envelope", envelope, now: Date.now() }),
+      onEnvelope: (envelope: Envelope) => {
+        if (envelope.type === "tts.start") {
+          playerRef.current.begin();
+        } else if (envelope.type === "tts.cancelled") {
+          playerRef.current.stop();
+        }
+        dispatch({ type: "envelope", envelope, now: Date.now() });
+      },
+      onBinary: (buffer) => {
+        const meta = stateRef.current.voice.pendingMeta;
+        if (meta === null) {
+          return;
+        }
+        playerRef.current.enqueue(meta.seq, buffer);
+        dispatch({ type: "binary_consumed" });
+      },
       onStatus: (connected) => dispatch({ type: "connection", connected }),
       conversationId: () => stateRef.current.conversationId ?? readStorage(store, CONVERSATION_KEY),
       lastSeq: () => stateRef.current.lastSeq,
@@ -110,6 +139,19 @@ export function App({ socketFactory, fetchImpl, storage }: Props) {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    api
+      .getHealth()
+      .then((health) => dispatch({ type: "voice_health", available: health.voice.available, reason: health.voice.reason }))
+      .catch(() => undefined);
+  }, [api]);
+
+  const speaking = state.voice.phase === "speaking" || player.playing;
+  const setMuted = mic.setMuted;
+  useEffect(() => {
+    setMuted(speaking);
+  }, [setMuted, speaking]);
+
   const send = useCallback((text: string): boolean => {
     const clientId = newClientId();
     const sent = socketRef.current?.send({ type: "user.text", payload: { text, client_id: clientId } }) ?? false;
@@ -129,6 +171,33 @@ export function App({ socketFactory, fetchImpl, storage }: Props) {
       socketRef.current?.send({ type: "cancel", payload: { task_id: activeRoot } });
     }
   }, [activeRoot]);
+
+  const micOn = state.voice.mic === "on";
+  const toggleMic = useCallback(async () => {
+    if (micOn) {
+      socketRef.current?.send({ type: "audio.end", payload: {} });
+      mic.stop();
+      dispatch({ type: "mic", on: false });
+      return;
+    }
+    try {
+      await mic.start();
+    } catch {
+      dispatch({ type: "notice", text: PERMISSION_DENIED });
+      return;
+    }
+    socketRef.current?.send({ type: "audio.start", payload: { ...AUDIO_START_PAYLOAD } });
+    dispatch({ type: "mic", on: true });
+  }, [mic, micOn]);
+
+  const speakingMessageId = state.voice.speakingMessageId;
+  const stopAudio = useCallback(() => {
+    player.stop();
+    if (speakingMessageId !== null) {
+      socketRef.current?.send({ type: "cancel", payload: { message_id: speakingMessageId } });
+    }
+    dispatch({ type: "stop_audio" });
+  }, [player, speakingMessageId]);
 
   const onModeChanged = useCallback((mode: ReplyMode) => dispatch({ type: "set_reply_mode", mode }), []);
   const dismiss = useCallback(() => dispatch({ type: "dismiss_notice" }), []);
@@ -154,6 +223,11 @@ export function App({ socketFactory, fetchImpl, storage }: Props) {
             <StopIcon /> Cancelar tarea
           </button>
         ) : null}
+        <div className="voice-bar">
+          <MicButton voice={state.voice} onToggle={() => void toggleMic()} />
+          <VoiceStatus voice={speaking ? { ...state.voice, phase: "speaking" } : state.voice} level={mic.level} />
+          <StopAudioButton visible={speaking} onStop={stopAudio} />
+        </div>
         <Composer disabled={inputDisabled} onSend={send} />
       </main>
       <DebugPanel state={state} storage={store} />

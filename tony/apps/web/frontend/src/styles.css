@@ -255,6 +255,61 @@ pre {
   align-self: flex-start;
 }
 
+.voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.5rem;
+}
+
+button.mic.active {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+  animation: mic-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+}
+
+.voice-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.voice-status p {
+  margin: 0;
+}
+
+.level {
+  flex: 1;
+  max-width: 10rem;
+  height: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.level-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 80ms linear;
+}
+
+.bubble .source {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 0.35rem;
+  color: var(--muted);
+}
+
 .composer {
   display: grid;
   grid-template-columns: 1fr auto;

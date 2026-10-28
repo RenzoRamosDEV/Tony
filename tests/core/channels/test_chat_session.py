@@ -18,6 +18,7 @@ from tests.fakes.worker_factory import FakeWorkerFactory
 from tony.core.channels.ports import (
     AssistantDelta,
     AssistantReply,
+    AssistantSpeechDelta,
     AssistantWait,
     NeedsConfirmation,
     Notice,
@@ -130,7 +131,11 @@ def spoken(reply: AssistantReply | None) -> tuple[str, str | None, str]:
 
 def cli_visible(messages: list) -> list:
     """What the terminal renders: the web-only messages are ignored by CliChannel."""
-    return [m for m in messages if not isinstance(m, (UserAccepted, AssistantDelta, TaskEvent))]
+    return [
+        m
+        for m in messages
+        if not isinstance(m, (UserAccepted, AssistantDelta, AssistantSpeechDelta, TaskEvent))
+    ]
 
 
 async def test_time_question_is_answered_without_delegating(tmp_memory: Path) -> None:
@@ -877,3 +882,70 @@ async def test_interrupt_stops_the_front_even_without_a_delegated_task(tmp_memor
     await h.session.interrupt()
 
     assert h.runner.interrupts == 1
+
+
+# --- voice input: modality and message_id (specs/reply-mode, voice-input) ----------------------
+
+
+async def test_audio_input_resolves_auto_to_voice_with_the_given_message_id(
+    tmp_memory: Path,
+) -> None:
+    h = Harness(tmp_memory, [{"display_text": "Son las diez.", "speech_text": "Son las diez."}])
+    conversation = await h.start()
+
+    reply = await h.session.handle("¿qué hora es?", "audio", message_id="m-1")
+
+    assert h.channel.messages[0] == UserAccepted("m-1", "voice")
+    stored = h.memory.conversations.messages(conversation)[0]
+    assert (stored.id, stored.content, stored.role) == ("m-1", "¿qué hora es?", "user")
+    assert "Modalidad de entrada: voice" in h.runner.prompts[0]
+    assert spoken(reply) == ("Son las diez.", "Son las diez.", "voice")
+
+
+async def test_text_input_states_its_modality_and_keeps_generating_ids(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, ["Hola."])
+    conversation = await h.start()
+
+    await h.session.handle("hola")
+
+    accepted = h.channel.of_type(UserAccepted)[0]
+    assert accepted.message_id == h.memory.conversations.messages(conversation)[0].id
+    assert len(accepted.message_id) == 32
+    assert "Modalidad de entrada: text" in h.runner.prompts[0]
+
+
+async def test_set_reply_mode_by_phrase_applies_to_the_next_audio_message(tmp_memory: Path) -> None:
+    async def switching(prompt: str, handlers: Any) -> dict[str, Any]:
+        await handlers.set_reply_mode("text")
+        return {"display_text": "Por escrito.", "speech_text": "Por escrito."}
+
+    h = Harness(tmp_memory, [switching, "Vale."])
+    await h.start()
+
+    first = await h.session.handle("respóndeme por escrito", "audio")
+    second = await h.session.handle("¿qué hora es?", "audio")
+
+    assert [a.effective_mode for a in h.channel.of_type(UserAccepted)] == ["voice", "text"]
+    assert spoken(first) == ("Por escrito.", "Por escrito.", "voice")
+    assert spoken(second) == ("Vale.", None, "text")
+
+
+async def test_speech_chunks_become_speech_deltas_only_outside_text_mode(tmp_memory: Path) -> None:
+    turn = {
+        "display_text": "Son las diez. Tiene una reunión.",
+        "speech_text": "Son las diez. Tiene una reunión.",
+        "speech_chunks": ["Son las diez. ", "Tiene una reunión."],
+    }
+    h = Harness(tmp_memory, [turn, dict(turn)])
+    await h.start()
+
+    reply = await h.session.handle("/v hora")
+    deltas = h.channel.of_type(AssistantSpeechDelta)
+    assert [d.text for d in deltas] == ["Son las diez. ", "Tiene una reunión."]
+    assert {d.message_id for d in deltas} == {reply.message_id}
+    assert h.channel.messages.index(deltas[0]) < h.channel.messages.index(reply)
+    assert cli_visible(h.channel.messages) == [reply]
+
+    h.channel.messages.clear()
+    await h.session.handle("/t hora")
+    assert h.channel.of_type(AssistantSpeechDelta) == []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +13,46 @@ from tests.fakes.clock import FakeClock
 from tests.fakes.conversation import FakeConversationRunner, ScriptedTurn
 from tests.fakes.fake_watch import ScriptedWatch
 from tests.fakes.scripted_runner import ScriptedRunner, Step
+from tests.fakes.voice import FakeStt, FakeTts, FakeVad
+from tests.fixtures.audio.generate import FIXTURES_DIR, read_wav_float32
 from tony.core.channels.bootstrap import ChatRuntime, RuntimeOptions, build_chat_runtime
+from tony.core.config import VoiceSettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
 from tony.core.runner import EventSink, TaskRequest, TaskResult
+from tony.core.voice.engines import EngineRegistry, VoiceAvailability
+from tony.core.voice.ports import Tts
 
 ORIGIN = "http://127.0.0.1:8787"
+FRAME_BYTES = 2560
+
+
+class FakeVoice:
+    """An engine registry over the voice doubles, reported as available."""
+
+    def __init__(
+        self,
+        vad: FakeVad,
+        stt: FakeStt,
+        tts: FakeTts | None = None,
+        tts_factory: Callable[[str], Tts] | None = None,
+        settings: VoiceSettings | None = None,
+    ) -> None:
+        self.vad, self.stt, self.tts = vad, stt, tts
+        self.settings = settings or VoiceSettings()
+        self.registry = EngineRegistry(
+            self.settings,
+            vad_factory=lambda: vad,
+            stt_factory=lambda model: stt,
+            tts_factory=tts_factory or (lambda voice_name: tts),
+        )
+        self.availability = VoiceAvailability(True, None, self.settings.stt, self.settings.tts)
+
+
+def frames_of(name: str, frame_bytes: int = FRAME_BYTES) -> list[bytes]:
+    """A fixture as the 40 ms Float32 frames the browser would send."""
+    pcm = read_wav_float32(FIXTURES_DIR / name)
+    return [pcm[i : i + frame_bytes] for i in range(0, len(pcm), frame_bytes)]
 
 
 def write_front(agents_dir: Path, name: str = "jarvis") -> None:
@@ -136,6 +171,7 @@ class Doubles:
 class FakeSocket:
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
+        self.binary: list[bytes] = []
         self.closed: list[int] = []
         self.gate = asyncio.Event()
         self.gate.set()
@@ -145,6 +181,12 @@ class FakeSocket:
         if self.closed:
             raise RuntimeError("socket cerrado")
         self.sent.append(json.loads(text))
+
+    async def send_bytes(self, data: bytes) -> None:
+        await self.gate.wait()
+        if self.closed:
+            raise RuntimeError("socket cerrado")
+        self.binary.append(data)
 
     async def close(self, code: int = 1000) -> None:
         self.closed.append(code)
@@ -169,7 +211,7 @@ def delegating(objetivo: str):
 
 # --- FastAPI app over the runtime of doubles -----------------------------------------------------
 
-from collections.abc import Callable, Iterator  # noqa: E402
+from collections.abc import Iterator  # noqa: E402
 from contextlib import contextmanager  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -177,6 +219,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from tony.apps.web.hub import ConversationHub  # noqa: E402
 from tony.apps.web.options import WebOptions  # noqa: E402
 from tony.apps.web.server import create_app  # noqa: E402
+from tony.apps.web.voice import VoiceRuntime  # noqa: E402
 from tony.core.channels.bootstrap import ChatRuntime as _Runtime  # noqa: E402
 
 
@@ -191,6 +234,7 @@ def build_test_app(
     open_browser: bool = False,
     host: str = "127.0.0.1",
     port: int = 8787,
+    voice: FakeVoice | None = None,
 ) -> TestClient:
     """TestClient whose startup builds the runtime of doubles; `app.state` exposes them."""
     doubles = Doubles(tmp_path, turns)
@@ -201,7 +245,12 @@ def build_test_app(
 
     async def boot() -> tuple[ConversationHub, _Runtime]:
         runtime = await doubles.build(hub.gate_factory)
-        hub.bind(runtime)
+        engines = (
+            VoiceRuntime.disabled(runtime.settings.voice)
+            if voice is None
+            else VoiceRuntime(voice.availability, voice.registry)
+        )
+        hub.bind(runtime, engines)
         return hub, runtime
 
     options = WebOptions(host, port, doubles.options(), open_browser=open_browser, dist_dir=dist)
@@ -255,6 +304,25 @@ def drain_until(ws: Any, type_: str, limit: int = 200) -> list[dict[str, Any]]:
         if message["type"] == type_:
             return seen
     raise AssertionError(f"no llegó {type_}; recibidos: {[m['type'] for m in seen]}")
+
+
+def drain_mixed(ws: Any, type_: str, limit: int = 200) -> list[Any]:
+    """Receive envelopes (dicts) and binary frames (bytes) until `type_` (or "bin") arrives."""
+    seen: list[Any] = []
+    for _ in range(limit):
+        raw = ws.receive()
+        if raw.get("type") == "websocket.close":
+            raise AssertionError(f"socket cerrado antes de {type_}; recibidos: {seen}")
+        if raw.get("bytes") is not None:
+            seen.append(raw["bytes"])
+            if type_ == "bin":
+                return seen
+            continue
+        message = json.loads(raw["text"])
+        seen.append(message)
+        if message["type"] == type_:
+            return seen
+    raise AssertionError(f"no llegó {type_}; recibidos: {seen}")
 
 
 def wait_detached(client: TestClient) -> None:

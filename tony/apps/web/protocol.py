@@ -25,8 +25,11 @@ USER_TEXT = "user.text"
 CONFIRM = "confirm"
 CANCEL = "cancel"
 SET_MODE = "set_mode"
-CLIENT_TYPES = frozenset({HELLO, USER_TEXT, CONFIRM, CANCEL, SET_MODE})
-AUDIO_TYPES = frozenset({"audio.start", "audio.chunk", "audio.end"})
+AUDIO_START = "audio.start"
+AUDIO_END = "audio.end"
+CLIENT_TYPES = frozenset({HELLO, USER_TEXT, CONFIRM, CANCEL, SET_MODE, AUDIO_START, AUDIO_END})
+AUDIO_FRAME_MAX_BYTES = 16 * 1024
+SUPPORTED_AUDIO = {"sample_rate": 16000, "channels": 1, "format": "f32"}
 
 HELLO_OK = "hello.ok"
 USER_ACCEPTED = "user.accepted"
@@ -35,6 +38,11 @@ ASSISTANT_WAIT = "assistant.wait"
 ASSISTANT_FINAL = "assistant.final"
 USAGE = "usage"
 ERROR = "error"
+STT_FINAL = "stt.final"
+TTS_START = "tts.start"
+TTS_CHUNK_META = "tts.chunk.meta"
+TTS_END = "tts.end"
+TTS_CANCELLED = "tts.cancelled"
 
 CLOSE_POLICY_VIOLATION = 1008
 CLOSE_TOO_LARGE = 1009
@@ -62,8 +70,8 @@ class BadEnvelope(ProtocolError):
     code = "bad_envelope"
 
 
-class NotImplementedType(ProtocolError):
-    code = "not_implemented"
+class UnsupportedAudio(ProtocolError):
+    code = "unsupported_audio"
 
 
 class UnknownType(ProtocolError):
@@ -95,6 +103,17 @@ class Envelope(BaseModel):
             if data[optional] is None:
                 del data[optional]
         return json.dumps(data, ensure_ascii=False)
+
+
+@dataclass(frozen=True)
+class BinaryFrame:
+    """Audio of one reply, queued right behind its `tts.chunk.meta`; never numbered nor replayed."""
+
+    data: bytes
+    message_id: str
+
+
+QueueItem = Envelope | BinaryFrame
 
 
 @dataclass(frozen=True)
@@ -133,11 +152,22 @@ class _ConfirmPayload(_StrictPayload):
 
 
 class _CancelPayload(_StrictPayload):
-    task_id: str
+    task_id: str | None = None
+    message_id: str | None = None
 
 
 class _SetModePayload(_StrictPayload):
     reply_mode: str
+
+
+class _AudioStartPayload(_StrictPayload):
+    sample_rate: int = SUPPORTED_AUDIO["sample_rate"]
+    channels: int = SUPPORTED_AUDIO["channels"]
+    format: str = SUPPORTED_AUDIO["format"]
+
+
+class _AudioEndPayload(_StrictPayload):
+    pass
 
 
 PAYLOAD_MODELS: dict[str, type[_StrictPayload]] = {
@@ -146,7 +176,18 @@ PAYLOAD_MODELS: dict[str, type[_StrictPayload]] = {
     CONFIRM: _ConfirmPayload,
     CANCEL: _CancelPayload,
     SET_MODE: _SetModePayload,
+    AUDIO_START: _AudioStartPayload,
+    AUDIO_END: _AudioEndPayload,
 }
+
+
+def validate_audio_start(payload: dict[str, Any]) -> str | None:
+    """Why an `audio.start` payload is not the one supported format, or None when it is."""
+    if all(payload.get(key) == value for key, value in SUPPORTED_AUDIO.items()):
+        return None
+    given = ", ".join(f"{key}={payload.get(key)!r}" for key in SUPPORTED_AUDIO)
+    supported = ", ".join(f"{key}={value!r}" for key, value in SUPPORTED_AUDIO.items())
+    return f"formato de audio no soportado ({given}); se requiere {supported}"
 
 
 def parse_client_message(text: str) -> ClientMessage:
@@ -163,32 +204,32 @@ def parse_client_message(text: str) -> ClientMessage:
             f"versión {envelope.v} no soportada; se requiere v: {PROTOCOL_VERSION}",
             close_code=CLOSE_PROTOCOL_ERROR,
         )
-    if envelope.type in AUDIO_TYPES:
-        raise NotImplementedType(f"el tipo {envelope.type} está reservado para la entrega de voz")
     if envelope.type not in CLIENT_TYPES:
         raise UnknownType(f"tipo desconocido: {envelope.type}")
     try:
-        payload = PAYLOAD_MODELS[envelope.type].model_validate(envelope.payload)
+        payload = PAYLOAD_MODELS[envelope.type].model_validate(envelope.payload).model_dump()
     except ValidationError as exc:
         raise BadPayload(f"payload inválido para {envelope.type}: {_brief(exc)}") from None
-    return ClientMessage(envelope.type, payload.model_dump(), envelope.seq)
+    if envelope.type == AUDIO_START and (problem := validate_audio_start(payload)) is not None:
+        raise UnsupportedAudio(problem)
+    return ClientMessage(envelope.type, payload, envelope.seq)
 
 
 def _brief(exc: Exception) -> str:
     return str(exc).splitlines()[0]
 
 
-def coalesce_deltas(items: Iterable[Envelope]) -> list[Envelope]:
+def coalesce_deltas(items: Iterable[QueueItem]) -> list[QueueItem]:
     """Merge the deltas of each message into one placed where its last delta was."""
     texts: dict[str | None, list[str]] = {}
     last_delta: dict[str | None, Envelope] = {}
     for item in items:
-        if item.type == ASSISTANT_DELTA:
+        if isinstance(item, Envelope) and item.type == ASSISTANT_DELTA:
             texts.setdefault(item.message_id, []).append(item.payload.get("text", ""))
             last_delta[item.message_id] = item
-    merged: list[Envelope] = []
+    merged: list[QueueItem] = []
     for item in items:
-        if item.type != ASSISTANT_DELTA:
+        if not isinstance(item, Envelope) or item.type != ASSISTANT_DELTA:
             merged.append(item)
         elif last_delta[item.message_id] is item:
             text = "".join(texts[item.message_id])
@@ -201,20 +242,36 @@ class OutboundQueue:
 
     def __init__(self, capacity: int = QUEUE_CAPACITY) -> None:
         self._capacity = capacity
-        self._items: deque[Envelope] = deque()
+        self._items: deque[QueueItem] = deque()
         self._not_empty = asyncio.Event()
         self._not_full = asyncio.Event()
         self._not_full.set()
+        self._empty = asyncio.Event()
+        self._empty.set()
+        self._in_flight = 0
         self._closed = False
 
     def __len__(self) -> int:
         return len(self._items)
+
+    async def drained(self) -> None:
+        """Wait until the consumer has sent everything queued so far (or the queue closes)."""
+        while (self._items or self._in_flight) and not self._closed:
+            self._empty.clear()
+            await self._empty.wait()
+
+    def done(self) -> None:
+        """The consumer finished sending the item it last took."""
+        self._in_flight = max(0, self._in_flight - 1)
+        if not self._items and not self._in_flight:
+            self._empty.set()
 
     def close(self) -> None:
         """Wake every blocked producer and consumer; later puts and gets raise QueueClosed."""
         self._closed = True
         self._not_full.set()
         self._not_empty.set()
+        self._empty.set()
 
     def prefill(self, envelopes: Iterable[Envelope]) -> None:
         """Seed the queue with replayed envelopes before any live one is published."""
@@ -222,7 +279,14 @@ class OutboundQueue:
         if self._items:
             self._not_empty.set()
 
-    async def put(self, envelope: Envelope) -> None:
+    def purge(self, message_id: str) -> int:
+        """Drop the audio still queued for one reply (its `tts.chunk.meta` and binary frames)."""
+        kept = deque(item for item in self._items if not _is_audio_of(item, message_id))
+        removed = len(self._items) - len(kept)
+        self._items = kept
+        return removed
+
+    async def put(self, envelope: QueueItem) -> None:
         if len(self._items) >= self._capacity:
             self._items = deque(coalesce_deltas(list(self._items)))
         while len(self._items) >= self._capacity and not self._closed:
@@ -233,15 +297,22 @@ class OutboundQueue:
         self._items.append(envelope)
         self._not_empty.set()
 
-    async def get(self) -> Envelope:
+    async def get(self) -> QueueItem:
         while not self._items:
             if self._closed:
                 raise QueueClosed
             self._not_empty.clear()
             await self._not_empty.wait()
         item = self._items.popleft()
+        self._in_flight += 1
         self._not_full.set()
         return item
+
+
+def _is_audio_of(item: QueueItem, message_id: str) -> bool:
+    if isinstance(item, BinaryFrame):
+        return item.message_id == message_id
+    return item.type == TTS_CHUNK_META and item.message_id == message_id
 
 
 class ConversationStream:
@@ -294,6 +365,18 @@ class ConversationStream:
                 with contextlib.suppress(QueueClosed):
                     await self._queue.put(envelope)
         return envelope
+
+    async def publish_binary(self, data: bytes, message_id: str) -> BinaryFrame:
+        """Queue audio behind whatever was published before it; it takes no seq and no buffer."""
+        frame = BinaryFrame(data, message_id)
+        async with self._publishing:
+            if self._queue is not None:
+                with contextlib.suppress(QueueClosed):
+                    await self._queue.put(frame)
+        return frame
+
+    def purge_audio(self, message_id: str) -> int:
+        return self._queue.purge(message_id) if self._queue is not None else 0
 
     def replay(self, last_seq: int) -> list[Envelope] | None:
         """Envelopes after `last_seq`, or None when they are older than the buffer (resync)."""

@@ -34,3 +34,27 @@ describe("MessageBubble", () => {
     expect(bubble.closest("[data-role='wait']")).not.toBeNull();
   });
 });
+
+describe("MessageBubble (voice)", () => {
+  it("marks a transcribed user message with a microphone icon and its mode", () => {
+    render(
+      <MessageBubble
+        message={{ id: "m-1", role: "user", content: "¿qué hora es?", seq: 4, source: "voice", effectiveMode: "voice" }}
+      />,
+    );
+
+    const article = screen.getByRole("article");
+    expect(article).toHaveAttribute("data-source", "voice");
+    expect(article).toHaveAccessibleName("Mensaje tuyo por voz");
+    expect(screen.getByTitle("Transcrito del micrófono")).toBeInTheDocument();
+    expect(screen.getByText("voice")).toBeInTheDocument();
+    expect(screen.getByText("¿qué hora es?")).toBeInTheDocument();
+  });
+
+  it("typed messages carry no microphone icon", () => {
+    render(<MessageBubble message={{ id: "u1", role: "user", content: "hola", seq: 1, effectiveMode: "text" }} />);
+
+    expect(screen.queryByTitle("Transcrito del micrófono")).toBeNull();
+    expect(screen.getByRole("article")).not.toHaveAttribute("data-source");
+  });
+});

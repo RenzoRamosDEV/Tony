@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import pkgutil
 from pathlib import Path
+from typing import Any
 
 import tony.apps
 import tony.core
@@ -24,6 +25,7 @@ FRAMEWORK_FREE_PACKAGES = (
     "tony.core.subagents.",
     "tony.core.doctor.",
     "tony.core.evals.",
+    "tony.core.voice.",
 )
 FORBIDDEN_IN_FRAMEWORK_FREE = ("tony.core.channels", "pytest", "typer")
 SQLITE_ALLOWED_IN = {"tony.core.memory.conversations"}
@@ -32,6 +34,9 @@ CHANNELS_PACKAGE = "tony.core.channels"
 WEB_FRAMEWORKS = ("fastapi", "starlette", "uvicorn")
 WEB_PACKAGE = "tony.apps.web."
 CLI_PACKAGE = "tony.apps.cli"
+ENGINE_MODULES = ("faster_whisper", "kokoro", "silero_vad", "onnxruntime", "torch")
+ENGINES_PACKAGE = "tony.core.voice.engines"
+VOICE_ADAPTERS = ("tony.apps.web.audio_ws", "tony.apps.web.tts_stream")
 
 
 def imported_modules(path: Path) -> set[str]:
@@ -45,22 +50,24 @@ def imported_modules(path: Path) -> set[str]:
     return names
 
 
-def core_modules() -> dict[str, set[str]]:
+def _modules_of(package: Any, prefix: str) -> dict[str, set[str]]:
+    """Imports of every module and package `__init__` under `package`, keyed by dotted name."""
     result = {}
-    for info in pkgutil.walk_packages(tony.core.__path__, prefix="tony.core."):
-        path = Path(info.module_finder.path) / (info.name.rsplit(".", 1)[-1] + ".py")
+    for info in pkgutil.walk_packages(package.__path__, prefix=prefix):
+        leaf = info.name.rsplit(".", 1)[-1]
+        folder = Path(info.module_finder.path)
+        path = folder / leaf / "__init__.py" if info.ispkg else folder / f"{leaf}.py"
         if path.is_file():
             result[info.name] = imported_modules(path)
     return result
+
+
+def core_modules() -> dict[str, set[str]]:
+    return _modules_of(tony.core, "tony.core.")
 
 
 def apps_modules() -> dict[str, set[str]]:
-    result = {}
-    for info in pkgutil.walk_packages(tony.apps.__path__, prefix="tony.apps."):
-        path = Path(info.module_finder.path) / (info.name.rsplit(".", 1)[-1] + ".py")
-        if path.is_file():
-            result[info.name] = imported_modules(path)
-    return result
+    return _modules_of(tony.apps, "tony.apps.")
 
 
 def offenders(modules: dict[str, set[str]], forbidden: tuple[str, ...]) -> dict[str, list[str]]:
@@ -93,6 +100,16 @@ def web_framework_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]
 def web_to_cli_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
     web = {m: i for m, i in modules.items() if m.startswith(WEB_PACKAGE)}
     return offenders(web, (CLI_PACKAGE,))
+
+
+def engine_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
+    outside_engines = {m: i for m, i in modules.items() if not m.startswith(ENGINES_PACKAGE)}
+    return offenders(outside_engines, ENGINE_MODULES)
+
+
+def voice_adapter_offenders(modules: dict[str, set[str]]) -> dict[str, list[str]]:
+    adapters = {m: i for m, i in modules.items() if m in VOICE_ADAPTERS}
+    return offenders(adapters, (ENGINES_PACKAGE, *ENGINE_MODULES))
 
 
 def test_core_never_imports_apps_or_frameworks() -> None:
@@ -175,3 +192,33 @@ def test_a_simulated_web_framework_leak_is_reported() -> None:
         "tony.core.channels.bootstrap": ["starlette.requests"],
     }
     assert web_to_cli_offenders(simulated) == {"tony.apps.web.api": ["tony.apps.cli.render"]}
+
+
+def test_voice_engines_are_imported_only_by_the_engines_package() -> None:
+    assert engine_offenders({**core_modules(), **apps_modules()}) == {}
+
+
+def test_voice_web_adapters_never_import_engines() -> None:
+    assert voice_adapter_offenders(apps_modules()) == {}
+
+
+def test_a_simulated_engine_leak_is_reported() -> None:
+    simulated = {
+        "tony.core.voice.engines.kokoro": {"kokoro", "torch", "asyncio"},
+        "tony.core.voice.pipeline": {"asyncio", "onnxruntime"},
+        "tony.apps.web.audio_ws": {"tony.core.voice.engines", "faster_whisper"},
+        "tony.apps.web.tts_stream": {"tony.core.voice.pipeline"},
+        "tony.apps.cli.voice_cli": {"typer"},
+        "tony.core.voice.utterances": {"tony.core.channels.ports"},
+    }
+
+    assert engine_offenders(simulated) == {
+        "tony.core.voice.pipeline": ["onnxruntime"],
+        "tony.apps.web.audio_ws": ["faster_whisper"],
+    }
+    assert voice_adapter_offenders(simulated) == {
+        "tony.apps.web.audio_ws": ["faster_whisper", "tony.core.voice.engines"]
+    }
+    assert framework_free_offenders(simulated) == {
+        "tony.core.voice.utterances": ["tony.core.channels.ports"]
+    }
