@@ -45,7 +45,7 @@ El agente SHALL NOT tener acceso a las tools integradas del entorno de ejecució
 - **THEN** la solicitud es denegada y nunca llega al servidor
 
 ### Requirement: Proxies MCP como única barrera de ejecución
-Por cada servidor MCP del catálogo, el agente SHALL ver un servidor MCP en proceso con el mismo nombre cuyas tools son proxies con el nombre, descripción y esquema de entrada originales. Cada proxy SHALL aplicar en orden: comprobación de `allow` → confirmación si procede → ejecución con timeout → registro en el log.
+Por cada servidor MCP del catálogo, el agente SHALL ver un servidor MCP en proceso con el mismo nombre cuyas tools son proxies con el nombre, descripción y esquema de entrada originales. Cada proxy SHALL aplicar en orden: comprobación de cancelación de la tarea → comprobación de `allow` → confirmación si procede → ejecución con timeout → registro en el log. Una tarea cancelada SHALL NOT ejecutar ninguna tool más.
 
 #### Scenario: Nombre visible para el modelo
 - **GIVEN** el catálogo contiene `fs.read_file`
@@ -57,6 +57,11 @@ Por cada servidor MCP del catálogo, el agente SHALL ver un servidor MCP en proc
 - **WHEN** el proxy la procesa
 - **THEN** se emite `tool.call`, se ejecuta `fake.echo` en el servidor real, se emite `tool.result` con `ok = true` y el modelo recibe `hola`
 
+#### Scenario: Barrera de cancelación
+- **GIVEN** la tarea ya está marcada como cancelada
+- **WHEN** el modelo invoca `mcp__fake__echo`
+- **THEN** el proxy devuelve el error `Tarea cancelada` sin llamar al servidor, sin solicitar confirmación y con `tool.result {ok: false}` en el log
+
 ### Requirement: Eventos de progreso
 Durante la ejecución el sistema SHALL emitir, en orden, `task.started`, `tool.call {tool, args}` y `tool.result {ok, duration_ms, error}` por cada llamada, `assistant.text {text}` por cada fragmento de texto y `task.finished {status, usage: {input_tokens, output_tokens, total_cost_usd, num_turns}}` al terminar.
 
@@ -66,12 +71,22 @@ Durante la ejecución el sistema SHALL emitir, en orden, `task.started`, `tool.c
 - **THEN** los eventos emitidos son `task.started`, `tool.call`, `tool.result`, `task.finished` (con posibles `assistant.text` intercalados) y `task.finished.status = ok`
 
 ### Requirement: Timeout y errores de tarea
-Si la tarea supera `limits.task_timeout_s` (300 s) desde su inicio, incluyendo esperas de confirmación, el `TaskResult` SHALL tener `status = "timeout"`. Cualquier excepción del motor de ejecución SHALL producir `status = "error"` con el mensaje en `errores`, sin mostrar trazas al usuario.
+Si la tarea supera `limits.task_timeout_s` (300 s) desde su inicio, incluyendo la conexión del motor y las esperas de confirmación, el `TaskResult` SHALL tener `status = "timeout"`. Una cancelación externa SHALL interrumpir el motor y producir `status = "cancelled"` con el motivo recibido en `errores`. Cualquier excepción del motor SHALL producir `status = "error"` con el mensaje en `errores`, sin trazas para el usuario.
 
 #### Scenario: Timeout de tarea
 - **GIVEN** `task_timeout_s = 1` y un agente que no termina
 - **WHEN** transcurre 1 s
 - **THEN** la ejecución se interrumpe y el `TaskResult` tiene `status = "timeout"` y `task.finished.status = timeout`
+
+#### Scenario: Timeout durante la conexión
+- **GIVEN** `task_timeout_s = 0.2` y un motor cuya conexión tarda 2 s
+- **WHEN** transcurren 0,2 s
+- **THEN** el `TaskResult` tiene `status = "timeout"` sin esperar a que termine la conexión
+
+#### Scenario: Cancelación externa
+- **GIVEN** una ejecución en curso
+- **WHEN** se cancela desde fuera con motivo `user`
+- **THEN** se llama a la interrupción del motor, el `TaskResult` tiene `status = "cancelled"`, `errores` contiene `cancelada por el usuario` y `task.finished.status = cancelled`
 
 #### Scenario: Excepción del motor
 - **GIVEN** el motor de ejecución lanza una excepción `connection refused`
