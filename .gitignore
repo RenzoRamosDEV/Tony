@@ -14,6 +14,8 @@ mutants/
 config/.env
 logs/
 memory/*.sqlite*
+memory/settings.json
+memory/preferences.md
 # Web frontend
 node_modules/
 tony/apps/web/frontend/dist/

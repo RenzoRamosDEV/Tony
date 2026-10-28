@@ -6,6 +6,7 @@ from pathlib import Path
 
 from mcp.types import Tool
 
+from tony.apps.cli.chat import load_roles
 from tony.core.config import load_settings
 from tony.core.loader import AgentSpec, StdioServer, load_agent, load_all
 from tony.core.mcp import ToolCatalog
@@ -63,3 +64,27 @@ def test_load_all_returns_jarvis_and_viernes_without_errors() -> None:
     assert loaded["jarvis"].role == "front"
     assert loaded["jarvis"].tools.native == ["delegate", "remember", "set_reply_mode"]
     assert loaded["jarvis"].tools.mcpServers == {}
+
+
+def test_jarvis_prompt_explains_delegation_and_its_native_tools() -> None:
+    spec = load_agent(AGENTS_DIR / "jarvis", load_settings(None), {})
+
+    assert spec.role == "front"
+    assert spec.model == "claude-haiku"
+    for name in ("delegate", "remember", "set_reply_mode"):
+        assert name in spec.system_prompt
+    assert "display_text" in spec.system_prompt and "speech_text" in spec.system_prompt
+    assert "ficheros" in spec.system_prompt
+
+
+def test_swapped_roles_only_warn(tmp_path: Path) -> None:
+    config = tmp_path / "tony.yaml"
+    config.write_text("front: viernes\nworker: jarvis\n", encoding="utf-8")
+
+    front, worker, warnings = load_roles(load_settings(config), AGENTS_DIR, {"HOME": "/home/x"})
+
+    assert (front.name, worker.name) == ("viernes", "jarvis")
+    assert warnings == [
+        "Aviso: el agente 'viernes' tiene role 'worker' pero se usa como 'front'",
+        "Aviso: el agente 'jarvis' tiene role 'front' pero se usa como 'worker'",
+    ]

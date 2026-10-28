@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
+from contextlib import AsyncExitStack
 from typing import Any, Protocol
 
 from claude_agent_sdk import (
@@ -24,10 +25,12 @@ from pydantic import ValidationError
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ConfirmGate, ToolCatalog
+from tony.core.runner.cancel import CancelToken
 from tony.core.runner.contracts import TaskRequest, TaskResult
 from tony.core.runner.ports import EventSink
 from tony.core.runner.prompt import build_system_prompt, build_user_prompt
-from tony.core.runner.proxy import NOT_CONFIRMED, TaskState, ToolCaller, ToolProxyFactory
+from tony.core.runner.proxy import TaskState, ToolCaller, ToolProxyFactory
+from tony.core.runner.results import cancelled_result, error_result, timeout_result
 
 BUILTIN_TOOLS: tuple[str, ...] = (
     "Bash",
@@ -120,7 +123,7 @@ def result_from_message(
     message: ResultMessage | None, fallback_text: str, steps: list[str] | None = None
 ) -> TaskResult:
     if message is not None and message.is_error:
-        return _engine_error_result(_sdk_diagnostic(message), steps or [])
+        return error_result(_sdk_diagnostic(message), steps or [])
     if message is not None and message.structured_output is not None:
         try:
             return TaskResult.model_validate(message.structured_output)
@@ -160,6 +163,7 @@ class ClaudeSdkRunner:
         call: ToolCaller,
         client_factory: Callable[[ClaudeAgentOptions], SdkClient] = ClaudeSDKClient,
         cleanup_budget_s: float = CLEANUP_BUDGET_S,
+        cancel_token: CancelToken | None = None,
     ) -> None:
         self._settings = settings
         self._task_id = task_id
@@ -167,6 +171,7 @@ class ClaudeSdkRunner:
         self._call = call
         self._client_factory = client_factory
         self._cleanup_budget_s = cleanup_budget_s
+        self._cancel_token = cancel_token
         self._factory: ToolProxyFactory | None = None
 
     def proxy_handler(self, qualified: str):
@@ -178,7 +183,7 @@ class ClaudeSdkRunner:
     ) -> TaskResult:
         events.emit("task.started", {"agent": spec.name, "objetivo": request.objetivo})
         limits = self._settings.limits
-        state = TaskState(self._task_id)
+        state = TaskState(self._task_id, cancel_token=self._cancel_token or CancelToken())
         self._factory = ToolProxyFactory(
             tools,
             self._call,
@@ -199,11 +204,11 @@ class ClaudeSdkRunner:
                 result = await self._drive(options, request, state, transcript, events, deadline)
         except TimeoutError:
             if transcript.final is None:
-                result = _timeout_result(limits.task_timeout_s, state)
+                result = timeout_result(limits.task_timeout_s, state.steps)
         except Exception as exc:  # noqa: BLE001 - every engine failure becomes a TaskResult
-            result = _error_result(exc, state)
+            result = error_result(str(exc) or exc.__class__.__name__, state.steps)
         if state.cancelled:
-            result = _cancelled_result(state)
+            result = cancelled_result(state)
         if result is None:
             result = result_from_message(transcript.final, transcript.last_text, list(state.steps))
         events.emit(
@@ -226,19 +231,43 @@ class ClaudeSdkRunner:
         The deadline covers the client's connect too; the caller bounds disconnect.
         """
         client = self._client_factory(options)
-        async with client:
+        async with AsyncExitStack() as stack:
+            async with asyncio.timeout_at(deadline):
+                await stack.enter_async_context(client)
             state.interrupt = client.interrupt
             try:
-                if asyncio.get_running_loop().time() >= deadline:
-                    raise TimeoutError
                 async with asyncio.timeout_at(deadline):
                     await client.query(build_user_prompt(request))
-                    async for message in client.receive_response():
-                        transcript.consume(message, events)
+                    await consume_until_cancelled(_consume(client, transcript, events), state)
             except TimeoutError:
                 await state.request_interrupt()
-                return _timeout_result(self._settings.limits.task_timeout_s, state)
+                return timeout_result(self._settings.limits.task_timeout_s, state.steps)
         return None
+
+
+async def _consume(client: SdkClient, transcript: _Transcript, events: EventSink) -> None:
+    async for message in client.receive_response():
+        transcript.consume(message, events)
+
+
+async def consume_until_cancelled(consuming: Coroutine[Any, Any, None], state: TaskState) -> None:
+    """Race the model's response against the task's cancel token.
+
+    When the token fires first the engine is interrupted and the response is abandoned;
+    the caller turns the cancelled state into the TaskResult.
+    """
+    response = asyncio.ensure_future(consuming)
+    cancelled = asyncio.ensure_future(state.cancel_token.wait())
+    try:
+        done, _ = await asyncio.wait({response, cancelled}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        cancelled.cancel()
+        response.cancel()
+    if response in done:
+        response.result()
+        return
+    await state.request_interrupt()
+    await asyncio.gather(response, return_exceptions=True)
 
 
 class _Transcript:
@@ -255,36 +284,3 @@ class _Transcript:
             events.emit("assistant.text", {"text": text})
         if isinstance(message, ResultMessage):
             self.final = message
-
-
-def _timeout_result(timeout_s: float, state: TaskState) -> TaskResult:
-    return TaskResult(
-        status="timeout",
-        resumen=f"Tarea interrumpida: superó el límite de {timeout_s:g} s.",
-        pasos=list(state.steps),
-        errores=[f"timeout de tarea tras {timeout_s:g} s"],
-    )
-
-
-def _error_result(exc: Exception, state: TaskState) -> TaskResult:
-    return _engine_error_result(str(exc) or exc.__class__.__name__, list(state.steps))
-
-
-def _engine_error_result(message: str, steps: list[str]) -> TaskResult:
-    return TaskResult(
-        status="error",
-        resumen=f"Error del motor de ejecución: {message}",
-        pasos=steps,
-        errores=[message],
-    )
-
-
-def _cancelled_result(state: TaskState) -> TaskResult:
-    tool_name = state.cancel_reason or "desconocida"
-    return TaskResult(
-        status="cancelled",
-        resumen=f"Tarea cancelada: el usuario no confirmó {tool_name}.",
-        datos=None,
-        pasos=list(state.steps),
-        errores=[NOT_CONFIRMED.format(tool=tool_name)],
-    )

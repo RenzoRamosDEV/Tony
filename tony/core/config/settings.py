@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 ReplyMode = Literal["auto", "voice", "text", "both"]
+REPLY_MODES: tuple[str, ...] = get_args(ReplyMode)
 
 DEFAULT_MODELS: dict[str, str] = {
     "claude-haiku": "claude-haiku-5-5",

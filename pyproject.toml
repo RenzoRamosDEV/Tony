@@ -47,6 +47,7 @@ markers = ["evals: pruebas con modelo real (solo con TONY_EVALS=1)"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = [".agents", ".claude", "apm_modules"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

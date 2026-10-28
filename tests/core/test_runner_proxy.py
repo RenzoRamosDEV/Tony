@@ -11,6 +11,7 @@ from tests.core.runner_helpers import ECHO_SCHEMA, fake_catalog, mcp_tool
 from tests.fakes.gates import AutoConfirmGate
 from tests.fakes.sinks import ListEventSink
 from tony.core.mcp import ToolCallOutcome, ToolCatalog
+from tony.core.runner.cancel import CancelToken
 from tony.core.runner.proxy import TaskState, ToolProxyFactory
 
 
@@ -332,3 +333,53 @@ async def test_object_schema_without_properties_is_listed_and_callable(schema, l
 
     assert [tool.input_schema for tool in tools] == [listed]
     assert result.is_error is False
+
+
+async def test_cancelled_task_blocks_the_tool_before_allow_and_confirmation() -> None:
+    caller = RecordingCaller()
+    gate = AutoConfirmGate(True)
+    factory, sink, state = make_factory(gate, caller)
+    state.cancel_token.cancel("user")
+
+    reply = await factory.handler("fake.destroy")({})
+
+    assert reply == {
+        "content": [{"type": "text", "text": "Tarea cancelada; no se ejecuta fake.destroy"}],
+        "is_error": True,
+    }
+    assert caller.calls == []
+    assert gate.requests == []
+    assert sink.types() == ["tool.call", "tool.result"]
+    assert sink.payloads("tool.result")[0]["ok"] is False
+
+
+async def test_task_state_cancellation_is_visible_through_the_shared_token() -> None:
+    token = CancelToken()
+    state = TaskState(task_id="t1", cancel_token=token)
+
+    state.cancel("fake.destroy")
+
+    assert token.cancelled is True
+    assert token.reason == "not_confirmed"
+    assert state.cancelled is True
+    assert state.cancel_reason == "fake.destroy"
+
+
+async def test_external_cancellation_leaves_no_unconfirmed_tool() -> None:
+    state = TaskState(task_id="t1")
+
+    state.cancel_token.cancel("user")
+
+    assert state.cancelled is True
+    assert state.cancel_reason is None
+
+
+async def test_interrupt_is_requested_at_most_once() -> None:
+    state = TaskState(task_id="t1")
+    spy = InterruptSpy()
+    state.interrupt = spy
+
+    await state.request_interrupt()
+    await state.request_interrupt()
+
+    assert spy.count == 1

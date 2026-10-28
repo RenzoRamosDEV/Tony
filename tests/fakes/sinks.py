@@ -8,6 +8,10 @@ from typing import Any
 class ListEventSink:
     def __init__(self) -> None:
         self.events: list[tuple[str, dict[str, Any]]] = []
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         self.events.append((event_type, payload))

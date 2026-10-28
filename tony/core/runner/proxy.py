@@ -16,6 +16,7 @@ from claude_agent_sdk import (
 )
 
 from tony.core.mcp import ConfirmGate, ConfirmRequest, ToolCallOutcome, ToolCatalog, ToolRef
+from tony.core.runner.cancel import NOT_CONFIRMED_REASON, CancelToken
 from tony.core.runner.ports import EventSink
 
 ToolCaller = Callable[[str, dict[str, Any], float], Awaitable[ToolCallOutcome]]
@@ -30,19 +31,26 @@ PROXY_VERSION = "1.0.0"
 @dataclass
 class TaskState:
     task_id: str
-    cancelled: bool = False
+    cancel_token: CancelToken = field(default_factory=CancelToken)
     cancel_reason: str | None = None
+    """Tool the user did not confirm; None when the cancellation came from outside."""
     steps: list[str] = field(default_factory=list)
     interrupt: Interrupt | None = None
+    _interrupted: bool = field(default=False, repr=False)
+
+    @property
+    def cancelled(self) -> bool:
+        return self.cancel_token.cancelled
 
     def cancel(self, tool: str) -> None:
-        if not self.cancelled:
-            self.cancelled = True
+        if self.cancel_reason is None:
             self.cancel_reason = tool
+        self.cancel_token.cancel(NOT_CONFIRMED_REASON)
 
     async def request_interrupt(self) -> None:
-        if self.interrupt is None:
+        if self.interrupt is None or self._interrupted:
             return
+        self._interrupted = True
         try:
             await self.interrupt()
         except Exception:  # noqa: BLE001 - interrupting is best effort

@@ -10,6 +10,10 @@ from tony.core.runner.contracts import TaskRequest
 USER_INSTRUCTION = "Resuelve la siguiente tarea y devuelve exclusivamente un TaskResult JSON.\n"
 
 
+def format_moment(now: datetime) -> str:
+    return now.isoformat(timespec="seconds")
+
+
 def build_system_prompt(spec: AgentSpec, request: TaskRequest, now: datetime | None = None) -> str:
     moment = now or datetime.now().astimezone()
     restrictions = (
@@ -19,7 +23,7 @@ def build_system_prompt(spec: AgentSpec, request: TaskRequest, now: datetime | N
     )
     context = (
         "## Contexto de ejecución\n"
-        f"- Fecha y hora: {moment.isoformat(timespec='seconds')}\n"
+        f"- Fecha y hora: {format_moment(moment)}\n"
         f"- Rol: {spec.role}\n"
         f"- Restricciones:\n{restrictions}"
     )

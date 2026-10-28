@@ -21,9 +21,11 @@ from tony.core.config import load_settings
 from tony.core.logging import JsonlEventSink
 from tony.core.mcp import ToolCallOutcome
 from tony.core.runner import TaskRequest, TaskResult
+from tony.core.runner.cancel import CancelToken
 from tony.core.runner.claude_sdk import (
     ClaudeSdkRunner,
     assistant_text,
+    build_options,
     qualified_from_sdk_name,
     result_from_message,
     usage_from_message,
@@ -43,7 +45,11 @@ async def echo_call(qualified, args, timeout):
 
 
 def make_runner(
-    client: FakeClient, task_timeout_s: float = 5, gate=None, cleanup_budget_s: float = 5
+    client: FakeClient,
+    task_timeout_s: float = 5,
+    gate=None,
+    cleanup_budget_s: float = 5,
+    cancel_token: CancelToken | None = None,
 ):
     settings = load_settings(None)
     settings.limits.task_timeout_s = task_timeout_s
@@ -60,6 +66,7 @@ def make_runner(
         call=echo_call,
         client_factory=factory,
         cleanup_budget_s=cleanup_budget_s,
+        cancel_token=cancel_token,
     )
     return runner, captured
 
@@ -346,7 +353,7 @@ async def test_slow_client_connect_counts_towards_the_task_timeout() -> None:
     result, _, _ = await run(client, task_timeout_s=0.05)
 
     assert result.status == "timeout"
-    assert client.interrupts == 1
+    assert client.interrupts == 0
     assert time.monotonic() - started < 1
 
 
@@ -367,3 +374,66 @@ async def test_model_result_survives_a_client_exit_that_exceeds_the_budget() -> 
     result, _, _ = await run(client, task_timeout_s=0.05, cleanup_budget_s=0.1)
 
     assert result == TaskResult(**OK_OUTPUT)
+
+
+async def test_timeout_during_connection_does_not_wait_for_the_connect() -> None:
+    client = FakeClient([result_message(structured_output=OK_OUTPUT)], connect_delay=2)
+    started = time.monotonic()
+
+    result, sink, _ = await run(client, task_timeout_s=0.2)
+
+    assert result.status == "timeout"
+    assert time.monotonic() - started < 1
+    assert sink.payloads("task.finished")[0]["status"] == "timeout"
+
+
+async def test_external_cancellation_interrupts_and_returns_cancelled() -> None:
+    client = FakeClient(hang=True)
+    token = CancelToken()
+    runner, _ = make_runner(client, cancel_token=token)
+    sink = ListEventSink()
+
+    async def cancel_from_outside():
+        token.cancel("user")
+
+    client.before_messages = [cancel_from_outside]
+    started = time.monotonic()
+
+    result = await runner.run(worker_spec(), TaskRequest(objetivo="o"), fake_catalog(), sink)
+
+    assert result.status == "cancelled"
+    assert result.errores == ["cancelada por el usuario"]
+    assert result.resumen == "Tarea cancelada por el usuario."
+    assert client.interrupts == 1
+    assert sink.payloads("task.finished")[0]["status"] == "cancelled"
+    assert time.monotonic() - started < 1
+
+
+async def test_external_cancellation_with_another_reason_names_it() -> None:
+    client = FakeClient(hang=True)
+    token = CancelToken()
+    runner, _ = make_runner(client, cancel_token=token)
+
+    async def cancel_from_outside():
+        token.cancel("shutdown")
+
+    client.before_messages = [cancel_from_outside]
+
+    result = await runner.run(
+        worker_spec(), TaskRequest(objetivo="o"), fake_catalog(), ListEventSink()
+    )
+
+    assert result.status == "cancelled"
+    assert result.errores == ["cancelada: shutdown"]
+
+
+def test_build_options_is_pure_and_keeps_worker_defences() -> None:
+    settings = load_settings(None)
+    options = build_options(
+        worker_spec(), TaskRequest(objetivo="o"), fake_catalog(), settings, {}, lambda *a: None
+    )
+
+    assert options.tools == []
+    assert options.permission_mode == "default"
+    assert options.setting_sources == []
+    assert "Bash" in options.disallowed_tools

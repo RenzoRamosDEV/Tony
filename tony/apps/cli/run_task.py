@@ -5,13 +5,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from tony.apps.cli.confirm_gate import CliConfirmGate
 from tony.core.config import ConfigError, TonySettings, dotenv_secrets, load_env, load_settings
-from tony.core.loader import AgentLoadError, AgentSpec, ToolConfig, load_agent
+from tony.core.loader import AgentLoadError, AgentSpec, load_agent
 from tony.core.logging import JsonlEventSink, new_task_id
-from tony.core.mcp import ConfirmGate, McpManager, McpServerStatus, ToolCallOutcome, ToolCatalog
+from tony.core.mcp import ConfirmGate, McpServerStatus
+from tony.core.orchestrator.worker import (
+    ManagerFactory,
+    status_payload,
+)
 from tony.core.runner import AgentRunner, TaskRequest, TaskResult
 from tony.core.runner.claude_sdk import ClaudeSdkRunner
 from tony.core.runner.proxy import ToolCaller
@@ -21,20 +25,7 @@ class RunTaskError(Exception):
     """The task could not start (bad config, unknown or unsuitable agent)."""
 
 
-class ToolManager(Protocol):
-    catalog: ToolCatalog
-
-    async def start(
-        self, tool_config: ToolConfig, server_filter: list[str] | None = None
-    ) -> None: ...
-    async def call(
-        self, qualified: str, args: dict[str, Any], timeout: float
-    ) -> ToolCallOutcome: ...
-    async def stop(self) -> None: ...
-
-
 RunnerFactory = Callable[[TonySettings, str, ConfirmGate, ToolCaller], AgentRunner]
-ManagerFactory = Callable[[TonySettings], ToolManager]
 GateFactory = Callable[[AgentSpec, TonySettings], ConfirmGate]
 
 
@@ -63,10 +54,6 @@ def default_runner_factory(
     settings: TonySettings, task_id: str, gate: ConfirmGate, call: ToolCaller
 ) -> AgentRunner:
     return ClaudeSdkRunner(settings=settings, task_id=task_id, gate=gate, call=call)
-
-
-def default_manager_factory(settings: TonySettings) -> ToolManager:
-    return McpManager(connect_timeout_s=settings.limits.mcp_connect_timeout_s)
 
 
 def default_gate_factory(spec: AgentSpec, settings: TonySettings) -> ConfirmGate:
@@ -119,13 +106,6 @@ async def run_task(
         await manager.stop()
         sink.close()
     return RunOutcome(result, events.usage, sink.path, mcp_warnings(statuses))
-
-
-def status_payload(statuses: dict[str, McpServerStatus]) -> dict[str, Any]:
-    return {
-        name: {"state": status.state, "error": status.error, "tool_count": status.tool_count}
-        for name, status in statuses.items()
-    }
 
 
 def mcp_warnings(statuses: dict[str, McpServerStatus]) -> list[str]:
