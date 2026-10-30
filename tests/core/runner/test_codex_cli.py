@@ -10,7 +10,9 @@ carries `-s read-only`.
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -20,10 +22,17 @@ from tony.core.config import load_settings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
 from tony.core.runner.cancel import CancelToken
-from tony.core.runner.codex_cli import CodexCliRunner
+from tony.core.runner.codex_cli import INVALID_STRUCTURED_OUTPUT, NO_RESULT_EVENT, CodexCliRunner
 from tony.core.runner.contracts import TaskRequest
+from tony.core.runner.proxy import TaskState
 
 FAKE_CODEX = [sys.executable, "-m", "tests.fakes.fake_codex"]
+
+
+@pytest.fixture(autouse=True)
+def unused_gateway(monkeypatch):
+    """Parser tests exercise the CLI subprocess without opening an unused tool socket."""
+    monkeypatch.setattr("tony.core.runner.codex_cli.BridgeServer", lambda *args: nullcontext())
 
 
 class RecordingEvents:
@@ -142,3 +151,79 @@ async def test_the_subprocess_never_inherits_this_process_stdin(
     )
 
     assert captured["stdin"] == asyncio.subprocess.DEVNULL
+
+
+@pytest.mark.parametrize("source", ["agent_text", "stdout", "stderr"])
+async def test_approval_block_is_reported_clearly(tmp_path: Path, monkeypatch, source: str) -> None:
+    script = write_script(
+        tmp_path / "script.json",
+        [
+            {
+                "session_id": "s1",
+                "agent_text": "MCP tool requires approval",
+            }
+        ],
+    )
+    runner = make_runner(script)
+    if source != "agent_text":
+
+        async def blocked_process(*args, **kwargs):
+            class Process:
+                returncode = 1
+
+                async def communicate(self):
+                    message = b"MCP tool requires approval"
+                    return (message, b"") if source == "stdout" else (b"", message)
+
+            return Process()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", blocked_process)
+    result = await runner.run(
+        make_spec(), TaskRequest(objetivo="haz algo"), ToolCatalog(), RecordingEvents()
+    )
+    assert result.status == "error"
+    message = result.resumen
+    assert "codex" in message.lower()
+    assert "aprobación" in message
+    assert "bloque" in message
+    assert "esquema" not in message
+
+
+@pytest.mark.parametrize(
+    "final_text, expected",
+    [
+        (json.dumps({"status": "ok", "resumen": "último"}), "último"),
+        ("not JSON", "invalid"),
+        ("{}", "invalid"),
+        (None, "missing"),
+    ],
+)
+async def test_real_event_stream_uses_last_agent_message(
+    tmp_path: Path, final_text, expected
+) -> None:
+    events = [
+        {"type": "thread.started", "thread_id": "real-thread"},
+        {"type": "turn.started"},
+    ]
+    if final_text is not None:
+        for text in [json.dumps({"status": "ok", "resumen": "anterior"}), final_text]:
+            events.append(
+                {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+            )
+    events.extend(
+        [
+            {"type": "item.completed", "item": {"type": "command_execution", "text": "ignore"}},
+            {"type": "turn.completed", "usage": {}},
+        ]
+    )
+    stdout = "noise\n" + "\n".join(json.dumps(event) for event in events)
+    runner = make_runner(tmp_path / "unused.json")
+    result = runner._parse_result(stdout, TaskState("t1"))
+    if expected == "último":
+        assert result.status == "ok"
+        assert result.resumen == expected
+    else:
+        assert result.status == "error"
+        assert result.errores == [
+            NO_RESULT_EVENT if expected == "missing" else INVALID_STRUCTURED_OUTPUT
+        ]

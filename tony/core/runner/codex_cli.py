@@ -35,7 +35,8 @@ from tony.core.runner.strict_schema import strict_schema
 GATEWAY_MODULE = "tony.core.runner.mcp_gateway_main"
 SANDBOX_MODE = "read-only"
 INVALID_STRUCTURED_OUTPUT = "la salida de codex no cumple el esquema de TaskResult"
-NO_RESULT_EVENT = "codex no devolvió ningún evento 'result'"
+NO_RESULT_EVENT = "codex no devolvió ningún mensaje final"
+APPROVAL_BLOCKED = "Codex bloqueó la llamada a la herramienta por su propia política de aprobación."
 
 
 def codex_cli_runner_factory(
@@ -128,7 +129,7 @@ class CodexCliRunner:
             argv = self._build_argv(schema_path, socket_path, catalog_path, prompt)
             async with BridgeServer(socket_path, dispatch):
                 stdout, stderr, returncode = await self._run_subprocess(argv)
-        result = self._parse_result(stdout, state)
+        result = self._parse_result(stdout, state, stderr)
         events.emit("task.finished", {"status": result.status, "usage": {}})
         return result
 
@@ -147,8 +148,11 @@ class CodexCliRunner:
             proc.returncode or 0,
         )
 
-    def _parse_result(self, stdout: str, state: TaskState) -> TaskResult:
+    def _parse_result(self, stdout: str, state: TaskState, stderr: str = "") -> TaskResult:
+        if "requires approval" in stdout or "requires approval" in stderr:
+            return error_result(APPROVAL_BLOCKED, state.steps)
         payload = None
+        found_message = False
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
@@ -157,11 +161,19 @@ class CodexCliRunner:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if event.get("type") == "result":
-                payload = event.get("result")
-        if payload is None:
+            if not isinstance(event, dict):
+                continue
+            item = event.get("item")
+            if (
+                event.get("type") == "item.completed"
+                and isinstance(item, dict)
+                and item.get("type") == "agent_message"
+            ):
+                found_message = True
+                payload = item.get("text")
+        if not found_message:
             return error_result(NO_RESULT_EVENT, state.steps)
         try:
-            return TaskResult.model_validate(payload)
+            return TaskResult.model_validate(json.loads(payload))
         except Exception:  # noqa: BLE001 - any schema mismatch becomes an error TaskResult
             return error_result(INVALID_STRUCTURED_OUTPUT, state.steps)

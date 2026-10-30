@@ -35,7 +35,8 @@ GATEWAY_MODULE = "tony.core.runner.mcp_gateway_main"
 SANDBOX_MODE = "read-only"
 TextCallback = Callable[[str], Awaitable[None]]
 TURN_FAILED = "No pude completar el turno: la salida de codex no cumple el esquema. {diagnostic}"
-NO_RESULT_EVENT = "codex no devolvió ningún evento 'result'"
+NO_RESULT_EVENT = "codex no devolvió ningún mensaje final"
+APPROVAL_BLOCKED = "Codex bloqueó la llamada a la herramienta por su propia política de aprobación."
 
 
 class CodexCliConversation:
@@ -102,8 +103,8 @@ class CodexCliConversation:
             socket_path = tmp_dir / "gateway.sock"
             argv = self._build_argv(schema_path, socket_path, catalog_path, prompt)
             async with BridgeServer(socket_path, dispatch):
-                stdout = await self._run_subprocess(argv)
-        return await self._finish_turn(stdout, on_text, on_speech)
+                stdout, stderr = await self._run_subprocess(argv)
+        return await self._finish_turn(stdout, on_text, on_speech, stderr)
 
     def _build_argv(
         self, schema_path: Path, socket_path: Path, catalog_path: Path, prompt: str
@@ -129,7 +130,7 @@ class CodexCliConversation:
             prompt,
         ]
 
-    async def _run_subprocess(self, argv: list[str]) -> str:
+    async def _run_subprocess(self, argv: list[str]) -> tuple[str, str]:
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.DEVNULL,
@@ -137,19 +138,28 @@ class CodexCliConversation:
             stderr=asyncio.subprocess.PIPE,
             env=self._env,
         )
-        stdout_bytes, _ = await proc.communicate()
-        return stdout_bytes.decode("utf-8", errors="replace")
+        stdout_bytes, stderr_bytes = await proc.communicate()
+        return (
+            stdout_bytes.decode("utf-8", errors="replace"),
+            stderr_bytes.decode("utf-8", errors="replace"),
+        )
 
     async def _finish_turn(
-        self, stdout: str, on_text: TextCallback | None, on_speech: TextCallback | None
+        self,
+        stdout: str,
+        on_text: TextCallback | None,
+        on_speech: TextCallback | None,
+        stderr: str = "",
     ) -> FrontTurn:
-        session_id, payload = self._last_result_event(stdout)
+        session_id, payload, found_message = self._last_agent_message(stdout)
         if session_id is not None:
             self.session_id = session_id
-        if payload is None:
+        if "requires approval" in stdout or "requires approval" in stderr:
+            return FrontTurn(text=APPROVAL_BLOCKED, error=APPROVAL_BLOCKED)
+        if not found_message:
             return FrontTurn(text=NO_RESULT_EVENT, error=NO_RESULT_EVENT)
         try:
-            reply = FrontReply.model_validate(payload)
+            reply = FrontReply.model_validate(json.loads(payload))
         except Exception as exc:  # noqa: BLE001 - any schema mismatch becomes a failed turn
             diagnostic = f"{exc.__class__.__name__}: {exc}"
             return FrontTurn(text=TURN_FAILED.format(diagnostic=diagnostic), error=diagnostic)
@@ -160,9 +170,10 @@ class CodexCliConversation:
         return FrontTurn(text=reply.display_text, structured=reply.model_dump())
 
     @staticmethod
-    def _last_result_event(stdout: str) -> tuple[str | None, dict[str, Any] | None]:
+    def _last_agent_message(stdout: str) -> tuple[str | None, Any, bool]:
         session_id: str | None = None
-        payload: dict[str, Any] | None = None
+        payload: Any = None
+        found_message = False
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
@@ -171,10 +182,19 @@ class CodexCliConversation:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if event.get("type") == "result":
-                session_id = event.get("session_id")
-                payload = event.get("result")
-        return session_id, payload
+            if not isinstance(event, dict):
+                continue
+            if event.get("type") == "thread.started":
+                session_id = event.get("thread_id")
+            item = event.get("item")
+            if (
+                event.get("type") == "item.completed"
+                and isinstance(item, dict)
+                and item.get("type") == "agent_message"
+            ):
+                found_message = True
+                payload = item.get("text")
+        return session_id, payload, found_message
 
     async def interrupt(self) -> None:
         return None

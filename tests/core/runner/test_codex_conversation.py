@@ -9,16 +9,28 @@ is called exactly once per turn, after the full reply, never incrementally.
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+
+import pytest
 
 from tests.fakes.fake_codex import write_script
 from tony.core.config import load_settings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ToolCatalog
-from tony.core.runner.codex_conversation import CodexCliConversation
+from tony.core.runner.codex_conversation import NO_RESULT_EVENT, TURN_FAILED, CodexCliConversation
 
 FAKE_CODEX = [sys.executable, "-m", "tests.fakes.fake_codex"]
+
+
+@pytest.fixture(autouse=True)
+def unused_gateway(monkeypatch):
+    """Parser tests exercise the CLI subprocess without opening an unused tool socket."""
+    monkeypatch.setattr(
+        "tony.core.runner.codex_conversation.BridgeServer", lambda *args: nullcontext()
+    )
 
 
 class RecordingEvents:
@@ -126,3 +138,80 @@ async def test_the_subprocess_never_inherits_this_process_stdin(
     await conversation.turn("hola")
 
     assert captured["stdin"] == asyncio.subprocess.DEVNULL
+
+
+@pytest.mark.parametrize("source", ["agent_text", "stdout", "stderr"])
+async def test_approval_block_is_reported_clearly(tmp_path: Path, monkeypatch, source: str) -> None:
+    script = write_script(
+        tmp_path / "script.json",
+        [
+            {
+                "session_id": "s1",
+                "agent_text": "MCP tool requires approval",
+            }
+        ],
+    )
+    runner = await opened_conversation(script)
+    if source != "agent_text":
+
+        async def blocked_process(*args, **kwargs):
+            class Process:
+                returncode = 1
+
+                async def communicate(self):
+                    message = b"MCP tool requires approval"
+                    return (message, b"") if source == "stdout" else (b"", message)
+
+            return Process()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", blocked_process)
+    result = await runner.turn("hola")
+    assert result.error is not None
+    message = result.text
+    if source == "agent_text":
+        assert runner.session_id == "s1"
+    assert "codex" in message.lower()
+    assert "aprobación" in message
+    assert "bloque" in message
+    assert "esquema" not in message
+
+
+@pytest.mark.parametrize(
+    "final_text, expected",
+    [
+        (json.dumps({"display_text": "último"}), "último"),
+        ("not JSON", "invalid"),
+        ("{}", "invalid"),
+        (None, "missing"),
+    ],
+)
+async def test_real_event_stream_uses_last_agent_message(
+    tmp_path: Path, final_text, expected
+) -> None:
+    events = [
+        {"type": "thread.started", "thread_id": "real-thread"},
+        {"type": "turn.started"},
+    ]
+    if final_text is not None:
+        for text in [json.dumps({"display_text": "anterior"}), final_text]:
+            events.append(
+                {"type": "item.completed", "item": {"type": "agent_message", "text": text}}
+            )
+    events.extend(
+        [
+            {"type": "item.completed", "item": {"type": "command_execution", "text": "ignore"}},
+            {"type": "turn.completed", "usage": {}},
+        ]
+    )
+    stdout = "noise\n" + "\n".join(json.dumps(event) for event in events)
+    runner = await opened_conversation(tmp_path / "unused.json")
+    result = await runner._finish_turn(stdout, None, None)
+    assert runner.session_id == "real-thread"
+    if expected == "último":
+        assert result.text == expected
+        assert result.error is None
+    elif expected == "missing":
+        assert result.error == NO_RESULT_EVENT
+    else:
+        assert result.error is not None
+        assert result.text == TURN_FAILED.format(diagnostic=result.error)

@@ -21,7 +21,7 @@ SCRIPT_ENV_VAR = "FAKE_CODEX_SCRIPT"
 
 
 def write_script(path: Path, responses: list[dict[str, Any]]) -> Path:
-    """Test helper: write a script file consumed one response per `fake_codex` invocation."""
+    """Write responses with a structured `result` or literal `agent_text` override."""
     path.write_text(json.dumps({"responses": responses}), encoding="utf-8")
     return path
 
@@ -70,12 +70,22 @@ def main(argv: list[str]) -> int:
     response, rest = responses[0], responses[1:]
     _save(script_path, rest)
 
-    event = {
-        "type": "result",
-        "session_id": response.get("session_id"),
-        "result": response.get("result"),
-    }
-    print(json.dumps(event))
+    agent_text = response.get("agent_text", json.dumps(response.get("result")))
+    events = [
+        {"type": "thread.started", "thread_id": response.get("session_id")},
+        {"type": "turn.started"},
+        {
+            "type": "item.completed",
+            "item": {
+                "id": "item_0",
+                "type": "agent_message",
+                "text": agent_text,
+            },
+        },
+        {"type": "turn.completed", "usage": {}},
+    ]
+    for event in events:
+        print(json.dumps(event))
     return int(response.get("exit_code", 0))
 
 
