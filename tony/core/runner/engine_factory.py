@@ -17,6 +17,7 @@ from tony.core.runner.codex_cli import codex_cli_runner_factory
 from tony.core.runner.codex_conversation import CodexCliConversation
 from tony.core.runner.conversation import ClaudeSdkConversation, ConversationRunner
 from tony.core.runner.factory import WorkerRunnerFactory, default_worker_runner_factory
+from tony.core.runner.litellm_engine import LiteLlmConversation, litellm_runner_factory
 from tony.core.runner.proxy import ToolCaller
 
 ConversationFactory = Callable[[TonySettings, ConfirmGate, ToolCaller], ConversationRunner]
@@ -32,6 +33,8 @@ def build_runner_factory(settings: TonySettings, spec: AgentSpec) -> WorkerRunne
         return default_worker_runner_factory
     if engine_type == "codex_cli":
         return codex_cli_runner_factory
+    elif engine_type == "litellm":
+        return litellm_runner_factory
     raise NotImplementedError(f"motor '{engine_type}' todavía no tiene AgentRunner")
 
 
@@ -41,4 +44,6 @@ def build_conversation(settings: TonySettings, spec: AgentSpec) -> ConversationF
         return ClaudeSdkConversation
     if engine_type == "codex_cli":
         return CodexCliConversation
+    elif engine_type == "litellm":
+        return LiteLlmConversation
     raise NotImplementedError(f"motor '{engine_type}' todavía no tiene ConversationRunner")

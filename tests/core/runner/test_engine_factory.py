@@ -56,3 +56,14 @@ def test_build_conversation_resolves_codex_cli_to_the_codex_conversation() -> No
     settings = codex_settings()
 
     assert build_conversation(settings, make_spec(engine="codex")) is CodexCliConversation
+
+
+def test_litellm_factories_resolve_named_profile():
+    from tony.core.runner.litellm_engine import LiteLlmConversation, LiteLlmRunner
+
+    settings = load_settings(None)
+    settings.engines["portable"] = EngineProfile(type="litellm", model="gpt-4o")
+    spec = make_spec(engine="portable")
+    factory = build_runner_factory(settings, spec)
+    assert isinstance(factory(settings, "t1", object(), object(), None), LiteLlmRunner)
+    assert build_conversation(settings, spec) is LiteLlmConversation
