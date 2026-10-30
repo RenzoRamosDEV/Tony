@@ -16,9 +16,9 @@
 
 ## 3. Barrera de tools reutilizable fuera de proceso (`codex-engine`, base)
 
-- [ ] 3.1 Escribir tests que fallen para una versión transporte-agnóstica de `ToolProxyFactory`/`ToolCaller` que pueda servir tanto un `McpSdkServerConfig` en proceso como un servidor MCP stdio real, preservando el orden cancelación → `allow` → confirmación → timeout → log
-- [ ] 3.2 Refactorizar `tony/core/runner/proxy.py` para separar la lógica de la barrera del transporte en proceso; verificar que los tests de 3.1 pasan y que la suite de `claude_sdk` (que sigue usando el transporte en proceso) no cambia de comportamiento
-- [ ] 3.3 Añadir un fake binario `codex` de pruebas (script en `tests/fakes/fake_codex.py` o similar, sin red) que emula `codex exec`/`codex exec resume --json --output-schema` leyendo un guion de respuestas fijado por el test, para usarlo en 4.x sin invocar el `codex` real
+- [x] 3.1 Escribir tests que fallen para una versión transporte-agnóstica de `ToolProxyFactory`/`ToolCaller` que pueda servir tanto un `McpSdkServerConfig` en proceso como un servidor MCP stdio real, preservando el orden cancelación → `allow` → confirmación → timeout → log
+- [x] 3.2 Refactorizar `tony/core/runner/proxy.py` para separar la lógica de la barrera del transporte en proceso; verificar que los tests de 3.1 pasan y que la suite de `claude_sdk` (que sigue usando el transporte en proceso) no cambia de comportamiento
+- [x] 3.3 Añadir un fake binario `codex` de pruebas (script en `tests/fakes/fake_codex.py` o similar, sin red) que emula `codex exec`/`codex exec resume --json --output-schema` leyendo un guion de respuestas fijado por el test, para usarlo en 4.x sin invocar el `codex` real
 
 ## 4. Motor `codex_cli` (`codex-engine`)
 

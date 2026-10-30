@@ -65,7 +65,14 @@ def text_reply(text: str, is_error: bool = False) -> ToolReply:
     return reply
 
 
-class ToolProxyFactory:
+class ToolBarrier:
+    """Transport-agnostic cancel -> allow -> confirm -> timeout -> log execution barrier.
+
+    Builds one handler per catalog tool, each a plain `dict[str, Any] -> ToolReply`
+    coroutine with no dependency on how it gets called: an in-process SDK proxy
+    (`ToolProxyFactory`) and a stdio MCP gateway can both register the same handlers.
+    """
+
     def __init__(
         self,
         catalog: ToolCatalog,
@@ -84,16 +91,10 @@ class ToolProxyFactory:
         )
         self._tool_timeout_s = tool_timeout_s
         self._confirm_timeout_s = confirm_timeout_s
-        self._handlers: dict[str, Callable[[dict[str, Any]], Awaitable[ToolReply]]] = {}
-        self.sdk_tools: dict[str, list[SdkMcpTool]] = {
-            server: [self._make_tool(ref) for ref in refs]
-            for server, refs in catalog.servers().items()
-        }
-
-    def build(self) -> dict[str, McpSdkServerConfig]:
-        return {
-            server: create_sdk_mcp_server(server, PROXY_VERSION, tools)
-            for server, tools in self.sdk_tools.items()
+        self._handlers: dict[str, Callable[[dict[str, Any]], Awaitable[ToolReply]]] = {
+            ref.qualified: self._make_handler(ref)
+            for refs in catalog.servers().values()
+            for ref in refs
         }
 
     def handler(self, qualified: str) -> Callable[[dict[str, Any]], Awaitable[ToolReply]]:
@@ -103,14 +104,11 @@ class ToolProxyFactory:
     def _state(self) -> TaskState:
         return self._current_state()
 
-    def _make_tool(self, ref: ToolRef) -> SdkMcpTool:
+    def _make_handler(self, ref: ToolRef) -> Callable[[dict[str, Any]], Awaitable[ToolReply]]:
         async def handler(args: dict[str, Any]) -> ToolReply:
             return await self._execute(ref, args)
 
-        self._handlers[ref.qualified] = handler
-        annotations = ToolAnnotations(destructiveHint=True) if ref.destructive else None
-        schema = _sdk_input_schema(ref.input_schema)
-        return tool(ref.name, ref.description, schema, annotations=annotations)(handler)
+        return handler
 
     async def _execute(self, ref: ToolRef, args: dict[str, Any]) -> ToolReply:
         qualified = ref.qualified
@@ -144,6 +142,44 @@ class ToolProxyFactory:
     def _emit_result(self, tool_name: str, ok: bool, duration_ms: int, error: str | None) -> None:
         self._events.emit(
             "tool.result", {"tool": tool_name, "ok": ok, "duration_ms": duration_ms, "error": error}
+        )
+
+
+class ToolProxyFactory:
+    """In-process SDK adapter: wraps a `ToolBarrier` with `claude_agent_sdk` tool wiring."""
+
+    def __init__(
+        self,
+        catalog: ToolCatalog,
+        call: ToolCaller,
+        gate: ConfirmGate,
+        events: EventSink,
+        task_state: TaskState | StateProvider,
+        tool_timeout_s: float,
+        confirm_timeout_s: float,
+    ) -> None:
+        self.barrier = ToolBarrier(
+            catalog, call, gate, events, task_state, tool_timeout_s, confirm_timeout_s
+        )
+        self.sdk_tools: dict[str, list[SdkMcpTool]] = {
+            server: [self._make_tool(ref) for ref in refs]
+            for server, refs in catalog.servers().items()
+        }
+
+    def build(self) -> dict[str, McpSdkServerConfig]:
+        return {
+            server: create_sdk_mcp_server(server, PROXY_VERSION, tools)
+            for server, tools in self.sdk_tools.items()
+        }
+
+    def handler(self, qualified: str) -> Callable[[dict[str, Any]], Awaitable[ToolReply]]:
+        return self.barrier.handler(qualified)
+
+    def _make_tool(self, ref: ToolRef) -> SdkMcpTool:
+        annotations = ToolAnnotations(destructiveHint=True) if ref.destructive else None
+        schema = _sdk_input_schema(ref.input_schema)
+        return tool(ref.name, ref.description, schema, annotations=annotations)(
+            self.barrier.handler(ref.qualified)
         )
 
 
