@@ -153,9 +153,10 @@ más de 16 KiB responde `audio_frame_too_large` sin cerrar. `GET /api/health` in
 ## Voz: micrófono, VAD, STT y TTS
 
 Hablar con Jarvis y oírle funciona en local con tres motores: Silero VAD (detección de voz,
-`onnxruntime`), faster-whisper `small` en CPU con pesos `int8` (transcripción) y Kokoro con voz
-española (síntesis). Kokoro necesita `espeak-ng` instalado en el sistema (en Bazzite/Fedora
-Atomic, `rpm-ostree install espeak-ng`; en macOS, `brew install espeak-ng`).
+`onnxruntime`), faster-whisper `base` en CPU con pesos `int8` (transcripción) y Piper
+(`es_MX-ald-medium`, síntesis); Kokoro sigue disponible como alternativa. Kokoro necesita
+`espeak-ng` instalado en el sistema (en Bazzite/Fedora Atomic, `rpm-ostree install espeak-ng`; en
+macOS, `brew install espeak-ng`); Piper trae su propio `espeak-ng`.
 
 ```bash
 uv sync --extra web --extra voice     # motores en CPU: torch se resuelve del índice CPU de PyTorch
@@ -174,7 +175,8 @@ En el navegador, el botón de micrófono (conmutable, `aria-pressed`) pide permi
 `audio.start {sample_rate: 16000, channels: 1, format: "f32"}` y captura con un `AudioWorklet`
 que re-muestrea a 16 kHz mono y envía frames de 30 ms (480 muestras Float32) como mensajes
 binarios; un indicador de nivel acompaña a "Escuchando…". El servidor segmenta las intervenciones
-con el VAD (fin de frase tras 700 ms de silencio, mínimo 300 ms de habla, corte a 30 s), transcribe
+con el VAD (fin de frase tras `voice.end_silence_ms`, 500 ms por defecto, de silencio; mínimo
+300 ms de habla; corte a 30 s), transcribe
 y emite `stt.final {text, message_id}`, que se procesa igual que un `user.text` con modalidad
 `audio`: `auto` se resuelve a `voice`, los prefijos `/v`, `/t`, `/b` funcionan también dichos
 ("barra t qué hora es" no; el texto transcrito debe empezar por `/t`), y la transcripción aparece
@@ -187,21 +189,40 @@ Modos de respuesta por voz:
   lo refleja al terminar el turno y el siguiente mensaje se acepta en `text`.
 - Por prefijo: `/v qué hora es` escrito fuerza voz solo en ese mensaje.
 
-En `voice` y `both` la respuesta se trocea en frases (`.`, `?`, `!`, `…`, `;`, doble salto de
-línea; `Sr.`, `p. ej.`, `10.5` o `10:30` no cortan) y cada frase se sintetiza y se envía mientras
-se sintetizan las siguientes: `tts.start`, `tts.chunk.meta {seq, sentence_index}` + frame binario
-PCM Int16 a 24 kHz, `tts.end`. El navegador reproduce los frames en una cola sin huecos, silencia
-la captura mientras suena audio ("Hablando…") y muestra el botón "Detener audio", que vacía la
-cola y envía `cancel {message_id}` (respuesta `tts.cancelled`). Si el `front` no produce
-`speech_text` (por ejemplo una tabla o código en `display_text`), se lee `display_text` sin
-markdown, truncado a 600 caracteres y con el cierre "…te lo muestro en pantalla"; en pantalla
-siempre aparece `display_text` completo. Si la síntesis falla, llega `tts.cancelled` + `error
-tts_failed` y la respuesta queda en texto.
+En `voice` y `both` la respuesta se habla en streaming: el `front` emite su salida estructurada
+con `speech_text` primero y el servidor extrae ese campo del JSON parcial a medida que llega, lo
+trocea y sintetiza cada pieza al momento (`display_text` llega como `assistant.delta`;
+`assistant.final` sigue siendo la respuesta completa y autoritativa). La primera pieza se corta
+en la primera cláusula (coma, dos puntos o punto y coma) o tras la sexta palabra, para que el
+primer audio llegue cuanto antes; las siguientes son frases (`.`, `?`, `!`, `…`, `;`, doble salto
+de línea; `Sr.`, `p. ej.`, `10.5`, `10,5` o `10:30` no cortan). Entre piezas se añaden pausas
+naturales de 160 ms tras una frase y 80 ms tras una cláusula. Mensajes: `tts.start`,
+`tts.chunk.meta {seq, sentence_index}` + frame binario PCM Int16 a 24 kHz, `tts.end`. El navegador
+reproduce los frames en una cola sin huecos ("Hablando…") y muestra el botón "Detener audio", que
+para el audio al instante, envía `cancel {message_id}` (respuesta `tts.cancelled`) y avisa con
+`playback.stopped {message_id}`. Si el `front` no produce `speech_text` (por ejemplo una tabla o
+código en `display_text`), se lee `display_text` sin markdown, truncado a 600 caracteres y con el
+cierre "…te lo muestro en pantalla"; en pantalla siempre aparece `display_text` completo. Si la
+síntesis falla, llega `tts.cancelled` + `error tts_failed` y la respuesta queda en texto. Cuando
+Jarvis delega una tarea en modo hablado, suena al instante un acuse pregrabado
+(`voice.acknowledgements`, en rotación: "Un momento, señor.") sintetizado una sola vez por voz.
 
-Streaming en v1: el motor del `front` entrega la respuesta completa al final del turno, así que
-`assistant.final` llega antes que `tts.start` y el audio de la primera frase suena mientras se
-sintetizan las siguientes; el pipeline ya acepta fragmentos de `speech_text` (`AssistantSpeechDelta`)
-para cuando el motor los entregue, y entonces el primer `tts.chunk` precederá a `assistant.final`.
+Interrupción por voz (barge-in): el micrófono sigue abierto mientras Jarvis habla, con la
+cancelación de eco, la supresión de ruido y el control de ganancia del navegador. Mientras suena
+su voz (desde `tts.start` hasta `playback.stopped`, `tts.cancelled` o, si el cliente no avisa, el
+fin estimado del audio más 2 s) el servidor clasifica cada ventana con un umbral más estricto
+(`voice.barge_in_threshold`, 0,8) y, cuando una intervención acumula
+`voice.barge_in_min_speech_ms` (280 ms) de habla, corta al instante todo el audio en curso con
+`tts.cancelled`, registra `barge_in {message_id, speech_ms}` en el JSONL y, si el `front` sigue
+generando, interrumpe su turno: `assistant.final` lleva lo dicho hasta entonces seguido de ` …`
+(o `(interrumpido)`), sin `error`. La intervención se transcribe y responde como cualquier otra.
+Filtro de eco: si la transcripción de una interrupción tiene al menos 3 palabras y está contenida
+en lo que Jarvis estaba diciendo (sin mayúsculas, tildes ni puntuación), se descarta y se registra
+`barge_in.echo {chars}`. Mientras Jarvis espera una tarea delegada solo se corta el audio: la
+tarea sigue (cancélala desde la UI) y lo que digas recibe `turn_in_progress`. Con
+`voice.barge_in: false` el servidor descarta lo que oye mientras Jarvis habla, como si la captura
+estuviera silenciada. Si el navegador no cancela bien el eco de tus altavoces (Jarvis se
+interrumpe a sí mismo), usa auriculares, sube `voice.barge_in_threshold` o desactiva el barge-in.
 
 Privacidad: el audio solo vive en memoria (nunca en disco ni en SQLite); solo la transcripción se
 persiste como mensaje de usuario. El JSONL de la sesión registra `stt.final {chars, duration_ms}` y
@@ -209,14 +230,68 @@ persiste como mensaje de usuario. El JSONL de la sesión registra `stt.final {ch
 aparece en el texto hablado, se pronuncia "dato oculto" en vez de la máscara.
 
 Configuración (`config/tony.yaml`, sección `voice`): `stt: faster-whisper/<modelo>` con `tiny`,
-`base`, `small`, `medium`, `large-v3` (y variantes `.en`/`distil`); `tts: kokoro/<voz>` con
-`ef_dora`, `em_alex` o `em_santa`; `vad: silero`. Un alias inválido es `✗` en `tony doctor` y en
-`tony config validate`. El idioma del STT es `persona.language` del `front` (`es` por defecto).
+`base` (por defecto), `small`, `medium`, `large-v3` (y variantes `.en`/`distil`); `tts` es un
+alias `motor/voz[?speed=…&lang=…]` (ver "Voz de Jarvis"); `vad: silero`; `end_silence_ms`
+(silencio que cierra una intervención, 300–1500, 500 por defecto); `barge_in`,
+`barge_in_threshold` (0,5–0,99) y `barge_in_min_speech_ms` (150–1000); `cpu_threads` (hilos de
+faster-whisper y Kokoro; `null` = la mitad de los núcleos lógicos) y `acknowledgements` (1–10
+frases de ≤ 60 caracteres). Un alias inválido es `✗` en `tony doctor` y en `tony config validate`.
+El idioma del STT es `persona.language` del `front` (`es` por defecto).
+
+### Voz de Jarvis
+
+Voz por defecto: `piper/es_MX-ald-medium?speed=0.95`. Se eligió por el brief (masculina, español
+latinoamericano neutro con seseo, serena y precisa): f0 ≈ 150 Hz, fonemas `es-419` nativos del
+dataset mexicano y un primer fragmento de ~130–180 ms en CPU, frente a ~1,1 s (sin carga) de
+Kokoro; `speed=0.95` da un ritmo calmado sin sonar lento. La alternativa para quien prime un
+timbre más grave sobre la latencia es la mezcla de Kokoro `em_alex*0.6+em_santa*0.4` (f0 ≈ 126 Hz,
+~1 s más hasta el primer audio). No se aplica procesado de tono.
+
+Sintaxis del alias: `motor/voz[?clave=valor(&clave=valor)*]`.
+
+- `speed`: 0,5–1,5 (1,0 por defecto), en Piper y Kokoro (Piper: `length_scale = 1/speed`).
+- `lang`: solo Kokoro, `es-419` (seseo, por defecto) o `es` (pronunciación peninsular).
+- Kokoro admite mezclas `voz*peso+voz*peso` cuyos pesos suman 1 (tolerancia 0,01) con `ef_dora`,
+  `em_alex` y `em_santa`; Piper admite las voces españolas de su índice (`es_MX-ald-medium`,
+  `es_MX-ald-x_low`, `es_MX-claude-high`, `es_AR-daniela-high` y las `es_ES-*`), que se
+  descargan a la caché de Hugging Face (`rhasspy/piper-voices`) en el primer uso o con
+  `tony voice warmup`. Piper genera a 22 050 Hz y se re-muestrea a 24 kHz.
+
+```yaml
+voice:
+  tts: piper/es_MX-ald-medium?speed=0.95             # por defecto
+  # tts: kokoro/em_alex*0.6+em_santa*0.4?speed=0.94  # más grave, ~1 s más lenta
+  # tts: kokoro/ef_dora?lang=es                      # la voz anterior
+  # stt: faster-whisper/small                        # el STT anterior, más lento
+```
+
+Paquete de escucha: `uv run python scripts/voice_samples.py` genera en `samples/voices/` (ignorado
+por git) un WAV por candidata con el mismo párrafo ("Buenas tardes, señor. Los sistemas están en
+línea…") e imprime esta tabla (primer fragmento de "Enseguida lo reviso, señor.", 5 repeticiones;
+"mal oídas" son las palabras del párrafo que faster-whisper `base` no transcribe igual). Medido con
+la máquina cargada (load average ~20), lo que infla sobre todo las cifras de Kokoro: sin carga, la
+sonda midió ~1,1–1,2 s para `em_alex`, `em_santa` y la mezcla.
+
+| Candidata | Alias para `voice.tts` | Primer fragmento p50 | f0 | Mal oídas | Notas |
+|---|---|---|---|---|---|
+| `piper_ald_medium_095.wav` | `piper/es_MX-ald-medium?speed=0.95` | 125 ms | 150 Hz | 2 | por defecto |
+| `piper_ald_medium_100.wav` | `piper/es_MX-ald-medium` | 142 ms | 150 Hz | 0 | mismo timbre, ritmo normal |
+| `piper_ald_x_low_095.wav` | `piper/es_MX-ald-x_low?speed=0.95` | 123 ms | 154 Hz | 8 | modelo pequeño, más metálico |
+| `piper_claude_high_095.wav` | `piper/es_MX-claude-high?speed=0.95` | 118 ms | 185 Hz | 3 | tono más agudo |
+| `kokoro_blend_alex_santa_es419.wav` | `kokoro/em_alex*0.6+em_santa*0.4?speed=0.94` | 3203 ms | 126 Hz | 1 | la más grave; alternativa documentada |
+| `kokoro_em_alex_es419.wav` | `kokoro/em_alex?speed=0.94` | 2947 ms | 133 Hz | 3 | masculina, seseo |
+| `kokoro_em_santa_es419.wav` | `kokoro/em_santa?speed=0.94` | 3914 ms | 143 Hz | 3 | masculina, seseo |
+| `kokoro_ef_dora_es.wav` | `kokoro/ef_dora?lang=es` | 3437 ms | 168 Hz | 3 | voz anterior (femenina, peninsular) |
+
+Licencias: `piper-tts` es GPL-3.0-or-later y solo se instala con el extra opcional `voice` (Tony es
+de uso personal y local; si se distribuye, basta con cambiar `voice.tts` a `kokoro/…`, sin tocar
+código). Las voces `es_MX-ald` (dataset Unlicense) y `es_MX-claude` (Apache-2.0) tienen licencias
+permisivas.
 
 Limitaciones: `AudioWorklet` y `getUserMedia` exigen un contexto seguro, así que con
 `--allow-remote` sin HTTPS el micrófono no funciona fuera de `localhost`/`127.0.0.1`; no hay wake
-word ni barge-in (la captura se silencia mientras Jarvis habla); el audio perdido durante una
-reconexión no se reenvía (el texto sí); no hay voz en `tony chat`.
+word ni transcripciones parciales; hablar durante una tarea delegada no la interrumpe; el audio
+perdido durante una reconexión no se reenvía (el texto sí); no hay voz en `tony chat`.
 
 Pruebas con los motores reales (excluidas de `uv run pytest` por `addopts = "-m 'not voice'"`):
 
@@ -226,21 +301,32 @@ uv run tony voice bench               # p50/p95 de 5 repeticiones
 TONY_EVALS=1 uv run tony voice bench  # además la ida y vuelta completa con el modelo
 ```
 
-Medidas en un AMD Ryzen 5 7535U (12 hilos, 14 GB, sin GPU), modelos ya en caché:
+Medidas en un AMD Ryzen 5 7535U (12 hilos, 14 GB, sin GPU), modelos ya en caché. "Antes" es la
+primera entrega de voz (Kokoro `ef_dora`, faster-whisper `small`, respuesta completa antes de
+hablar); "después" es esta entrega (Piper `es_MX-ald-medium`, faster-whisper `base`, habla en
+streaming desde la salida parcial del modelo):
 
-| Medida | p50 | p95 | Nota |
-|---|---|---|---|
-| `warmup` | vad 999 ms · stt 1 008 ms · tts 3 738 ms | | carga única por proceso |
-| `load` | 5 636 ms | 5 636 ms | suma de las tres cargas (1 muestra) |
-| `stt_3s` | 1 390 ms | 1 407 ms | faster-whisper `small` int8, muestra sintética de 3 s |
-| `tts_12w` | 3 186 ms | 3 211 ms | Kokoro `ef_dora`, frase de 12 palabras |
-| `roundtrip` | 9 384 ms | 10 075 ms | `TONY_EVALS=1`: turno del modelo (claude-haiku) + primera frase sintetizada; la transcripción va aparte en `stt_3s` |
+| Medida | Antes p50 | Después p50 | Después p95 | Nota |
+|---|---|---|---|---|
+| `stt_3s` | 1 390 ms | 692 ms | 706 ms | transcripción de una muestra sintética de 3 s |
+| `stt_utt` | — | 638 ms | 694 ms | transcripción de la pregunta real usada en `roundtrip` |
+| `tts_12w` | 3 186 ms | 147 ms | 152 ms | primer motor completo, frase de 12 palabras |
+| `tts_first` | — | 91 ms | 102 ms | primer fragmento corto ("Enseguida lo reviso, señor.") |
+| `ttft` | — | 1 646 ms | 1 984 ms | tiempo hasta el primer token del modelo (claude-haiku) |
+| `roundtrip` | 9 384 ms | 2 560 ms | 2 978 ms | turno completo del modelo + primera frase sintetizada (sin streaming) |
+| `roundtrip_stream` | — | **3 085 ms** | 3 210 ms | fin de habla → primer `tts.chunk` real, con streaming de principio a fin |
 
-Con estos tiempos el objetivo de p50 < 2 s de ida y vuelta no se alcanza en esta CPU (`tony voice
-bench` lo marca como "objetivo no alcanzado"): la transcripción de 3 s cuesta ~1,4 s, el turno del
-modelo ~5 s y la primera frase de Kokoro ~3 s.
-Opciones: `voice.stt: faster-whisper/base` (más rápido, menos preciso), frases cortas en
-`style.voice`, o un equipo con más núcleos; `compute_type` sigue fijo en `int8` en v1.
+Desglose de `roundtrip_stream`: 576 ms de silencio de cierre (`voice.end_silence_ms`) + 755 ms de
+transcripción + 1 646 ms hasta el primer token del modelo + 107 ms del primer fragmento de Kokoro.
+
+El objetivo de p50 ≤ 2 500 ms no se alcanza por unos 600 ms en esta CPU (`tony voice bench` lo
+marca como "objetivo no alcanzado"), pero baja de 9,4 s a 3,1 s: el cambio de motor de síntesis
+(Piper en vez de Kokoro) ahorra unos 3 s, hablar en streaming en vez de esperar la respuesta
+completa ahorra otros 2-3 s según la frase, y `faster-whisper/base` en vez de `small` ahorra unos
+700 ms. El cuello de botella que queda es el tiempo hasta el primer token del modelo (~1,6 s): no
+depende de la voz y solo bajaría con `effort="low"` (ya activado) o con un modelo más rápido.
+Opciones restantes: frases de confirmación más cortas en `style.voice`, o un equipo con más
+núcleos; `compute_type` sigue fijo en `int8` en v1.
 
 ## Memoria
 
