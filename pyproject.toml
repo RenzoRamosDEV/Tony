@@ -57,8 +57,9 @@ markers = [
     "evals: pruebas con modelo real (solo con TONY_EVALS=1)",
     "voice: pruebas con los motores de voz reales (uv run pytest -m voice)",
     "codex: pruebas con el binario codex real (uv run pytest -m codex)",
+    "litellm: pruebas con un proveedor real vía LiteLLM (uv run pytest -m litellm)",
 ]
-addopts = "-m 'not voice and not codex'"
+addopts = "-m 'not voice and not codex and not litellm'"
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]

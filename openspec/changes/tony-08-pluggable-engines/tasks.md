@@ -33,16 +33,16 @@
 
 ## 5. Motor `litellm` (`litellm-engine`)
 
-- [ ] 5.1 Añadir `litellm` como dependencia opcional en `pyproject.toml` (grupo `litellm` o dependencia directa, a decidir según si siempre se instala) y verificar `uv sync` resuelve sin conflicto con `openai`/`anthropic` ya usados indirectamente
-- [ ] 5.2 Escribir un fake cliente LiteLLM (`tests/fakes/fake_litellm.py`, sin red) que sustituye `litellm.acompletion` por una secuencia de respuestas programada (con y sin `tool_calls`, con y sin soporte de `response_format`)
-- [ ] 5.3 Escribir tests que fallen para `LiteLlmRunner`/`LiteLlmConversation`: bucle de tool-calls hasta una respuesta final, ejecución de cada tool a través de la misma barrera de 3.2, parada en `max_steps` con `status: "error"`
-- [ ] 5.4 Implementar `LiteLlmRunner`/`LiteLlmConversation` sobre el fake de 5.2; verificar que los tests de 5.3 pasan
-- [ ] 5.5 Escribir tests que fallen para la salida estructurada con fallback: `response_format` soportado valida contra el esquema; no soportado cae a extracción de JSON del texto; sin JSON extraíble devuelve el texto completo con `status: "ok"`
-- [ ] 5.6 Implementar la lógica de fallback de salida estructurada; verificar que los tests de 5.5 pasan
-- [ ] 5.7 Escribir un test que falle para la resolución de clave de proveedor ausente (`status: "error"` nombrando la variable esperada antes de llamar al proveedor) y verificar que falla
-- [ ] 5.8 Implementar la comprobación de clave antes de la primera llamada; verificar que el test de 5.7 pasa
-- [ ] 5.9 Conectar `litellm` en `build_runner_factory`/`build_conversation` para `engine` resuelto a `type: litellm`; verificar con un test de integración análogo al de 4.7
-- [ ] 5.10 Ejecutar `uv run pytest -q -m "not litellm and not codex and not voice"` y confirmar que la suite estándar pasa sin llamadas reales a ningún proveedor; marcar los tests que sí llaman a un proveedor real con `@pytest.mark.litellm` y excluirlos del run por defecto en `pyproject.toml`
+- [x] 5.1 Añadir `litellm` como dependencia opcional en `pyproject.toml` (grupo `litellm` o dependencia directa, a decidir según si siempre se instala) y verificar `uv sync` resuelve sin conflicto con `openai`/`anthropic` ya usados indirectamente
+- [x] 5.2 Escribir un fake cliente LiteLLM (`tests/fakes/fake_litellm.py`, sin red) que sustituye `litellm.acompletion` por una secuencia de respuestas programada (con y sin `tool_calls`, con y sin soporte de `response_format`)
+- [x] 5.3 Escribir tests que fallen para `LiteLlmRunner`/`LiteLlmConversation`: bucle de tool-calls hasta una respuesta final, ejecución de cada tool a través de la misma barrera de 3.2, parada en `max_steps` con `status: "error"`
+- [x] 5.4 Implementar `LiteLlmRunner`/`LiteLlmConversation` sobre el fake de 5.2; verificar que los tests de 5.3 pasan
+- [x] 5.5 Escribir tests que fallen para la salida estructurada con fallback: `response_format` soportado valida contra el esquema; no soportado cae a extracción de JSON del texto; sin JSON extraíble devuelve el texto completo con `status: "ok"`
+- [x] 5.6 Implementar la lógica de fallback de salida estructurada; verificar que los tests de 5.5 pasan
+- [x] 5.7 Escribir un test que falle para la resolución de clave de proveedor ausente (`status: "error"` nombrando la variable esperada antes de llamar al proveedor) y verificar que falla
+- [x] 5.8 Implementar la comprobación de clave antes de la primera llamada; verificar que el test de 5.7 pasa
+- [x] 5.9 Conectar `litellm` en `build_runner_factory`/`build_conversation` para `engine` resuelto a `type: litellm`; verificar con un test de integración análogo al de 4.7
+- [x] 5.10 Ejecutar `uv run pytest -q -m "not litellm and not codex and not voice"` y confirmar que la suite estándar pasa sin llamadas reales a ningún proveedor; marcar los tests que sí llaman a un proveedor real con `@pytest.mark.litellm` y excluirlos del run por defecto en `pyproject.toml`
 
 ## 6. CLI `tony engine` (`engine-selection`)
 
