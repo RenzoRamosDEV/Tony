@@ -158,6 +158,7 @@ GOLDEN_SUBAGENT_YAML = """\
 name: investigador
 role: worker
 model: claude-sonnet
+engine: claude_sdk
 persona:
   address: ''
   language: es

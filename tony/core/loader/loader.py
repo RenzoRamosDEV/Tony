@@ -85,6 +85,11 @@ def load_agent(
             agent,
             f"alias de modelo desconocido '{spec.model}'; disponibles: {sorted(settings.models)}",
         )
+    if spec.engine not in settings.engines:
+        raise AgentLoadError(
+            agent,
+            f"perfil de motor desconocido '{spec.engine}'; disponibles: {sorted(settings.engines)}",
+        )
     if depth > 0 and spec.role != "worker":
         logger.warning(
             "el subagente '%s' declara role '%s'; se usa como 'worker'", agent, spec.role

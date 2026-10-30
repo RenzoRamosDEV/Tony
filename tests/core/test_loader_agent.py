@@ -164,6 +164,47 @@ def test_every_failure_carries_agent_name_and_message(tmp_repo, settings, agent_
     assert "Value error" not in str(exc_info.value)
 
 
+def test_engine_defaults_to_claude_sdk_when_absent(tmp_repo: Path, settings) -> None:
+    folder = make_agent(
+        tmp_repo / "agents", "x", "---\nname: x\nrole: worker\nmodel: claude-sonnet\n---\nHola\n"
+    )
+
+    spec = load_agent(folder, settings, {})
+
+    assert spec.engine == "claude_sdk"
+
+
+def test_engine_declared_and_valid_is_kept(tmp_repo: Path) -> None:
+    from tony.core.config.settings import EngineProfile, TonySettings
+
+    settings = TonySettings(engines={"codex_cli": EngineProfile(type="codex_cli")})
+    folder = make_agent(
+        tmp_repo / "agents",
+        "x",
+        "---\nname: x\nrole: worker\nmodel: claude-sonnet\nengine: codex_cli\n---\nHola\n",
+    )
+
+    spec = load_agent(folder, settings, {})
+
+    assert spec.engine == "codex_cli"
+
+
+def test_unknown_engine_profile_lists_available(tmp_repo: Path, settings) -> None:
+    folder = make_agent(
+        tmp_repo / "agents",
+        "x",
+        "---\nname: x\nrole: worker\nmodel: claude-sonnet\nengine: no_declarado\n---\nHola\n",
+    )
+
+    with pytest.raises(AgentLoadError) as exc_info:
+        load_agent(folder, settings, {})
+
+    message = str(exc_info.value)
+    assert "no_declarado" in message
+    assert "claude_sdk" in message
+    assert exc_info.value.agent == "x"
+
+
 @pytest.mark.parametrize("key", ["path", "system_prompt", "tools", "secrets"])
 def test_reserved_frontmatter_keys_are_rejected(tmp_repo: Path, settings, key: str) -> None:
     folder = make_agent(

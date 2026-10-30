@@ -2,6 +2,8 @@ from tony.core.config.env import EnvMap, dotenv_secrets, load_env
 from tony.core.config.settings import (
     REPLY_MODES,
     ConfigError,
+    EngineProfile,
+    EngineType,
     Limits,
     ReplyMode,
     TonySettings,
@@ -13,6 +15,8 @@ from tony.core.config.settings import (
 __all__ = [
     "REPLY_MODES",
     "ConfigError",
+    "EngineProfile",
+    "EngineType",
     "ReplyMode",
     "EnvMap",
     "Limits",

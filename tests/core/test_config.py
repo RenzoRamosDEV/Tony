@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tony.core.config import ConfigError, dotenv_secrets, load_env, load_settings
+from tony.core.config import ConfigError, EngineProfile, dotenv_secrets, load_env, load_settings
 
 
 def write_yaml(tmp_repo: Path, body: str) -> Path:
@@ -228,3 +228,46 @@ def test_end_silence_out_of_range_names_the_range(tmp_repo: Path) -> None:
     assert "voice.end_silence_ms" in str(exc_info.value)
     assert "300" in str(exc_info.value)
     assert "1500" in str(exc_info.value)
+
+
+def test_claude_sdk_engine_profile_is_always_implicitly_present(tmp_repo: Path) -> None:
+    settings = load_settings(tmp_repo / "config" / "tony.yaml")
+
+    assert settings.engines == {"claude_sdk": EngineProfile(type="claude_sdk")}
+
+
+def test_declared_engine_profiles_merge_with_the_implicit_claude_sdk(tmp_repo: Path) -> None:
+    settings = load_settings(
+        write_yaml(
+            tmp_repo,
+            "engines:\n"
+            "  codex_cli:\n"
+            "    type: codex_cli\n"
+            "  gemini:\n"
+            "    type: litellm\n"
+            "    model: gemini/gemini-2.0-flash\n",
+        )
+    )
+
+    assert settings.engines == {
+        "claude_sdk": EngineProfile(type="claude_sdk"),
+        "codex_cli": EngineProfile(type="codex_cli"),
+        "gemini": EngineProfile(type="litellm", model="gemini/gemini-2.0-flash"),
+    }
+
+
+def test_litellm_profile_without_model_is_rejected(tmp_repo: Path) -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(write_yaml(tmp_repo, "engines:\n  gemini:\n    type: litellm\n"))
+
+    message = str(exc_info.value)
+    assert "gemini" in message
+    assert "model" in message
+
+
+def test_redeclaring_claude_sdk_profile_overrides_the_implicit_one(tmp_repo: Path) -> None:
+    settings = load_settings(
+        write_yaml(tmp_repo, "engines:\n  claude_sdk:\n    type: claude_sdk\n")
+    )
+
+    assert settings.engines == {"claude_sdk": EngineProfile(type="claude_sdk")}

@@ -2,11 +2,11 @@
 
 ## 1. Esquema de configuración y carga de agentes (`engine-selection`, `agent-loader`)
 
-- [ ] 1.1 Escribir tests que fallen para `EngineProfile`/`engines` en `tony/core/config/settings.py` (perfil `claude_sdk` implícito siempre presente; perfil `litellm` sin `model` rechazado) y verificar que fallan antes de implementar
-- [ ] 1.2 Implementar `EngineProfile` y `TonySettings.engines`; verificar que los tests de 1.1 pasan
-- [ ] 1.3 Escribir tests que fallen para el campo `engine` de `AgentSpec`/`agent.md` (ausente → `claude_sdk`; perfil desconocido → error con perfiles disponibles) en `tony/core/loader/models.py` y `frontmatter.py`/`loader.py`, y verificar que fallan
-- [ ] 1.4 Implementar la validación de `engine` contra `engines` (incluyendo el perfil implícito `claude_sdk`); verificar que los tests de 1.3 pasan y que la suite existente de `agent-loader` sigue en verde
-- [ ] 1.5 Ejecutar `uv run pytest -q tests -k "settings or loader"` y confirmar 0 fallos; revisar mutantes del diff de 1.1-1.4 con el runner de mutación del proyecto, límite 3 min, y justificar cualquier mutante superviviente por debajo del 95%
+- [x] 1.1 Escribir tests que fallen para `EngineProfile`/`engines` en `tony/core/config/settings.py` (perfil `claude_sdk` implícito siempre presente; perfil `litellm` sin `model` rechazado) y verificar que fallan antes de implementar
+- [x] 1.2 Implementar `EngineProfile` y `TonySettings.engines`; verificar que los tests de 1.1 pasan
+- [x] 1.3 Escribir tests que fallen para el campo `engine` de `AgentSpec`/`agent.md` (ausente → `claude_sdk`; perfil desconocido → error con perfiles disponibles) en `tony/core/loader/models.py` y `frontmatter.py`/`loader.py`, y verificar que fallan
+- [x] 1.4 Implementar la validación de `engine` contra `engines` (incluyendo el perfil implícito `claude_sdk`); verificar que los tests de 1.3 pasan y que la suite existente de `agent-loader` sigue en verde
+- [x] 1.5 Ejecutar `uv run pytest -q tests -k "settings or loader"` y confirmar 0 fallos; revisar mutantes del diff de 1.1-1.4 con el runner de mutación del proyecto, límite 3 min, y justificar cualquier mutante superviviente por debajo del 95%
 
 ## 2. Puertos de motor y factoría genérica (`agent-runner`, `front-agent`, sin motores nuevos aún)
 

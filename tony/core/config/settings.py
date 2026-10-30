@@ -47,6 +47,21 @@ class WebSettings(StrictModel):
     host: str = "127.0.0.1"
 
 
+EngineType = Literal["claude_sdk", "codex_cli", "litellm"]
+IMPLICIT_CLAUDE_SDK_ENGINE = "claude_sdk"
+
+
+class EngineProfile(StrictModel):
+    type: EngineType
+    model: str | None = None
+
+    @model_validator(mode="after")
+    def litellm_profile_requires_a_model(self) -> EngineProfile:
+        if self.type == "litellm" and self.model is None:
+            raise ValueError("falta 'model'")
+        return self
+
+
 DEFAULT_ACKNOWLEDGEMENTS = [
     "Un momento, señor.",
     "Enseguida, señor.",
@@ -106,6 +121,9 @@ class TonySettings(StrictModel):
     channels: list[str] = ["cli", "web"]
     web: WebSettings = WebSettings()
     limits: Limits = Limits()
+    engines: dict[str, EngineProfile] = Field(
+        default_factory=lambda: {IMPLICIT_CLAUDE_SDK_ENGINE: EngineProfile(type="claude_sdk")}
+    )
 
     @field_validator("models", mode="before")
     @classmethod
@@ -113,6 +131,14 @@ class TonySettings(StrictModel):
         if not isinstance(value, dict):
             raise ValueError("debe ser un mapa de alias a identificadores de modelo")
         return {**DEFAULT_MODELS, **value}
+
+    @field_validator("engines", mode="before")
+    @classmethod
+    def merge_implicit_claude_sdk_engine(cls, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValueError("debe ser un mapa de alias a perfiles de motor")
+        implicit = {"type": "claude_sdk"}
+        return {IMPLICIT_CLAUDE_SDK_ENGINE: implicit, **value}
 
     @model_validator(mode="after")
     def front_and_worker_must_differ(self) -> TonySettings:
