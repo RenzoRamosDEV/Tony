@@ -79,3 +79,16 @@ Al mismo tiempo se descubrió que el JSONL real de `codex exec --json` **no** ti
 - Sin migración de datos: `engines` y `engine` son campos nuevos con valor por defecto; ninguna instalación existente los declara, así que ningún agente cambia de motor al desplegar este change.
 - Orden de implementación (ver tasks.md): primero el esquema de configuración y `agent-loader` (sin motores nuevos todavía), después la factoría de motor genérica con solo `claude_sdk` detrás (refactor sin cambio de comportamiento observable, cubierto por los tests existentes de `agent-runner`/`front-agent`), después `codex_cli`, después `litellm`, después CLI y `doctor`.
 - Rollback: cada motor nuevo es aditivo y seleccionado por opt-in explícito (`engine:` en `agent.md`); revertir el change no requiere tocar datos de usuario, solo el código.
+
+### Hallazgo empírico: formato real corregido (post-grupo 4)
+
+El analizador de eventos del grupo 4 asumía un evento `{"type":"result",...}` que no existe
+en `codex exec --json` (codex-cli 0.164.0+). El formato real, confirmado contra el binario, es
+`thread.started{thread_id}` → `turn.started` → `item.completed{item:{type:"agent_message",text}}`
+→ `turn.completed`; la salida de `--output-schema` llega como el texto (string JSON) del último
+`agent_message`. Corregido en `codex_cli.py`/`codex_conversation.py` (commit `37f7ce6`) con ayuda
+de `codex exec -s workspace-write` para el código y verificación manual (suite completa + una
+llamada real al binario `codex`) hecha fuera de su sandbox, que bloquea los sockets Unix que usa
+el resto de Tony. El bloqueo de aprobación de Codex sobre llamadas a tools MCP (hallazgo anterior)
+ahora se reporta como un error específico en español («Codex bloqueó la llamada... por su propia
+política de aprobación») en vez de un fallo genérico de esquema.
