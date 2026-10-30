@@ -152,3 +152,47 @@ def test_config_validate_fails_when_the_configured_agents_are_missing(cli) -> No
     assert any("agente jarvis" in line and "no existe" in line for line in failures)
     assert any("agente viernes" in line and "no existe" in line for line in failures)
     assert runner.invoke(main.app, ["doctor", "--offline"]).exit_code == 1
+
+
+@pytest.mark.parametrize("command", [["doctor", "--offline"], ["config", "validate"]])
+@pytest.mark.parametrize("key_source", ["missing", "dotenv", "process"])
+def test_alternative_engine_diagnostics(cli, monkeypatch, command, key_source):
+    import os
+    from types import SimpleNamespace
+
+    write_tool_json({})
+
+    (cli / "config/tony.yaml").write_text(
+        "worker: viernes\nengines:\n  coding:\n    type: codex_cli\n"
+        "  fast:\n    type: litellm\n    model: gpt-4o\n"
+    )
+    for name, profile in (("viernes", "coding"), ("jarvis", "fast")):
+        path = cli / "agents" / name / "agent.md"
+        path.write_text(path.read_text().replace("\nrole:", f"\nengine: {profile}\nrole:"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    if key_source == "dotenv":
+        (cli / "config/.env").write_text("OPENAI_API_KEY=test-only-secret\n")
+    elif key_source == "process":
+        monkeypatch.setenv("OPENAI_API_KEY", "test-only-secret")
+
+    def validate_environment(*, model):
+        assert model == "gpt-4o"
+        return {"missing_keys": [] if os.environ.get("OPENAI_API_KEY") else ["OPENAI_API_KEY"]}
+
+    monkeypatch.setitem(
+        sys.modules, "litellm", SimpleNamespace(validate_environment=validate_environment)
+    )
+    before = os.environ.get("OPENAI_API_KEY")
+    result = runner.invoke(main.app, command)
+    assert result.exit_code == (1 if key_source == "missing" else 0), result.output
+    assert os.environ.get("OPENAI_API_KEY") == before
+    assert "test-only-secret" not in result.output
+    if key_source == "missing":
+        assert "✗ litellm:fast: falta OPENAI_API_KEY" in result.output
+        assert "añade OPENAI_API_KEY a config/.env" in result.output
+    else:
+        assert "✓ litellm:fast: gpt-4o" in result.output
+    if command[0] == "doctor":
+        assert "· codex_cli: omitido (--offline)" in result.output
+    else:
+        assert "codex_cli" not in result.output

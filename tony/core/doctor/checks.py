@@ -79,7 +79,12 @@ class Environment:
 
 
 async def run_checks(
-    paths: DoctorPaths, env: Environment, offline: bool, connect: bool
+    paths: DoctorPaths,
+    env: Environment,
+    offline: bool,
+    connect: bool,
+    *,
+    check_external: bool = True,
 ) -> list[CheckResult]:
     results = [check_python(env), check_claude_cli(env)]
     settings_result, settings = check_settings(paths)
@@ -88,6 +93,23 @@ async def run_checks(
     results.append(check_dotenv(paths))
     agents = load_agents(paths, settings)
     results.extend(check_agents(paths, agents, settings))
+    profiles = {spec.engine for _, spec in _specs(agents)}
+    used_settings = settings.model_copy(
+        update={
+            "engines": {
+                name: profile for name, profile in settings.engines.items() if name in profiles
+            }
+        }
+    )
+    if check_external and any(
+        profile.type == "codex_cli" for profile in used_settings.engines.values()
+    ):
+        results.append(
+            CheckResult("codex_cli", None, "omitido (--offline)")
+            if offline
+            else check_codex_cli(env)
+        )
+    results.extend(check_litellm(used_settings, load_env(paths.dotenv)))
     results.append(check_node(env, agents))
     results.extend(check_voice(env, settings))
     if connect:
@@ -121,6 +143,65 @@ def check_claude_cli(env: Environment) -> CheckResult:
         "el CLI 'claude' no está en el PATH",
         "instala Claude Code CLI y autentícalo con `claude login`",
     )
+
+
+def check_codex_cli(env: Environment) -> CheckResult:
+    """Check binary availability locally; authentication is not probed."""
+    path = env.which("codex")
+    if path:
+        return CheckResult("codex_cli", True, path)
+    return CheckResult(
+        "codex_cli",
+        False,
+        "el CLI 'codex' no está en el PATH",
+        "instala Codex CLI y autentícate con `codex login`",
+    )
+
+
+def check_litellm(settings: TonySettings, env: EnvMap) -> list[CheckResult]:
+    """Return one local check per LiteLLM profile supplied (caller selects used profiles).
+
+    LiteLLM identifies missing process variables; the merged dotenv map can supply them
+    without mutating the process environment or contacting a provider.
+    """
+    results = []
+    for name, profile in settings.engines.items():
+        if profile.type != "litellm":
+            continue
+        label = f"litellm:{name}"
+        try:
+            import litellm
+        except ImportError:
+            results.append(
+                CheckResult(
+                    label,
+                    False,
+                    "LiteLLM no está instalado",
+                    "instala las dependencias con `uv sync`",
+                )
+            )
+            continue
+        try:
+            validation = litellm.validate_environment(model=profile.model)
+        except Exception:  # noqa: BLE001 - report diagnostics without exposing provider secrets
+            results.append(
+                CheckResult(
+                    label,
+                    False,
+                    f"no se pudo validar el entorno de {profile.model}",
+                    f"revisa el modelo del perfil '{name}' en config/tony.yaml",
+                )
+            )
+            continue
+        missing = [key for key in validation.get("missing_keys", []) if not env.get(key)]
+        if missing:
+            variables = ", ".join(missing)
+            results.append(
+                CheckResult(label, False, f"falta {variables}", f"añade {variables} a config/.env")
+            )
+        else:
+            results.append(CheckResult(label, True, profile.model))
+    return results
 
 
 def check_settings(paths: DoctorPaths) -> tuple[CheckResult, TonySettings]:
@@ -350,4 +431,6 @@ def _specs(agents: dict[str, AgentSpec | AgentLoadError]) -> list[tuple[str, Age
 
 async def validate_config(paths: DoctorPaths, env: Environment | None = None) -> list[CheckResult]:
     """`tony config validate`: the checks that need neither network nor processes."""
-    return await run_checks(paths, env or Environment(), offline=True, connect=False)
+    return await run_checks(
+        paths, env or Environment(), offline=True, connect=False, check_external=False
+    )

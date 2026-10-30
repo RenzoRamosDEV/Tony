@@ -9,7 +9,7 @@ from typing import Annotated
 import typer
 
 from tony import __version__
-from tony.apps.cli import agents_cli, doctor_cli, mcp_cli, replay_cli, voice_cli
+from tony.apps.cli import agents_cli, doctor_cli, engine_cli, mcp_cli, replay_cli, voice_cli
 from tony.apps.cli import chat as chat_app
 from tony.apps.cli import run_task as orchestration
 from tony.apps.cli.chat import ChatError, ChatOptions
@@ -27,6 +27,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+app.add_typer(engine_cli.app, name="engine")
 app.add_typer(mcp_cli.app, name="mcp", help="Gestiona los servidores MCP de un agente.")
 app.add_typer(agents_cli.app, name="agents", help="Lista los agentes y subagentes o muestra uno.")
 app.command("doctor", help="Diagnostica la instalación (✓/✗ con sugerencias).")(doctor_cli.doctor)

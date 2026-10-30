@@ -46,21 +46,21 @@
 
 ## 6. CLI `tony engine` (`engine-selection`)
 
-- [ ] 6.1 Escribir tests que fallen para `tony engine set <agente> <perfil>`: edición atómica de `engine` en `agent.md` (perfil válido), fallo sin escritura si el perfil no existe en `engines`
-- [ ] 6.2 Implementar `tony/apps/cli/engine_cli.py` con `set`, reutilizando el patrón de edición atómica de `tony/core/loader/tooljson.py`; verificar que los tests de 6.1 pasan
-- [ ] 6.3 Escribir tests que fallen para `tony engine list`: muestra cada agente/subagente con su motor efectivo y el tipo de perfil resuelto
-- [ ] 6.4 Implementar `list` reutilizando `load_all` y `render_table`; verificar que los tests de 6.3 pasan
-- [ ] 6.5 Registrar `engine_cli.app` en `tony/apps/cli/main.py` y escribir un test de ayuda en español (`tony engine --help`, `tony engine set --help`, `tony engine list --help`); verificar que pasa
+- [x] 6.1 Escribir tests que fallen para `tony engine set <agente> <perfil>`: edición atómica de `engine` en `agent.md` (perfil válido), fallo sin escritura si el perfil no existe en `engines`
+- [x] 6.2 Implementar `tony/apps/cli/engine_cli.py` con `set`, reutilizando el patrón de edición atómica de `tony/core/loader/tooljson.py`; verificar que los tests de 6.1 pasan
+- [x] 6.3 Escribir tests que fallen para `tony engine list`: muestra cada agente/subagente con su motor efectivo y el tipo de perfil resuelto
+- [x] 6.4 Implementar `list` reutilizando `load_all` y `render_table`; verificar que los tests de 6.3 pasan
+- [x] 6.5 Registrar `engine_cli.app` en `tony/apps/cli/main.py` y escribir un test de ayuda en español (`tony engine --help`, `tony engine set --help`, `tony engine list --help`); verificar que pasa
 
 ## 7. Comprobaciones de `tony doctor` (`cli-doctor`)
 
-- [ ] 7.1 Escribir tests que fallen en `tony/core/doctor/checks.py` para la comprobación `codex_cli`: binario presente/autenticado → `✓`; ausente → `✗` con sugerencia; omitida con `--offline` igual que `claude`
-- [ ] 7.2 Implementar la comprobación `codex_cli`; verificar que los tests de 7.1 pasan
-- [ ] 7.3 Escribir tests que fallen para la comprobación `litellm`: variable de clave presente → `✓`; ausente → `✗` nombrando la variable
-- [ ] 7.4 Implementar la comprobación `litellm`; verificar que los tests de 7.3 pasan
-- [ ] 7.5 Escribir un test que falle confirmando que, sin ningún agente usando motores alternativos, no aparece ninguna línea de comprobación de `codex`/`litellm`; verificar que pasa tras 7.2/7.4
-- [ ] 7.6 Extender `tony config validate` para incluir la comprobación `litellm` (no requiere red ni proceso) y excluir la de `codex_cli` (requiere proceso), con un test que lo confirme
-- [ ] 7.7 Ejecutar `uv run pytest -q -m "not codex and not litellm and not voice"` y confirmar que toda la suite de `cli-doctor` pasa
+- [x] 7.1 Escribir tests que fallen en `tony/core/doctor/checks.py` para la comprobación `codex_cli`: binario presente/autenticado → `✓`; ausente → `✗` con sugerencia; omitida con `--offline` igual que `claude`
+- [x] 7.2 Implementar la comprobación `codex_cli`; verificar que los tests de 7.1 pasan
+- [x] 7.3 Escribir tests que fallen para la comprobación `litellm`: variable de clave presente → `✓`; ausente → `✗` nombrando la variable
+- [x] 7.4 Implementar la comprobación `litellm`; verificar que los tests de 7.3 pasan
+- [x] 7.5 Escribir un test que falle confirmando que, sin ningún agente usando motores alternativos, no aparece ninguna línea de comprobación de `codex`/`litellm`; verificar que pasa tras 7.2/7.4
+- [x] 7.6 Extender `tony config validate` para incluir la comprobación `litellm` (no requiere red ni proceso) y excluir la de `codex_cli` (requiere proceso), con un test que lo confirme
+- [x] 7.7 Ejecutar `uv run pytest -q -m "not codex and not litellm and not voice"` y confirmar que toda la suite de `cli-doctor` pasa
 
 ## 8. Verificación final
 

@@ -559,3 +559,171 @@ async def test_configured_front_and_worker_must_exist_as_folders(tmp_repo: Path)
     )
     assert results["agente viernes"].failed
     assert list(results)[5:7] == ["agente jarvis", "agente viernes"]
+
+
+@pytest.mark.parametrize("present", [True, False])
+def test_codex_binary_check(present):
+    from tony.core.doctor.checks import check_codex_cli
+
+    calls = []
+
+    def which(name):
+        calls.append(name)
+        return "/bin/codex" if present else None
+
+    result = check_codex_cli(environment(which=which))
+    assert calls == ["codex"]
+    assert result.name == "codex_cli"
+    assert result.ok is present
+    if present:
+        assert result.detail == "/bin/codex"
+    else:
+        assert "PATH" in result.detail
+        assert "codex login" in result.hint
+
+
+def engine_repo(tmp_repo, *, used=True, child=False):
+    p = healthy_repo(tmp_repo)
+    p.config_path.write_text(
+        "worker: viernes\nengines:\n  coding:\n    type: codex_cli\n"
+        "  fast:\n    type: litellm\n    model: gpt-4o\n"
+        "  unused:\n    type: litellm\n    model: unused-model\n"
+    )
+    if used:
+        root = p.agents_dir
+        if child:
+            root = root / "viernes/subagents"
+            write_agent(root, "coder")
+            write_agent(root, "helper")
+        for name, profile in (
+            ("coder" if child else "viernes", "coding"),
+            ("helper" if child else "jarvis", "fast"),
+        ):
+            path = root / name / "agent.md"
+            path.write_text(path.read_text().replace("\nrole:", f"\nengine: {profile}\nrole:"))
+    return p
+
+
+@pytest.mark.parametrize("missing", [[], ["OPENAI_API_KEY"], ["KEY_A", "KEY_B"]])
+@pytest.mark.parametrize("child", [False, True])
+async def test_engine_checks_only_used_profiles(tmp_repo, monkeypatch, missing, child):
+    import sys
+    from types import SimpleNamespace
+
+    p = engine_repo(tmp_repo, child=child)
+    calls = []
+
+    def validate_environment(*, model):
+        calls.append(model)
+        return {"missing_keys": missing}
+
+    for key in missing:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setitem(
+        sys.modules, "litellm", SimpleNamespace(validate_environment=validate_environment)
+    )
+    results = await check(tmp_repo, paths=p, offline=False, connect=False)
+    assert results["codex_cli"].ok is True
+    assert calls == ["gpt-4o"]
+    result = results["litellm:fast"]
+    assert result.ok is (not missing)
+    assert "litellm:unused" not in results
+    if missing:
+        assert result.detail == f"falta {', '.join(missing)}"
+        assert result.hint == f"añade {', '.join(missing)} a config/.env"
+        assert exit_code(results.values()) == 1
+    else:
+        assert result.detail == "gpt-4o"
+
+
+async def test_codex_skipped_offline_and_excluded_from_validation(tmp_repo, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from tony.core.doctor.checks import validate_config
+
+    p = engine_repo(tmp_repo)
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        SimpleNamespace(validate_environment=lambda **kw: {"missing_keys": []}),
+    )
+
+    def which(name):
+        assert name != "codex"
+        return f"/bin/{name}"
+
+    env = environment(which=which)
+    offline = await check(tmp_repo, env, paths=p, offline=True, connect=True)
+    assert offline["codex_cli"] == CheckResult("codex_cli", None, "omitido (--offline)")
+    validated = {r.name: r for r in await validate_config(p, env)}
+    assert "codex_cli" not in validated
+    assert validated["litellm:fast"].ok is True
+
+
+async def test_declared_but_unused_engines_are_not_checked(tmp_repo, monkeypatch):
+    import sys
+
+    p = engine_repo(tmp_repo, used=False)
+    monkeypatch.setitem(sys.modules, "litellm", None)
+
+    def which(name):
+        assert name != "codex"
+        return f"/bin/{name}"
+
+    results = await check(tmp_repo, environment(which=which), paths=p, offline=False)
+    assert not any(name.startswith(("codex", "litellm")) for name in results)
+
+
+async def test_litellm_missing_dependency_is_a_diagnostic(tmp_repo, monkeypatch):
+    import sys
+
+    p = engine_repo(tmp_repo)
+    monkeypatch.setitem(sys.modules, "litellm", None)
+    results = await check(tmp_repo, paths=p)
+    assert results["litellm:fast"].ok is False
+    assert "uv sync" in results["litellm:fast"].hint
+
+
+async def test_missing_codex_in_use_fails_doctor(tmp_repo, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    p = engine_repo(tmp_repo)
+    monkeypatch.setitem(
+        sys.modules,
+        "litellm",
+        SimpleNamespace(validate_environment=lambda **kw: {"missing_keys": []}),
+    )
+    results = await check(
+        tmp_repo,
+        environment(which=lambda name: None if name == "codex" else "/bin/tool"),
+        paths=p,
+        offline=False,
+        connect=False,
+    )
+    assert results["codex_cli"].ok is False
+    assert "codex login" in results["codex_cli"].hint
+    assert exit_code(results.values()) == 1
+
+
+def test_litellm_validation_failure_is_reported_without_leaking_secrets(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from tony.core.config import TonySettings
+    from tony.core.doctor.checks import check_litellm
+
+    def validate_environment(**kwargs):
+        raise ValueError("provider error with secret-value")
+
+    monkeypatch.setitem(
+        sys.modules, "litellm", SimpleNamespace(validate_environment=validate_environment)
+    )
+    settings = TonySettings(engines={"fast": {"type": "litellm", "model": "unknown/model"}})
+    result = check_litellm(settings, {})[0]
+    assert result.name == "litellm:fast"
+    assert result.ok is False
+    assert "unknown/model" in result.detail
+    assert "secret-value" not in str(result)
+    assert "config/tony.yaml" in result.hint
