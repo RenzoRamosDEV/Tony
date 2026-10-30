@@ -55,8 +55,9 @@ testpaths = ["tests"]
 markers = [
     "evals: pruebas con modelo real (solo con TONY_EVALS=1)",
     "voice: pruebas con los motores de voz reales (uv run pytest -m voice)",
+    "codex: pruebas con el binario codex real (uv run pytest -m codex)",
 ]
-addopts = "-m 'not voice'"
+addopts = "-m 'not voice and not codex'"
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]

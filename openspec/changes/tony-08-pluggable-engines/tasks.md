@@ -22,14 +22,14 @@
 
 ## 4. Motor `codex_cli` (`codex-engine`)
 
-- [ ] 4.1 Escribir tests que fallen para `CodexCliRunner` (`AgentRunner`): invoca el fake `codex exec --json --output-schema`, parsea el `TaskResult` de la salida estructurada, y produce `status: "error"` si la salida no cumple el esquema
-- [ ] 4.2 Implementar `CodexCliRunner` usando el fake de 3.3; verificar que los tests de 4.1 pasan
-- [ ] 4.3 Escribir tests que fallen para la pasarela MCP (`tony mcp-gateway`): expone el mismo `ToolCatalog` que el proxy en proceso, aplica la misma barrera (reutilizando 3.2) y responde por stdio a un cliente MCP de prueba
-- [ ] 4.4 Implementar el comando interno `tony mcp-gateway` y el cableado `-c mcp_servers.tony.command=...`/`args=[...]` en `CodexCliRunner`; verificar que los tests de 4.3 pasan
-- [ ] 4.5 Escribir tests que fallen para `CodexCliConversation` (`ConversationRunner`): primer turno abre sesión y captura `session_id`; turno siguiente usa `codex exec resume <session_id>`; sin streaming parcial de voz (`on_speech` solo se llama una vez, al final)
-- [ ] 4.6 Implementar `CodexCliConversation` sobre el fake `codex`; verificar que los tests de 4.5 pasan
-- [ ] 4.7 Conectar `codex_cli` en `build_runner_factory`/`build_conversation` (de 2.2) para `engine` resuelto a `type: codex_cli`; verificar con un test de integración que un agente con `engine: codex_cli` construye `CodexCliRunner`/`CodexCliConversation` y uno sin `engine` sigue construyendo los de `claude_sdk`
-- [ ] 4.8 Ejecutar `uv run pytest -q -m "not codex and not voice"` y confirmar que la suite estándar pasa sin tocar red ni el binario `codex` real; marcar los tests que sí usan el `codex` real con `@pytest.mark.codex` y excluirlos del run por defecto en `pyproject.toml` (igual que `voice`)
+- [x] 4.1 Escribir tests que fallen para `CodexCliRunner` (`AgentRunner`): invoca el fake `codex exec --json --output-schema`, parsea el `TaskResult` de la salida estructurada, y produce `status: "error"` si la salida no cumple el esquema
+- [x] 4.2 Implementar `CodexCliRunner` usando el fake de 3.3; verificar que los tests de 4.1 pasan
+- [x] 4.3 Escribir tests que fallen para la pasarela MCP (`tony mcp-gateway`): expone el mismo `ToolCatalog` que el proxy en proceso, aplica la misma barrera (reutilizando 3.2) y responde por stdio a un cliente MCP de prueba
+- [x] 4.4 Implementar el comando interno `tony mcp-gateway` y el cableado `-c mcp_servers.tony.command=...`/`args=[...]` en `CodexCliRunner`; verificar que los tests de 4.3 pasan
+- [x] 4.5 Escribir tests que fallen para `CodexCliConversation` (`ConversationRunner`): primer turno abre sesión y captura `session_id`; turno siguiente usa `codex exec resume <session_id>`; sin streaming parcial de voz (`on_speech` solo se llama una vez, al final)
+- [x] 4.6 Implementar `CodexCliConversation` sobre el fake `codex`; verificar que los tests de 4.5 pasan
+- [x] 4.7 Conectar `codex_cli` en `build_runner_factory`/`build_conversation` (de 2.2) para `engine` resuelto a `type: codex_cli`; verificar con un test de integración que un agente con `engine: codex_cli` construye `CodexCliRunner`/`CodexCliConversation` y uno sin `engine` sigue construyendo los de `claude_sdk`
+- [x] 4.8 Ejecutar `uv run pytest -q -m "not codex and not voice"` y confirmar que la suite estándar pasa sin tocar red ni el binario `codex` real; marcar los tests que sí usan el `codex` real con `@pytest.mark.codex` y excluirlos del run por defecto en `pyproject.toml` (igual que `voice`)
 
 ## 5. Motor `litellm` (`litellm-engine`)
 
