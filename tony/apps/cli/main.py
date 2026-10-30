@@ -19,7 +19,7 @@ from tony.apps.cli.stdin_reader import StdinReader
 from tony.apps.web.options import WebOptions, is_loopback
 from tony.core.channels.bootstrap import RuntimeOptions
 from tony.core.config import ConfigError, load_settings
-from tony.core.orchestrator.worker import default_manager_factory, default_worker_runner_factory
+from tony.core.orchestrator.worker import default_manager_factory
 
 app = typer.Typer(
     help="Tony: asistente personal local. Conversa con Jarvis o ejecuta tareas con un worker.",
@@ -39,8 +39,8 @@ app.add_typer(voice_cli.app, name="voice", help="Calienta y mide los modelos de 
 # Factories are module attributes so tests can inject doubles.
 runner_factory = orchestration.default_runner_factory
 manager_factory = default_manager_factory
-worker_runner_factory = default_worker_runner_factory
-conversation_factory = chat_app.default_conversation_factory
+worker_runner_factory = None
+conversation_factory = None
 lines_factory = StdinReader
 watch_factory = None
 web_serve = None

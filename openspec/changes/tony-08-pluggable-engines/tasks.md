@@ -10,9 +10,9 @@
 
 ## 2. Puertos de motor y factoría genérica (`agent-runner`, `front-agent`, sin motores nuevos aún)
 
-- [ ] 2.1 Escribir un test que falle demostrando que la tarea/conversación del `claude_sdk` actual sigue produciendo el mismo `TaskResult`/`FrontReply` tras introducir un punto de selección de motor (no debe cambiar comportamiento observable), y verificar que falla contra la factoría actual sin el punto de selección
-- [ ] 2.2 Implementar `build_runner_factory(settings, spec)` y `build_conversation(settings, spec)` en `tony/core/runner/` que, para `engine` resuelto a `type: claude_sdk`, devuelven exactamente `default_worker_runner_factory`/`ClaudeSdkConversation`; conectar `SdkWorkerFactory` (`tony/core/orchestrator/worker.py`) y el arranque del front a ese punto de selección; verificar que el test de 2.1 pasa y que toda la suite existente de `agent-runner`/`front-agent` sigue en verde sin cambios
-- [ ] 2.3 Ejecutar `uv run pytest -q tests -k "runner or front_agent or worker"` y confirmar 0 fallos
+- [x] 2.1 Escribir un test que falle demostrando que la tarea/conversación del `claude_sdk` actual sigue produciendo el mismo `TaskResult`/`FrontReply` tras introducir un punto de selección de motor (no debe cambiar comportamiento observable), y verificar que falla contra la factoría actual sin el punto de selección
+- [x] 2.2 Implementar `build_runner_factory(settings, spec)` y `build_conversation(settings, spec)` en `tony/core/runner/` que, para `engine` resuelto a `type: claude_sdk`, devuelven exactamente `default_worker_runner_factory`/`ClaudeSdkConversation`; conectar `SdkWorkerFactory` (`tony/core/orchestrator/worker.py`) y el arranque del front a ese punto de selección; verificar que el test de 2.1 pasa y que toda la suite existente de `agent-runner`/`front-agent` sigue en verde sin cambios
+- [x] 2.3 Ejecutar `uv run pytest -q tests -k "runner or front_agent or worker"` y confirmar 0 fallos
 
 ## 3. Barrera de tools reutilizable fuera de proceso (`codex-engine`, base)
 

@@ -30,13 +30,16 @@ from tony.core.orchestrator.reload import AgentReloader
 from tony.core.orchestrator.worker import (
     SdkWorkerFactory,
     WorkerRunnerFactory,
-    default_worker_runner_factory,
     role_mismatch_warning,
 )
 from tony.core.runner.conversation import ClaudeSdkConversation, ConversationRunner
+from tony.core.runner.engine_factory import (
+    ConversationFactory,
+    build_conversation,
+    build_runner_factory,
+)
 from tony.core.runner.proxy import ToolCaller
 
-ConversationFactory = Callable[[TonySettings, ConfirmGate, ToolCaller], ConversationRunner]
 GateFactory = Callable[[TonySettings, AgentSpec], ConfirmGate]
 SESSION_LOG_PREFIX = "chat-"
 
@@ -151,9 +154,9 @@ class ChatRuntime:
 async def build_chat_runtime(
     options: RuntimeOptions,
     gate_factory: GateFactory,
-    conversation_factory: ConversationFactory = default_conversation_factory,
+    conversation_factory: ConversationFactory | None = None,
     manager_factory: ManagerFactory = default_manager_factory,
-    runner_factory: WorkerRunnerFactory = default_worker_runner_factory,
+    runner_factory: WorkerRunnerFactory | None = None,
     watch: Callable[..., Any] | None = None,
     err: TextIO | None = None,
     clock: Clock | None = None,
@@ -170,8 +173,16 @@ async def build_chat_runtime(
     for warning in warnings:
         (err or sys.stderr).write(warning + "\n")
     memory = open_memory(options.memory_dir, settings.limits.memory_max_lines)
+    resolved_runner_factory = (
+        runner_factory if runner_factory is not None else build_runner_factory(settings, worker)
+    )
+    resolved_conversation_factory = (
+        conversation_factory
+        if conversation_factory is not None
+        else build_conversation(settings, front)
+    )
     worker_factory = SdkWorkerFactory(
-        settings, worker, options.logs_dir, secrets, manager_factory, runner_factory
+        settings, worker, options.logs_dir, secrets, manager_factory, resolved_runner_factory
     )
     front_manager = await _front_tools(front, settings, manager_factory)
     link = _SessionLink()
@@ -188,7 +199,7 @@ async def build_chat_runtime(
         worker_factory=worker_factory,
         orchestrator=Orchestrator(worker_factory, settings.limits, clock=clock),
         front_manager=front_manager,
-        front_runner=conversation_factory(
+        front_runner=resolved_conversation_factory(
             settings, gate_factory(settings, front), _front_call(front_manager)
         ),
         reloader=reloader,

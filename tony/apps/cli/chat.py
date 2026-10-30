@@ -27,7 +27,7 @@ from tony.core.channels.session import CHANNEL_NAME, Memory
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp.ports import ManagerFactory, default_manager_factory
-from tony.core.orchestrator.worker import WorkerRunnerFactory, default_worker_runner_factory
+from tony.core.orchestrator.worker import WorkerRunnerFactory
 
 __all__ = [
     "ChatError",
@@ -63,9 +63,9 @@ def select_conversation(memory: Memory, new_conversation: bool) -> str:
 
 async def run_chat(
     options: ChatOptions,
-    conversation_factory: ConversationFactory = default_conversation_factory,
+    conversation_factory: ConversationFactory | None = None,
     manager_factory: ManagerFactory = default_manager_factory,
-    runner_factory: WorkerRunnerFactory = default_worker_runner_factory,
+    runner_factory: WorkerRunnerFactory | None = None,
     lines: LineSource | None = None,
     out: TextIO | None = None,
     stdout: TextIO | None = None,

@@ -109,6 +109,22 @@ async def test_build_loads_settings_roles_memory_orchestrator_gate_and_watcher(t
     assert d.watch.finished is True
 
 
+async def test_unoverridden_factories_resolve_to_the_claude_sdk_engine(tmp_path) -> None:
+    """No `engine` declared anywhere: the selection point must pick the pre-existing plumbing."""
+    from tony.core.runner.conversation import ClaudeSdkConversation
+    from tony.core.runner.factory import default_worker_runner_factory
+
+    d = Doubles(tmp_path)
+
+    runtime = await build_chat_runtime(
+        d.options(), gate_factory=d.gate_factory, manager_factory=d.manager_factory
+    )
+
+    assert runtime.worker_factory._runner_factory is default_worker_runner_factory
+    assert isinstance(runtime.front_runner, ClaudeSdkConversation)
+    await runtime.aclose()
+
+
 async def test_open_session_starts_the_front_and_logs_the_session(tmp_path) -> None:
     d = Doubles(tmp_path, ["Hola."])
     runtime = await d.build()
