@@ -35,9 +35,10 @@ NO_DELEGATION = (
     "claridad lo que no puedes hacer."
 )
 OUTPUT_CONTRACT = (
-    "Responde siempre con el objeto JSON {display_text, speech_text}: `display_text` lleva la "
-    "respuesta completa; `speech_text` es un resumen hablado sin markdown, tablas ni código "
-    "en los modos voice y both, y null en modo text."
+    "Responde siempre con el objeto JSON {speech_text, display_text}, en ese orden de "
+    "escritura: `speech_text` primero, un resumen hablado sin markdown, tablas ni código "
+    "en los modos voice y both, y null en modo text; `display_text` después, con la "
+    "respuesta completa. Escribir `speech_text` primero deja que empiece a sonar antes."
 )
 
 

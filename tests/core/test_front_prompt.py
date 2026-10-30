@@ -39,6 +39,17 @@ def test_system_prompt_contains_body_native_catalog_criterion_and_contract() -> 
     assert PREAMBLE_START in prompt
 
 
+def test_output_contract_tells_the_model_to_write_speech_text_first() -> None:
+    """`speech_text` must come first in the stated object order, matching `FrontReply`'s
+    field order: the model tends to generate JSON keys in the order an instruction states
+    them, so telling it `{display_text, speech_text}` defeats early speech streaming even
+    though the schema itself declares `speech_text` first."""
+    prompt = build_front_system_prompt(SPEC, ["delegate"])
+
+    assert "{speech_text, display_text}" in prompt
+    assert "{display_text, speech_text}" not in prompt
+
+
 def test_system_prompt_lists_only_declared_native_tools() -> None:
     prompt = build_front_system_prompt(SPEC, ["remember"])
 
