@@ -13,6 +13,7 @@ memoria, los logs y la voz.
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/uv-gestor%20de%20paquetes-DE5FE9?logo=uv&logoColor=white)
 ![Claude Agent SDK](https://img.shields.io/badge/Claude%20Agent%20SDK-000000?logo=anthropic&logoColor=white)
+![OpenAI](https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white)
 ![LiteLLM](https://img.shields.io/badge/LiteLLM-OpenAI%20%7C%20Anthropic-1A73E8)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
