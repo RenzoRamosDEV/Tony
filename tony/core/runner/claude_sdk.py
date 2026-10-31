@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ConfirmGate, ToolCatalog
+from tony.core.runner.auth import claude_account_options
 from tony.core.runner.cancel import CancelToken
 from tony.core.runner.contracts import TaskRequest, TaskResult
 from tony.core.runner.native_tools import SERVER_NAME, NativeToolSet, worker_native_tools
@@ -86,6 +87,7 @@ def build_options(
     if native_server is not None:
         servers[SERVER_NAME] = native_server
     return ClaudeAgentOptions(
+        **claude_account_options(settings.engines[spec.engine]),
         tools=[],
         allowed_tools=[f"{MCP_PREFIX}{server}__*" for server in servers],
         disallowed_tools=list(BUILTIN_TOOLS),

@@ -68,6 +68,12 @@ class SubagentWorkerBuilder:
         token: CancelToken,
         task_id: str,
     ) -> ChildWorker:
+        factory = self._runner_factory
+        if self._settings.selected_engine is not None:
+            from tony.core.runner.engine_factory import build_runner_factory
+
+            child = child.model_copy(update={"engine": self._settings.selected_engine})
+            factory = build_runner_factory(self._settings, child)
         policy = child_policy(
             parent.tools, child.tools, parent_is_subagent=parent.parent is not None
         )
@@ -86,9 +92,7 @@ class SubagentWorkerBuilder:
             own = await owner.manager()
             catalog = catalog.merge(own.catalog.restrict(policy.allow_parent))
             call = CompositeToolCaller(parent_manager.call, own.call, set(policy.new_servers))
-        runner = self._runner_factory(
-            self._settings, task_id, gate, call, token, SkillToolHandlers(child)
-        )
+        runner = factory(self._settings, task_id, gate, call, token, SkillToolHandlers(child))
         return ChildWorker(runner, child, catalog, _closer(owner, child.name))
 
 

@@ -16,6 +16,7 @@ from typing import Any, TextIO
 from tony.core.channels.ports import Channel
 from tony.core.channels.session import ChatSession, Memory
 from tony.core.config import ConfigError, TonySettings, dotenv_secrets, load_env, load_settings
+from tony.core.config.engine_auth import load_engine_auth
 from tony.core.config.watcher import ConfigWatcher
 from tony.core.loader import AgentLoadError, AgentSpec, load_agent
 from tony.core.logging import JsonlEventSink
@@ -108,6 +109,11 @@ class ChatRuntime:
         """Record an event in the JSONL of the open session, if there is one."""
         self._link.emit(event_type, payload)
 
+    def conversation_for(self, front: AgentSpec, gate: ConfirmGate) -> ConversationRunner:
+        """Build a fresh runner with the current front tool transport."""
+        factory = build_conversation(self.settings, front)
+        return factory(self.settings, gate, _front_call(self.front_manager))
+
     async def open_session(self, conversation_id: str, channel: Channel) -> ChatSession:
         if self._link.session is not None:
             raise RuntimeError("ya hay una sesión de chat abierta")
@@ -164,12 +170,16 @@ async def build_chat_runtime(
     clock = clock or SystemClock()
     try:
         settings = load_settings(options.config_path)
+        load_engine_auth(settings, options.config_path.parent / "engine-auth.json")
     except ConfigError as exc:
         raise ChatError(f"Configuración inválida en {options.config_path}: {exc}") from None
     dotenv_path = options.config_path.parent / ".env"
     secrets = dotenv_secrets(dotenv_path)
+    secrets.extend(p.api_key.get_secret_value() for p in settings.engines.values() if p.api_key)
     env = load_env(dotenv_path)
     front, worker, warnings = load_roles(settings, options.agents_dir, env)
+    if settings.selected_engine is not None:
+        front = front.model_copy(update={"engine": settings.selected_engine})
     for warning in warnings:
         (err or sys.stderr).write(warning + "\n")
     memory = open_memory(options.memory_dir, settings.limits.memory_max_lines)

@@ -96,6 +96,10 @@ class SdkWorkerFactory:
         self._secrets.extend(s for s in spec.all_secrets() if s not in self._secrets)
         self.warnings = [w for w in [role_mismatch_warning(spec, "worker")] if w]
 
+    def add_secret(self, secret: str) -> None:
+        if secret not in self._secrets:
+            self._secrets.append(secret)
+
     async def reload_spec(self, spec: AgentSpec) -> None:
         """Start the generation of `spec.tools` and publish spec and generation together."""
         await self.pool.swap(spec.tools, on_publish=lambda: self.update_spec(spec))
@@ -134,14 +138,18 @@ class SdkWorkerFactory:
     ) -> Worker:
         generation = await self.pool.acquire()
         spec = self._spec
+        factory = self._runner_factory
+        if self._settings.selected_engine is not None:
+            from tony.core.runner.engine_factory import build_runner_factory
+
+            spec = spec.model_copy(update={"engine": self._settings.selected_engine})
+            factory = build_runner_factory(self._settings, spec)
         self._leases[task.id] = _Lease(spec, generation)
         manager = generation.manager
         events.emit("mcp.status", status_payload(manager.status()))
         launcher = SubagentLauncher(self._host, task.id, spec.subagents)
         handlers = WorkerToolHandlers(spec, launcher)
-        runner = self._runner_factory(
-            self._settings, task.id, gate, manager.call, cancel_token, handlers
-        )
+        runner = factory(self._settings, task.id, gate, manager.call, cancel_token, handlers)
         return Worker(runner=runner, spec=spec, catalog=manager.catalog)
 
     async def _build_child(

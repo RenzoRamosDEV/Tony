@@ -540,3 +540,29 @@ Con `TONY_EVALS=1` el juez (`claude-haiku`) evalúa el criterio `judge` de cada 
 escribe `evals/fixtures/<id>.jsonl` e imprime la entrada YAML con el `status` y las tools
 observadas; los fixtures de conversación son el propio run copiado. `evals/runs/` está ignorado
 por git.
+
+### Motor y cuenta en la interfaz web
+
+El selector **Motor** permite elegir **Claude · mi cuenta**, **Codex · mi cuenta
+ChatGPT**, **OpenAI · API key** o **Anthropic · API key**, además de los perfiles
+personalizados de `config/tony.yaml`.
+
+- Para las opciones de cuenta, inicia sesión en el equipo donde corre Tony con
+  `claude auth login` o `codex login`. Tony comprueba el método de autenticación;
+  no cambia automáticamente a facturación de API si falta la sesión.
+- Para una API, elige proveedor, escribe el modelo y pega la clave en el campo
+  **API key**. Pulsa **Guardar** y después **Usar este motor**. La API usa la
+  facturación de esa clave. Puedes reemplazar o eliminar la clave; si ese motor
+  está activo, selecciona primero otro motor.
+- La elección se aplica a respuestas, tareas nuevas y subagentes, y se conserva
+  al reiniciar. Cambiar abre una conversación nueva y conserva el historial.
+  No se permite cambiar mientras haya una respuesta, tarea o captura de audio activa.
+
+Las claves y la selección se guardan junto a `tony.yaml`, en `engine-auth.json`,
+con permisos `0600` y excluidas de Git. El archivo contiene las claves en texto
+local: no es un almacén cifrado. La API de la interfaz devuelve únicamente si
+hay una clave configurada. No pegues las claves en el chat.
+
+Los perfiles personalizados conservan su autenticación configurada; las opciones
+con **mi cuenta** fuerzan autenticación de cuenta. Los identificadores
+`claude-account`, `codex-account`, `openai-api` y `anthropic-api` están reservados.

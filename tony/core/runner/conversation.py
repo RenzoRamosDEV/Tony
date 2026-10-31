@@ -12,6 +12,7 @@ from claude_agent_sdk.types import StreamEvent
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ConfirmGate, ToolCatalog
+from tony.core.runner.auth import claude_account_options
 from tony.core.runner.claude_sdk import (
     BUILTIN_TOOLS,
     MCP_PREFIX,
@@ -93,6 +94,7 @@ def build_front_options(
 ) -> ClaudeAgentOptions:
     servers = {SERVER_NAME: native_server, **proxies}
     return ClaudeAgentOptions(
+        **claude_account_options(settings.engines[spec.engine]),
         tools=[],
         allowed_tools=[f"{MCP_PREFIX}{server}__*" for server in servers],
         disallowed_tools=list(BUILTIN_TOOLS),

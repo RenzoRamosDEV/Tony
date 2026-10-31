@@ -28,3 +28,7 @@ samples/voices/
 # Lock file of tony mcp add/remove
 tool.json.lock
 tony/apps/web/frontend/tsconfig.tsbuildinfo
+
+# Local engine credentials and selection
+engine-auth.json
+.engine-auth-*

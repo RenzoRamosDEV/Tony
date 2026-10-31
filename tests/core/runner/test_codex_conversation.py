@@ -215,3 +215,58 @@ async def test_real_event_stream_uses_last_agent_message(
     else:
         assert result.error is not None
         assert result.text == TURN_FAILED.format(diagnostic=result.error)
+
+
+async def test_codex_exposes_native_delegation_and_resumes_with_valid_sandbox_flags(
+    tmp_path, monkeypatch
+):
+    from tony.core.loader import ToolConfig
+    from tony.core.runner import TaskResult
+    from tony.core.runner import codex_conversation as module
+
+    requests = []
+    bridge = {}
+
+    class Handlers:
+        async def delegate(self, request):
+            requests.append(request)
+            return TaskResult(status="ok", resumen="Done")
+
+    class CaptureBridge:
+        def __init__(self, path, dispatch):
+            bridge["dispatch"] = dispatch
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    monkeypatch.setattr(module, "BridgeServer", CaptureBridge)
+    conversation = CodexCliConversation(load_settings(None), NeverGate(), no_call)
+    front = make_spec().model_copy(update={"tools": ToolConfig(native=["delegate"])})
+    await conversation.open(front, ToolCatalog(), Handlers(), RecordingEvents())
+    arguments = []
+
+    async def fake_process(argv):
+        arguments.append(argv)
+        reply = await bridge["dispatch"]("tony.delegate", {"objetivo": "Work"})
+        assert "Done" in str(reply)
+        return "\n".join(
+            [
+                json.dumps({"type": "thread.started", "thread_id": "session"}),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": '{"display_text":"Done"}'},
+                    }
+                ),
+            ]
+        ), ""
+
+    monkeypatch.setattr(conversation, "_run_subprocess", fake_process)
+    assert (await conversation.turn("first")).text == "Done"
+    assert (await conversation.turn("second")).text == "Done"
+    assert len(requests) == 2
+    assert arguments[1].index("-s") < arguments[1].index("resume")
+    assert arguments[1][arguments[1].index("resume") + 1] == "session"

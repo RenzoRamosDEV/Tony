@@ -360,3 +360,68 @@ async def test_close_during_completion_finishes_turn_cleanly():
     assert conversation.session_id is None
     with pytest.raises(RuntimeError, match="no está abierta"):
         await conversation.turn("Closed")
+
+
+async def test_explicit_api_key_overrides_environment_and_pins_provider_endpoint(monkeypatch):
+    from pydantic import SecretStr
+
+    configured = settings()
+    configured.engines["test"] = EngineProfile(
+        type="litellm", model="openai/gpt-4o", auth="api_key", api_key=SecretStr("chosen-api-key")
+    )
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://unrelated.invalid")
+    fake = FakeCompletion(response('{"status":"ok","resumen":"Done"}'))
+    engine = LiteLlmRunner(configured, "task", Gate(), no_call, completion=fake)
+    result = await engine.run(spec(), TaskRequest(objetivo="Goal"), ToolCatalog(), Events())
+    assert result.status == "ok"
+    assert fake.calls[0]["api_key"] == "chosen-api-key"
+    assert fake.calls[0]["api_base"] == "https://api.openai.com/v1"
+
+
+async def test_explicit_api_never_falls_back_to_environment_and_hides_provider_secrets():
+    from pydantic import SecretStr
+
+    configured = settings()
+    configured.engines["test"] = EngineProfile(
+        type="litellm", model="openai/gpt-4o", auth="api_key"
+    )
+    fake = FakeCompletion(response('{"status":"ok","resumen":"Done"}'))
+    engine = LiteLlmRunner(configured, "task", Gate(), no_call, completion=fake)
+    result = await engine.run(spec(), TaskRequest(objetivo="Goal"), ToolCatalog(), Events())
+    assert result.status == "error"
+    assert fake.calls == []
+    configured.engines["test"].api_key = SecretStr("chosen-api-key")
+
+    async def failing(**kwargs):
+        raise RuntimeError("provider echoed chosen-api-key")
+
+    front = LiteLlmConversation(configured, Gate(), no_call, completion=failing)
+    events = Events()
+    await front.open(spec(), ToolCatalog(), None, events)
+    reply = await front.turn("Hello")
+    assert reply.error
+    assert "chosen-api-key" not in repr(reply)
+    assert "chosen-api-key" not in repr(events.items)
+
+
+async def test_api_front_can_delegate_using_the_existing_native_handler():
+    from tony.core.loader import ToolConfig
+
+    requests = []
+
+    class Handlers:
+        async def delegate(self, request):
+            requests.append(request)
+            return TaskResult(status="ok", resumen="Delegated")
+
+    fake = FakeCompletion(
+        response(tool_calls=[tool_call("tony_delegate", '{"objetivo":"work"}')]),
+        response('{"display_text":"Finished"}'),
+    )
+    front = LiteLlmConversation(settings(), Gate(), no_call, completion=fake)
+    front_spec = spec().model_copy(update={"tools": ToolConfig(native=["delegate"])})
+    await front.open(front_spec, ToolCatalog(), Handlers(), Events())
+    reply = await front.turn("Do work")
+    assert reply.text == "Finished"
+    assert requests == [TaskRequest(objetivo="work")]
+    assert "Delegated" in fake.calls[1]["messages"][-1]["content"]

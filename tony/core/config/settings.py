@@ -10,6 +10,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -54,6 +55,8 @@ IMPLICIT_CLAUDE_SDK_ENGINE = "claude_sdk"
 class EngineProfile(StrictModel):
     type: EngineType
     model: str | None = None
+    auth: Literal["inherited", "account", "api_key"] = "inherited"
+    api_key: SecretStr | None = Field(default=None, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def litellm_profile_requires_a_model(self) -> EngineProfile:
@@ -113,6 +116,7 @@ class VoiceSettings(StrictModel):
 
 
 class TonySettings(StrictModel):
+    selected_engine: str | None = Field(default=None, exclude=True)
     front: str = "jarvis"
     worker: str = "viernes"
     reply_mode: ReplyMode = "auto"

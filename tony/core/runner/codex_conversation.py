@@ -22,9 +22,12 @@ from typing import Any
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ConfirmGate, ToolCatalog
+from tony.core.runner.auth import account_env, codex_account_args, require_credentials
 from tony.core.runner.conversation import FrontTurn
+from tony.core.runner.front_prompt import build_front_system_prompt
 from tony.core.runner.gateway_bridge import BridgeServer
 from tony.core.runner.mcp_gateway import refs_from_catalog, write_refs
+from tony.core.runner.portable_native import PortableNativeTools
 from tony.core.runner.ports import EventSink
 from tony.core.runner.proxy import TaskState, ToolBarrier, ToolCaller
 from tony.core.runner.reply_mode import FrontReply
@@ -66,7 +69,9 @@ class CodexCliConversation:
         events: EventSink,
         resume: str | None = None,
     ) -> None:
+        await require_credentials(self._settings.engines[spec.engine])
         self._spec = spec
+        self._native = PortableNativeTools(spec.tools.native, handlers, events)
         self._catalog = catalog
         self._events = events
         self.session_id = resume
@@ -92,6 +97,8 @@ class CodexCliConversation:
         )
 
         async def dispatch(qualified: str, args: dict[str, Any]) -> dict[str, Any]:
+            if qualified in self._native.catalog:
+                return await self._native.call(qualified, args)
             return await barrier.handler(qualified)(args)
 
         with tempfile.TemporaryDirectory(prefix="tony-codex-turn-") as tmp:
@@ -99,8 +106,12 @@ class CodexCliConversation:
             schema_path = tmp_dir / "schema.json"
             schema_path.write_text(json.dumps(strict_schema(FrontReply)), encoding="utf-8")
             catalog_path = tmp_dir / "catalog.json"
-            write_refs(catalog_path, refs_from_catalog(self._catalog))
+            write_refs(catalog_path, refs_from_catalog(self._catalog.merge(self._native.catalog)))
             socket_path = tmp_dir / "gateway.sock"
+            if self.session_id is None:
+                prompt = (
+                    f"{build_front_system_prompt(self._spec, self._spec.tools.native)}\n\n{prompt}"
+                )
             argv = self._build_argv(schema_path, socket_path, catalog_path, prompt)
             async with BridgeServer(socket_path, dispatch):
                 stdout, stderr = await self._run_subprocess(argv)
@@ -113,7 +124,10 @@ class CodexCliConversation:
         gateway_args = json.dumps(
             ["-m", GATEWAY_MODULE, "--socket", str(socket_path), "--catalog", str(catalog_path)]
         )
-        base = [*self._codex_command, "exec"]
+        profile = self._settings.engines[self._spec.engine]
+        base = [*self._codex_command, *codex_account_args(profile), "-s", SANDBOX_MODE, "exec"]
+        if profile.auth == "account":
+            self._env = account_env("codex_cli", self._env)
         if self.session_id is not None:
             base += ["resume", self.session_id]
         return [
@@ -121,8 +135,6 @@ class CodexCliConversation:
             "--json",
             "--output-schema",
             str(schema_path),
-            "-s",
-            SANDBOX_MODE,
             "-c",
             f"mcp_servers.tony.command={gateway_command}",
             "-c",

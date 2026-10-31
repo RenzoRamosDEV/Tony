@@ -481,3 +481,32 @@ async def test_release_of_a_child_stops_its_own_servers(tmp_path) -> None:
 
     assert recorder.managers[1].stopped is True and recorder.managers[0].stopped is False
     await factory.close()
+
+
+async def test_selected_engine_applies_to_worker_and_subagent_despite_original_specs(tmp_path):
+    from tony.core.config import EngineProfile
+    from tony.core.runner.litellm_engine import LiteLlmRunner
+
+    factory, recorder = make_factory(tmp_path)
+    factory._settings.engines["api"] = EngineProfile(type="litellm", model="openai/gpt-4o")
+    factory._settings.selected_engine = "api"
+    factory.update_spec(spec().model_copy(update={"subagents": {"child": spec(name="child")}}))
+    root = await factory.build_worker(
+        Task("root", TaskRequest(objetivo="test")),
+        ListEventSink(),
+        CancelToken(),
+        AutoConfirmGate(True),
+    )
+    child = await factory.build_worker(
+        Task("child", TaskRequest(objetivo="test"), parent_id="root", agent="child"),
+        ListEventSink(),
+        CancelToken(),
+        AutoConfirmGate(True),
+    )
+    assert root.spec.engine == child.spec.engine == "api"
+    assert isinstance(root.runner, LiteLlmRunner)
+    assert isinstance(child.runner, LiteLlmRunner)
+    assert recorder.calls == []
+    await factory.release("child")
+    await factory.release("root")
+    await factory.close()

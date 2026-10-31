@@ -245,3 +245,29 @@ async def test_reload_notice_reaches_the_open_session_as_notice_and_event(tmp_pa
     assert events[0].type == "config.reloaded" and events[0].task_id == "config"
     assert events[0].payload == {"agent": "viernes", "servers": ["fake"]}
     await runtime.aclose()
+
+
+async def test_restart_restores_engine_selection_and_secret_redaction(tmp_path):
+    from pydantic import SecretStr
+
+    from tony.core.config import TonySettings
+    from tony.core.config.engine_auth import load_engine_auth, save_engine_auth
+
+    doubles = Doubles(tmp_path)
+    settings = TonySettings()
+    path = doubles.options().config_path.parent / "engine-auth.json"
+    load_engine_auth(settings, path)
+    settings.engines["openai-api"].api_key = SecretStr("private-test-key")
+    settings.selected_engine = "openai-api"
+    save_engine_auth(settings, path)
+    runtime = await doubles.build()
+    try:
+        assert runtime.front.engine == "openai-api"
+        assert runtime.settings.selected_engine == "openai-api"
+        assert "private-test-key" in runtime.secrets
+        log = runtime.worker_factory.open_log("key-test")
+        log.emit("error", {"detail": "private-test-key"})
+        log.close()
+        assert "private-test-key" not in log.path.read_text()
+    finally:
+        await runtime.aclose()

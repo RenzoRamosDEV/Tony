@@ -36,6 +36,8 @@ def _save(path: Path, responses: list[dict[str, Any]]) -> None:
 
 
 def _parse_resume_session(argv: list[str]) -> str | None:
+    if "exec" in argv:
+        argv = argv[argv.index("exec") :]
     if len(argv) >= 2 and argv[0] == "exec" and argv[1] == "resume":
         return argv[2] if len(argv) > 2 else None
     return None

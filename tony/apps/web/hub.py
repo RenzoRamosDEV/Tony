@@ -8,6 +8,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from pydantic import SecretStr
+
 from tony.apps.web.ack_cache import AckCache
 from tony.apps.web.audio_ws import AUDIO_BACKPRESSURE, AudioSession
 from tony.apps.web.confirmations import ConfirmationRouter, InvalidConfirmation, WebConfirmGate
@@ -40,9 +42,11 @@ from tony.apps.web.ws_channel import UsageTracker, WebChannel
 from tony.core.channels.bootstrap import ChatRuntime
 from tony.core.channels.ports import AssistantReply
 from tony.core.config import TonySettings
+from tony.core.config.engine_auth import API_PROVIDERS, save_engine_auth, validate_api_model
 from tony.core.loader import AgentSpec
 from tony.core.orchestrator.clock import Clock
 from tony.core.orchestrator.errors import OrchestratorError
+from tony.core.runner.auth import require_credentials
 from tony.core.runner.reply_mode import InputModality
 from tony.core.voice.ports import Transcript
 
@@ -97,6 +101,12 @@ def error_envelope(code: str, detail: str, conversation_id: str | None = None) -
     return Envelope(
         type=ERROR, seq=0, conversation_id=conversation_id, payload={"code": code, "detail": detail}
     )
+
+
+class EngineChangeError(ValueError):
+    def __init__(self, detail: str, status: int = 400) -> None:
+        super().__init__(detail)
+        self.status = status
 
 
 class ConversationHub:
@@ -394,6 +404,107 @@ class ConversationHub:
             await session.cancel_active()
             return
         await self.runtime.orchestrator.cancel(task_id)
+
+    def _check_engine_idle(self) -> None:
+        session = self.runtime.session
+        if (
+            self.turn_in_progress
+            or (session is not None and session.has_active_task)
+            or any(not task.final for task in self.runtime.orchestrator.tasks.values())
+            or (self.audio is not None and self.audio.capturing)
+        ):
+            raise EngineChangeError(
+                "Espera a que termine la respuesta o tarea y apaga el micrófono.", 409
+            )
+
+    async def configure_engine(
+        self, name: str, model: str, key: SecretStr | None, delete_key: bool
+    ) -> None:
+        async with self._transition, self._admission:
+            self._check_engine_idle()
+            runtime = self.runtime
+            if name not in API_PROVIDERS:
+                raise EngineChangeError("Este motor no admite configurar una API key.")
+            if name == runtime.front.engine:
+                raise EngineChangeError("Selecciona otro motor antes de modificar esta clave.", 409)
+            previous = runtime.settings.engines[name]
+            try:
+                model = validate_api_model(name, model)
+            except ValueError as exc:
+                raise EngineChangeError(str(exc)) from None
+            if delete_key and key is not None:
+                raise EngineChangeError("No se puede guardar y eliminar la clave a la vez.")
+            if key is not None and (
+                len(key.get_secret_value().strip()) < 8
+                or any(c.isspace() for c in key.get_secret_value())
+            ):
+                raise EngineChangeError("La API key no es válida.")
+            candidate = previous.model_copy(
+                update={
+                    "model": model,
+                    "api_key": None if delete_key else (key or previous.api_key),
+                }
+            )
+            runtime.settings.engines[name] = candidate
+            try:
+                save_engine_auth(
+                    runtime.settings, runtime.options.config_path.parent / "engine-auth.json"
+                )
+            except OSError as exc:
+                runtime.settings.engines[name] = previous
+                raise EngineChangeError(
+                    "No se pudo guardar la configuración del motor.", 500
+                ) from exc
+            if key is not None:
+                secret = key.get_secret_value()
+                runtime.secrets.append(secret)
+                runtime.worker_factory.add_secret(secret)
+
+    async def change_engine(self, profile: str) -> None:
+        """Switch the front between turns, preserving the previous state on failure."""
+        async with self._transition, self._admission:
+            runtime = self.runtime
+            if profile not in runtime.settings.engines:
+                raise EngineChangeError(f"No existe el perfil de motor '{profile}'.")
+            self._check_engine_idle()
+            if profile == runtime.front.engine:
+                return
+            try:
+                await require_credentials(runtime.settings.engines[profile])
+            except ValueError as exc:
+                raise EngineChangeError(str(exc)) from None
+            assert self.gate is not None
+            front = runtime.front.model_copy(update={"engine": profile})
+            try:
+                runner = runtime.conversation_for(front, self.gate)
+            except Exception as exc:
+                raise EngineChangeError("No se pudo preparar el motor seleccionado.", 500) from exc
+            previous_selection = runtime.settings.selected_engine
+            previous_front, previous_runner = runtime.front, runtime.front_runner
+            previous_id, socket = self.conversation_id, self.socket
+            if socket is not None:
+                self.detach(socket)
+            try:
+                await self._close_conversation()
+                runtime.front, runtime.front_runner = front, runner
+                await self._open_conversation(None)
+                runtime.settings.selected_engine = profile
+                save_engine_auth(
+                    runtime.settings, runtime.options.config_path.parent / "engine-auth.json"
+                )
+            except Exception as exc:
+                await self._close_conversation()
+                runtime.settings.selected_engine = previous_selection
+                runtime.front, runtime.front_runner = previous_front, previous_runner
+                if previous_id is not None:
+                    await self._open_conversation(previous_id)
+                    if socket is not None:
+                        await self._attach(socket, 0)
+                raise EngineChangeError(
+                    "No se pudo cambiar el motor; se conserva el anterior.", 500
+                ) from exc
+            if socket is not None:
+                await self._attach(socket, 0)
 
     async def set_mode(self, reply_mode: str) -> None:
         try:

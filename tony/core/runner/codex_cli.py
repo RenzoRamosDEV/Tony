@@ -23,10 +23,12 @@ from typing import Any
 from tony.core.config import TonySettings
 from tony.core.loader import AgentSpec
 from tony.core.mcp import ConfirmGate, ToolCatalog
+from tony.core.runner.auth import account_env, codex_account_args, require_credentials
 from tony.core.runner.cancel import CancelToken
 from tony.core.runner.contracts import TaskRequest, TaskResult
 from tony.core.runner.gateway_bridge import BridgeServer
 from tony.core.runner.mcp_gateway import refs_from_catalog, write_refs
+from tony.core.runner.portable_native import PortableNativeTools
 from tony.core.runner.ports import EventSink
 from tony.core.runner.proxy import TaskState, ToolBarrier, ToolCaller
 from tony.core.runner.results import error_result
@@ -74,8 +76,10 @@ class CodexCliRunner:
         self._gate = gate
         self._call = call
         self._codex_command = codex_command or ["codex"]
+        self._auth_args: list[str] = []
         self._env = env
         self._cancel_token = cancel_token
+        self._native_handlers = native_handlers
 
     def _build_argv(
         self, schema_path: Path, socket_path: Path, catalog_path: Path, prompt: str
@@ -86,6 +90,7 @@ class CodexCliRunner:
         )
         return [
             *self._codex_command,
+            *self._auth_args,
             "exec",
             "--json",
             "--output-schema",
@@ -102,7 +107,13 @@ class CodexCliRunner:
     async def run(
         self, spec: AgentSpec, request: TaskRequest, tools: ToolCatalog, events: EventSink
     ) -> TaskResult:
+        profile = self._settings.engines[spec.engine]
+        await require_credentials(profile)
+        self._auth_args = codex_account_args(profile)
+        if profile.auth == "account":
+            self._env = account_env("codex_cli", self._env)
         events.emit("task.started", {"agent": spec.name, **request.model_dump()})
+        native = PortableNativeTools(spec.tools.native, self._native_handlers, events)
         limits = self._settings.limits
         state = TaskState(self._task_id, cancel_token=self._cancel_token or CancelToken())
         barrier = ToolBarrier(
@@ -116,6 +127,8 @@ class CodexCliRunner:
         )
 
         async def dispatch(qualified: str, args: dict[str, Any]) -> dict[str, Any]:
+            if qualified in native.catalog:
+                return await native.call(qualified, args)
             return await barrier.handler(qualified)(args)
 
         with tempfile.TemporaryDirectory(prefix="tony-codex-") as tmp:
@@ -123,7 +136,7 @@ class CodexCliRunner:
             schema_path = tmp_dir / "schema.json"
             schema_path.write_text(json.dumps(strict_schema(TaskResult)), encoding="utf-8")
             catalog_path = tmp_dir / "catalog.json"
-            write_refs(catalog_path, refs_from_catalog(tools))
+            write_refs(catalog_path, refs_from_catalog(tools.merge(native.catalog)))
             socket_path = tmp_dir / "gateway.sock"
             prompt = f"{spec.system_prompt}\n\n{request.objetivo}\n\n{request.contexto}".strip()
             argv = self._build_argv(schema_path, socket_path, catalog_path, prompt)

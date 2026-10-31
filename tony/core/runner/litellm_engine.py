@@ -22,6 +22,8 @@ from tony.core.mcp import ConfirmGate, ToolCatalog
 from tony.core.runner.cancel import USER_REASON, CancelToken
 from tony.core.runner.contracts import TaskRequest, TaskResult
 from tony.core.runner.conversation import FrontTurn
+from tony.core.runner.front_prompt import build_front_system_prompt
+from tony.core.runner.portable_native import PortableNativeTools
 from tony.core.runner.ports import EventSink
 from tony.core.runner.proxy import TaskState, ToolBarrier, ToolCaller, text_reply
 from tony.core.runner.reply_mode import FrontReply
@@ -102,6 +104,11 @@ class _Loop:
         self.settings, self.gate, self.call = settings, gate, call
         self.completion = completion
 
+    def diagnostic(self, spec: AgentSpec, exc: Exception) -> str:
+        if self.settings.engines[spec.engine].auth == "api_key":
+            return "No pude completar la solicitud con la API. Revisa clave, modelo y cuota."
+        return f"No pude completar la solicitud con LiteLLM: {exc}"
+
     async def run(
         self,
         spec: AgentSpec,
@@ -111,16 +118,22 @@ class _Loop:
         messages: list[dict[str, Any]],
         schema: type[BaseModel],
         usage: dict[str, Any],
+        native_handlers: Any = None,
     ) -> str:
         # Lazy import avoids loading provider integrations for other engines.
         import litellm
 
-        model = self.settings.engines[spec.engine].model
+        profile = self.settings.engines[spec.engine]
+        model = profile.model
+        explicit_key = profile.api_key.get_secret_value() if profile.api_key else None
+        if profile.auth == "api_key" and not explicit_key:
+            raise ValueError("Configura la API key del motor seleccionado.")
         missing = litellm.validate_environment(model=model).get("missing_keys", [])
-        if missing:
+        if missing and not explicit_key:
             raise ValueError(f"Faltan variables de entorno para LiteLLM: {', '.join(missing)}")
         completion = self.completion or litellm.acompletion
-        definitions, names = _tool_definitions(catalog)
+        native = PortableNativeTools(spec.tools.native, native_handlers, events)
+        definitions, names = _tool_definitions(catalog.merge(native.catalog))
         limits = self.settings.limits
         barrier = ToolBarrier(
             catalog,
@@ -142,6 +155,13 @@ class _Loop:
                 },
             },
         }
+        if explicit_key:
+            options["api_key"] = explicit_key
+            options["api_base"] = (
+                "https://api.openai.com/v1"
+                if model.startswith("openai/")
+                else "https://api.anthropic.com"
+            )
         if definitions:
             options.update(tools=definitions, tool_choice="auto")
         for _ in range(spec.max_steps):
@@ -190,7 +210,10 @@ class _Loop:
                         "Tool desconocida o argumentos JSON inválidos.", is_error=True
                     )
                 else:
-                    reply = await barrier.handler(qualified)(args)
+                    if qualified in native.catalog:
+                        reply = await native.call(qualified, args)
+                    else:
+                        reply = await barrier.handler(qualified)(args)
                 messages.append(
                     {
                         "role": "tool",
@@ -218,6 +241,7 @@ class LiteLlmRunner:
     ) -> None:
         self._settings, self._task_id = settings, task_id
         self._cancel_token = cancel_token
+        self._native_handlers = native_handlers
         self._loop = _Loop(settings, gate, call, completion)
 
     async def run(
@@ -231,7 +255,9 @@ class LiteLlmRunner:
         ]
         usage: dict[str, Any] = {}
         try:
-            content = await self._loop.run(spec, tools, events, state, messages, TaskResult, usage)
+            content = await self._loop.run(
+                spec, tools, events, state, messages, TaskResult, usage, self._native_handlers
+            )
             parsed = _parse(content, TaskResult)
             result = (
                 parsed
@@ -239,7 +265,10 @@ class LiteLlmRunner:
                 else TaskResult(status="partial", resumen=content, pasos=list(state.steps))
             )
         except Exception as exc:  # noqa: BLE001 - engine errors cross the port as TaskResult
-            result = error_result(f"No se pudo completar la tarea con LiteLLM: {exc}", state.steps)
+            result = error_result(
+                self._loop.diagnostic(spec, exc),
+                state.steps,
+            )
         if state.cancelled:
             result = cancelled_result(state)
         events.emit("task.finished", {"status": result.status, "usage": usage})
@@ -274,9 +303,12 @@ class LiteLlmConversation:
         if resume is not None and resume != self.session_id:
             raise ValueError("LiteLLM no puede recuperar una sesión sin su historial local.")
         self._spec, self._catalog, self._events = spec, catalog, events
+        self._native_handlers = handlers
         if resume is None:
             self.session_id = str(uuid4())
-            self._messages = [{"role": "system", "content": spec.system_prompt}]
+            self._messages = [
+                {"role": "system", "content": build_front_system_prompt(spec, spec.tools.native)}
+            ]
 
     async def turn(
         self,
@@ -294,11 +326,18 @@ class LiteLlmConversation:
         usage: dict[str, Any] = {}
         try:
             content = await self._loop.run(
-                self._spec, self._catalog, events, state, messages, FrontReply, usage
+                self._spec,
+                self._catalog,
+                events,
+                state,
+                messages,
+                FrontReply,
+                usage,
+                self._native_handlers,
             )
             parsed = _parse(content, FrontReply)
         except Exception as exc:  # noqa: BLE001 - provider errors become failed turns
-            diagnostic = f"No pude completar el turno con LiteLLM: {exc}"
+            diagnostic = self._loop.diagnostic(self._spec, exc)
             events.emit("turn.error", {"diagnostic": diagnostic})
             return FrontTurn(text=diagnostic, error=diagnostic, usage=usage)
         finally:

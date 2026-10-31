@@ -7,12 +7,12 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, SecretStr
 from starlette.exceptions import HTTPException
 
 from tony import __version__
 from tony.apps.web.confirmations import InvalidConfirmation
-from tony.apps.web.hub import ConversationHub
+from tony.apps.web.hub import ConversationHub, EngineChangeError
 from tony.core.channels.bootstrap import ChatRuntime
 from tony.core.config import ReplyMode
 from tony.core.orchestrator.errors import OrchestratorError
@@ -33,6 +33,16 @@ class ApiError(Exception):
 
 class SettingsPatch(BaseModel):
     reply_mode: ReplyMode
+
+
+class EnginePatch(BaseModel):
+    profile: str
+
+
+class EngineCredentials(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    api_key: SecretStr | None = None
+    delete_key: bool = False
 
 
 class ConfirmBody(BaseModel):
@@ -67,6 +77,45 @@ async def health(request: Request) -> dict[str, Any]:
         ],
         "voice": hub_of(request).voice.availability.as_dict(),
     }
+
+
+@router.get("/engines")
+async def get_engines(request: Request) -> dict[str, Any]:
+    runtime = runtime_of(request)
+    return {
+        "active": runtime.front.engine,
+        "worker": runtime.settings.selected_engine or runtime.worker.engine,
+        "profiles": [
+            {
+                "name": name,
+                "type": profile.type,
+                "model": profile.model,
+                "auth": profile.auth,
+                "configured": bool(profile.api_key),
+            }
+            for name, profile in runtime.settings.engines.items()
+        ],
+    }
+
+
+@router.patch("/engines")
+async def patch_engine(request: Request, body: EnginePatch) -> dict[str, Any]:
+    try:
+        await hub_of(request).change_engine(body.profile)
+    except EngineChangeError as exc:
+        raise ApiError(exc.status, "engine_change_failed", str(exc)) from None
+    return await get_engines(request)
+
+
+@router.put("/engines/{profile}/credentials")
+async def configure_engine(
+    request: Request, profile: str, body: EngineCredentials
+) -> dict[str, Any]:
+    try:
+        await hub_of(request).configure_engine(profile, body.model, body.api_key, body.delete_key)
+    except EngineChangeError as exc:
+        raise ApiError(exc.status, "engine_configuration_failed", str(exc)) from None
+    return await get_engines(request)
 
 
 @router.get("/settings")
