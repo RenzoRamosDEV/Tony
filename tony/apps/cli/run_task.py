@@ -17,7 +17,8 @@ from tony.core.orchestrator.worker import (
     status_payload,
 )
 from tony.core.runner import AgentRunner, TaskRequest, TaskResult
-from tony.core.runner.claude_sdk import ClaudeSdkRunner
+from tony.core.runner.cancel import CancelToken
+from tony.core.runner.engine_factory import build_runner_factory
 from tony.core.runner.proxy import ToolCaller
 from tony.core.subagents.handlers import WorkerToolHandlers
 from tony.core.subagents.launcher import SubagentLauncher
@@ -56,16 +57,21 @@ class UsageRecorder:
             self.usage = dict(payload.get("usage") or {})
 
 
-def default_runner_factory(
-    settings: TonySettings,
-    task_id: str,
-    gate: ConfirmGate,
-    call: ToolCaller,
-    native_handlers: Any = None,
-) -> AgentRunner:
-    return ClaudeSdkRunner(
-        settings=settings, task_id=task_id, gate=gate, call=call, native_handlers=native_handlers
-    )
+def _engine_runner_factory(settings: TonySettings, spec: AgentSpec) -> RunnerFactory:
+    """Resolve `spec.engine`'s `AgentRunner` and adapt it to `RunnerFactory`'s shape,
+    supplying a fresh `CancelToken` (`tony run` has no cancellation of its own yet)."""
+    worker_runner_factory = build_runner_factory(settings, spec)
+
+    def factory(
+        settings: TonySettings,
+        task_id: str,
+        gate: ConfirmGate,
+        call: ToolCaller,
+        native_handlers: Any = None,
+    ) -> AgentRunner:
+        return worker_runner_factory(settings, task_id, gate, call, CancelToken(), native_handlers)
+
+    return factory
 
 
 def default_gate_factory(spec: AgentSpec, settings: TonySettings) -> ConfirmGate:
@@ -92,7 +98,7 @@ async def run_task(
     task: str,
     agents_dir: Path,
     config_path: Path,
-    runner_factory: RunnerFactory,
+    runner_factory: RunnerFactory | None,
     manager_factory: ManagerFactory,
     gate_factory: GateFactory = default_gate_factory,
     logs_dir: Path = Path("logs"),
@@ -103,6 +109,8 @@ async def run_task(
         raise RunTaskError(f"Configuración inválida en {config_path}: {exc}") from None
     dotenv_path = config_path.parent / ".env"
     spec = select_worker(agent, agents_dir, settings, load_env(dotenv_path))
+    if runner_factory is None:
+        runner_factory = _engine_runner_factory(settings, spec)
 
     task_id = new_task_id()
     sink = JsonlEventSink(logs_dir, task_id, [*dotenv_secrets(dotenv_path), *spec.secrets])

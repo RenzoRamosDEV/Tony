@@ -10,12 +10,18 @@ from tony.core.mcp import McpServerStatus, ToolCallOutcome, ToolCatalog
 
 
 def write_agent(
-    agents_dir: Path, name: str, role: str = "worker", model: str = "claude-sonnet"
+    agents_dir: Path,
+    name: str,
+    role: str = "worker",
+    model: str = "claude-sonnet",
+    engine: str | None = None,
 ) -> None:
     folder = agents_dir / name
     folder.mkdir(parents=True, exist_ok=True)
+    engine_line = f"engine: {engine}\n" if engine is not None else ""
     (folder / "agent.md").write_text(
-        f"---\nname: {name}\nrole: {role}\nmodel: {model}\n---\nEres {name}.\n", encoding="utf-8"
+        f"---\nname: {name}\nrole: {role}\nmodel: {model}\n{engine_line}---\nEres {name}.\n",
+        encoding="utf-8",
     )
 
 

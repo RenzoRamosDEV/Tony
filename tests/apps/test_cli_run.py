@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -327,3 +328,43 @@ def test_without_run_subagent_there_is_no_warning(cli) -> None:
 
     assert "run_subagent" not in result.stderr
     assert cli["factory_args"][0][4] is not None
+
+
+def test_run_honours_the_agents_engine_when_no_factory_is_injected(
+    tmp_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`tony run` must not silently fall back to claude_sdk when an agent picks another
+    engine (regression: production used a fixed default_runner_factory ignoring
+    AgentSpec.engine, so switching an agent's engine via `tony engine set` had no
+    effect on `tony run`)."""
+    monkeypatch.chdir(tmp_repo)
+    (tmp_repo / "config" / "tony.yaml").write_text(
+        "engines:\n  custom:\n    type: litellm\n    model: gpt-4o\n", encoding="utf-8"
+    )
+    write_agent(tmp_repo / "agents", "viernes", "worker", engine="custom")
+    write_agent(tmp_repo / "agents", "jarvis", "front")
+    manager = FakeManager()
+    monkeypatch.setattr(main, "manager_factory", lambda settings: manager)
+    assert main.runner_factory is None, "the production default must defer to engine selection"
+
+    calls: list[tuple[Any, Any]] = []
+
+    def fake_build_runner_factory(settings, spec):
+        calls.append((settings, spec))
+
+        def factory(settings, task_id, gate, call, token, handlers=None):
+            return FakeAgentRunner(OK_RESULT)
+
+        return factory
+
+    monkeypatch.setattr("tony.apps.cli.run_task.build_runner_factory", fake_build_runner_factory)
+
+    result = invoke("run", "viernes", "lista los .md")
+
+    assert result.exit_code == 0
+    assert "Hecho" in result.output
+    assert len(calls) == 1
+    resolved_settings, resolved_spec = calls[0]
+    assert resolved_spec.name == "viernes"
+    assert resolved_spec.engine == "custom"
+    assert resolved_settings.engines["custom"].type == "litellm"

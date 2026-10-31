@@ -38,7 +38,8 @@ app.command("replay", help="Muestra los eventos de un registro JSONL o lo convie
 app.add_typer(voice_cli.app, name="voice", help="Calienta y mide los modelos de voz locales.")
 
 # Factories are module attributes so tests can inject doubles.
-runner_factory = orchestration.default_runner_factory
+# None defers to the selected agent's engine (tony.core.runner.engine_factory).
+runner_factory = None
 manager_factory = default_manager_factory
 worker_runner_factory = None
 conversation_factory = None
