@@ -251,6 +251,25 @@ pre {
   color: var(--warn);
 }
 
+.credential-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.credential-form input {
+  font: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  padding: 0.2rem 0.4rem;
+}
+
+.credential-form button {
+  font: inherit;
+}
+
 .mic-toggle {
   position: fixed;
   z-index: 2;
