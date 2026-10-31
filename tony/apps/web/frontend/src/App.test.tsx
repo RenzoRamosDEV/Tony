@@ -109,11 +109,30 @@ describe("App", () => {
     storage.clear();
   });
 
-  it("renders only the orb stage", () => {
+  it("renders the orb behind the engine, transcript, mode and composer readouts", () => {
     mount();
 
     expect(document.querySelector(".stage")).not.toBeNull();
-    expect(document.querySelector(".hud")).toBeNull();
+    expect(screen.getByLabelText("Motor")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mensaje para Jarvis")).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Modo de respuesta" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Activar micrófono")).toBeInTheDocument();
+  });
+
+  it("sends typed text and shows the exchange in the transcript readout", async () => {
+    const { ws } = mount({ "/api/conversations/c-1/messages": [] });
+    act(() => ws.open());
+    act(() => ws.receive(helloOk()));
+
+    await userEvent.type(screen.getByLabelText("Mensaje para Jarvis"), "hola{Enter}");
+
+    expect(ws.sent.at(-1)).toMatchObject({ type: "user.text", payload: { text: "hola" } });
+    const clientId = (ws.sent.at(-1) as { payload: { client_id: string } }).payload.client_id;
+    act(() =>
+      ws.receive(env("user.accepted", { message_id: "m-1", client_id: clientId, effective_mode: "text" })),
+    );
+
+    expect(screen.getByText("» hola")).toBeInTheDocument();
   });
 
   it("shows the confirmation card and sends confirm when accepted", async () => {
