@@ -1,11 +1,64 @@
+<div align="center">
+
 # Tony
 
-Asistente personal local con dos agentes: **Jarvis** (`front`, habla contigo) y
-**Viernes** (`worker`, ejecuta tareas con MCPs). Incluye el núcleo (carga de agentes
-desde ficheros, gestor de MCPs, ejecución sobre Claude Agent SDK con resultado
-estructurado y log JSONL por tarea), el orquestador de tareas, la memoria de usuario,
-la conversación por terminal con `tony chat` y el chat web con panel de debug y voz (micrófono,
-VAD, STT y TTS locales) con `tony web`.
+**Un asistente personal que vive en tu propio equipo, no en la nube de nadie.**
+
+Hablas con **Jarvis** por voz o texto; cuando hace falta tocar ficheros, llamar a una
+herramienta o consultar algo externo, Jarvis delega en **Viernes**, que ejecuta la
+tarea con las herramientas (MCP) que le hayas dado. Todo corre en local: el motor, la
+memoria, los logs y la voz.
+
+![Estado](https://img.shields.io/badge/Estado-En%20desarrollo-orange)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![uv](https://img.shields.io/badge/uv-gestor%20de%20paquetes-DE5FE9?logo=uv&logoColor=white)
+![Claude Agent SDK](https://img.shields.io/badge/Claude%20Agent%20SDK-000000?logo=anthropic&logoColor=white)
+![LiteLLM](https://img.shields.io/badge/LiteLLM-OpenAI%20%7C%20Anthropic-1A73E8)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![OpenSpec](https://img.shields.io/badge/OpenSpec-spec--driven-6E56CF)
+
+</div>
+
+---
+
+## Qué es
+
+**Tony** es un asistente de IA personal pensado para correr en tu propio equipo, con
+dos agentes especializados en vez de uno genérico:
+
+- **Jarvis** (`front`) es con quien hablas: conversa, responde directamente lo que
+  puede y decide cuándo una petición necesita acción real.
+- **Viernes** (`worker`) es quien actúa: ejecuta tareas apoyándose en los servidores
+  MCP que le configures (ficheros, Notion, Google Calendar, lo que conectes), puede
+  partir una tarea en subagentes especializados y pedir confirmación antes de una
+  operación destructiva.
+
+Por debajo hay un núcleo común: carga de agentes desde ficheros planos (`agent.md` +
+`tool.json`), un gestor de MCP, un orquestador de tareas con delegación y subagentes,
+memoria de usuario persistente, logging JSONL por tarea y **motores intercambiables**
+— cada agente puede correr sobre el SDK de Claude (con tu cuenta) o sobre cualquier
+proveedor compatible con LiteLLM (API key de OpenAI o Anthropic), eligiendo el motor
+desde la propia interfaz web sin tocar código.
+
+## Para qué sirve
+
+- **Hablarle como a un asistente real** — por terminal (`tony chat`) o por voz y texto
+  en el navegador (`tony web`), con micrófono, detección de voz, transcripción y
+  respuesta hablada, todo con motores locales.
+- **Delegarle tareas con herramientas** — Viernes conecta servidores MCP (ficheros,
+  APIs, lo que sea) y los usa con permisos explícitos (`allow`/`confirm` por tool).
+- **Extenderlo sin tocar código** — agentes, subagentes y skills se definen como
+  carpetas y Markdown; añadir uno nuevo no requiere programar.
+- **Elegir motor y cuenta** — cambiar entre tu cuenta de Claude o una API key de
+  OpenAI/Anthropic desde la interfaz, sin reiniciar nada.
+- **Auditar lo que hizo** — cada tarea queda en un JSONL legible, con tokens, coste y
+  cada llamada a herramienta.
+
+> **Estado del proyecto:** en desarrollo activo. La arquitectura y los comandos de
+> este README son los actuales, pero cambian con frecuencia; cada cambio de fondo se
+> describe primero como propuesta en `openspec/` antes de implementarse.
 
 ## Requisitos
 
@@ -361,7 +414,8 @@ Cada agente es una carpeta en `agents/<nombre>/`:
 ---
 name: viernes
 role: worker            # front | worker
-model: claude-sonnet    # alias definido en models de tony.yaml
+model: claude-haiku     # alias definido en models de tony.yaml; solo aplica al motor claude_sdk
+effort: medium          # opcional: low | medium | high | xhigh | max (motor claude_sdk)
 persona: {address: "", language: es}
 style: {voice: "", text: ""}
 max_steps: 20           # 1..200
@@ -543,13 +597,12 @@ por git.
 
 ### Motor y cuenta en la interfaz web
 
-El selector **Motor** permite elegir **Claude · mi cuenta**, **Codex · mi cuenta
-ChatGPT**, **OpenAI · API key** o **Anthropic · API key**, además de los perfiles
-personalizados de `config/tony.yaml`.
+El selector **Motor** permite elegir **Claude · mi cuenta**, **OpenAI · API key** o
+**Anthropic · API key**, además de los perfiles personalizados de `config/tony.yaml`.
 
-- Para las opciones de cuenta, inicia sesión en el equipo donde corre Tony con
-  `claude auth login` o `codex login`. Tony comprueba el método de autenticación;
-  no cambia automáticamente a facturación de API si falta la sesión.
+- Para la opción de cuenta, inicia sesión en el equipo donde corre Tony con
+  `claude auth login`. Tony comprueba el método de autenticación; no cambia
+  automáticamente a facturación de API si falta la sesión.
 - Para una API, elige proveedor, escribe el modelo y pega la clave en el campo
   **API key**. Pulsa **Guardar** y después **Usar este motor**. La API usa la
   facturación de esa clave. Puedes reemplazar o eliminar la clave; si ese motor
@@ -565,4 +618,4 @@ hay una clave configurada. No pegues las claves en el chat.
 
 Los perfiles personalizados conservan su autenticación configurada; las opciones
 con **mi cuenta** fuerzan autenticación de cuenta. Los identificadores
-`claude-account`, `codex-account`, `openai-api` y `anthropic-api` están reservados.
+`claude-account`, `openai-api` y `anthropic-api` están reservados.
