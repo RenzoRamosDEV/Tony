@@ -267,73 +267,67 @@ pre {
   justify-content: center;
 }
 
-.ring {
-  position: absolute;
-  border-radius: 50%;
-  border: 1px solid rgb(120 220 255 / 0.18);
+.dial {
+  width: min(78vmin, 46rem);
+  aspect-ratio: 1;
+  overflow: visible;
 }
 
-.ring-outer {
-  width: min(62vmin, 40rem);
-  aspect-ratio: 1;
-  border-style: dashed;
-  animation: spin 120s linear infinite;
+.dial-ring {
+  fill: none;
+  stroke: rgb(120 220 255 / 0.3);
+  stroke-width: 1;
+  transform-origin: 250px 250px;
 }
 
-.ring-mid {
-  width: min(50vmin, 32rem);
-  aspect-ratio: 1;
-  border-color: rgb(120 220 255 / 0.12);
-  border-top-color: rgb(120 220 255 / 0.4);
-  border-bottom-color: rgb(120 220 255 / 0.4);
-  animation: spin 90s linear infinite reverse;
+.dial-ring-outer {
+  stroke-width: 1.5;
+  stroke: rgb(120 220 255 / 0.45);
 }
 
-.ring-inner {
-  width: min(40vmin, 26rem);
-  aspect-ratio: 1;
-  border-style: dotted;
-  border-color: rgb(255 179 71 / 0.25);
-  animation: spin 60s linear infinite;
+.dial-ring-dashed {
+  stroke-dasharray: 2 10;
+  stroke: rgb(120 220 255 / 0.4);
+}
+
+.dial-ring-thin {
+  stroke: rgb(255 179 71 / 0.3);
+  stroke-dasharray: 1 6;
+}
+
+.dial-spin-slow {
+  stroke: rgb(120 220 255 / 0.15);
+  stroke-dasharray: 1 3 18 3;
+  animation: spin 140s linear infinite;
+}
+
+.dial-spin-rev {
+  stroke: rgb(255 179 71 / 0.22);
+  stroke-dasharray: 4 14;
+  animation: spin 80s linear infinite reverse;
+}
+
+.dial-tick {
+  stroke: rgb(120 220 255 / 0.35);
+  stroke-width: 1;
+}
+
+.dial-tick.major {
+  stroke: rgb(170 230 255 / 0.65);
+  stroke-width: 1.6;
+}
+
+.dial-label {
+  fill: rgb(150 220 255 / 0.55);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 2px;
 }
 
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
-}
-
-.tick {
-  position: absolute;
-  background: rgb(120 220 255 / 0.3);
-}
-
-.tick-n,
-.tick-s {
-  width: 1px;
-  height: min(10vmin, 5rem);
-}
-
-.tick-e,
-.tick-w {
-  height: 1px;
-  width: min(10vmin, 5rem);
-}
-
-.tick-n {
-  top: calc(50% - min(31vmin, 20rem));
-}
-
-.tick-s {
-  bottom: calc(50% - min(31vmin, 20rem));
-}
-
-.tick-e {
-  right: calc(50% - min(31vmin, 20rem));
-}
-
-.tick-w {
-  left: calc(50% - min(31vmin, 20rem));
 }
 
 .hud-corner {
@@ -551,8 +545,7 @@ pre {
     width: calc(50vw - 1.6rem);
   }
 
-  .ring,
-  .tick {
+  .dial {
     display: none;
   }
 }
