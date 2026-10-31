@@ -15,12 +15,6 @@ export class ApiError extends Error {
   }
 }
 
-export interface EnginesView {
-  active: string;
-  worker?: string;
-  profiles: { name: string; type: string; model: string | null; auth?: string; configured?: boolean }[];
-}
-
 export interface Settings {
   reply_mode: ReplyMode;
   reply_mode_source: "settings" | "yaml";
@@ -68,16 +62,6 @@ async function request<T>(fetchImpl: Fetch, path: string, init: RequestInit = {}
 
 export function createApi(fetchImpl: Fetch = (...args) => fetch(...args)) {
   return {
-    getEngines: () => request<EnginesView>(fetchImpl, "/api/engines"),
-    patchEngine: (profile: string) => request<EnginesView>(fetchImpl, "/api/engines", {
-      method: "PATCH",
-      body: JSON.stringify({ profile }),
-    }),
-    configureEngine: (profile: string, model: string, apiKey?: string, deleteKey = false) =>
-      request<EnginesView>(fetchImpl, `/api/engines/${encodeURIComponent(profile)}/credentials`, {
-        method: "PUT",
-        body: JSON.stringify({ model, api_key: apiKey || undefined, delete_key: deleteKey }),
-      }),
     getHealth: () => request<HealthView>(fetchImpl, "/api/health"),
     getSettings: () => request<Settings>(fetchImpl, "/api/settings"),
     patchSettings: (reply_mode: ReplyMode) =>
