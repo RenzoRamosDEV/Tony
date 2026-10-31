@@ -2,29 +2,16 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import { createApi } from "./api/client";
 import type { MicCaptureDeps } from "./audio/capture";
-import { PERMISSION_DENIED, useMicCapture, usePcmPlayer } from "./audio/hooks";
+import { useMicCapture, usePcmPlayer } from "./audio/hooks";
 import { applyToPlayback } from "./audio/playbackEvents";
 import { ConfirmationCard } from "./components/ConfirmationCard";
-import { DebugPanel } from "./components/DebugPanel";
-import { HudBar } from "./components/HudBar";
-import { PlusIcon } from "./components/icons";
-import { StatusBanner } from "./components/StatusBanner";
-import { Subtitles } from "./components/Subtitles";
-import { TranscriptDrawer } from "./components/TranscriptDrawer";
 import { deriveOrbState } from "./orb/orbState";
 import { OrbStage } from "./orb/OrbStage";
 import { initialState, reduce } from "./protocol/reducer";
 import { ChatSocket, defaultSocketUrl } from "./protocol/socket";
-import { AUDIO_START_PAYLOAD, type Envelope, type ReplyMode } from "./protocol/types";
+import type { Envelope } from "./protocol/types";
 
 export const CONVERSATION_KEY = "tony.conversation_id";
-
-let requestCounter = 0;
-
-function newClientId(): string {
-  requestCounter += 1;
-  return `${Date.now().toString(36)}-${requestCounter.toString(36)}`;
-}
 
 interface Props {
   socketFactory?: (url: string) => WebSocket;
@@ -58,7 +45,7 @@ function writeStorage(storage: Storage | undefined, key: string, value: string):
 
 export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFactory }: Props) {
   const [state, dispatch] = useReducer(reduce, initialState);
-  const [historyReady, setHistoryReady] = useState(false);
+  const [, setHistoryReady] = useState(false);
   const api = useMemo(() => createApi(fetchImpl), [fetchImpl]);
   const store = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
   const stateRef = useRef(state);
@@ -163,98 +150,22 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
     }
   }, [speaking, heardMessageId]);
 
-  const send = useCallback((text: string): boolean => {
-    const clientId = newClientId();
-    const sent = socketRef.current?.send({ type: "user.text", payload: { text, client_id: clientId } }) ?? false;
-    if (sent) {
-      dispatch({ type: "sent", text, clientId });
-    }
-    return sent;
-  }, []);
-
   const answer = useCallback((confirmationId: string, approved: boolean) => {
     socketRef.current?.send({ type: "confirm", payload: { confirmation_id: confirmationId, approved } });
   }, []);
-
-  const activeRoot = state.activeRootId;
-  const cancel = useCallback(() => {
-    if (activeRoot !== null) {
-      socketRef.current?.send({ type: "cancel", payload: { task_id: activeRoot } });
-    }
-  }, [activeRoot]);
-
-  const micOn = state.voice.mic === "on";
-  const toggleMic = useCallback(async () => {
-    if (micOn) {
-      socketRef.current?.send({ type: "audio.end", payload: {} });
-      mic.stop();
-      dispatch({ type: "mic", on: false });
-      return;
-    }
-    try {
-      await mic.start();
-    } catch {
-      dispatch({ type: "notice", text: PERMISSION_DENIED });
-      return;
-    }
-    socketRef.current?.send({ type: "audio.start", payload: { ...AUDIO_START_PAYLOAD } });
-    dispatch({ type: "mic", on: true });
-  }, [mic, micOn]);
-
-  const stopAudio = useCallback(() => {
-    player.stop();
-    if (synthesizing && heardMessageId !== null) {
-      socketRef.current?.send({ type: "cancel", payload: { message_id: heardMessageId } });
-    }
-    dispatch({ type: "stop_audio" });
-  }, [player, synthesizing, heardMessageId]);
-
-  const onModeChanged = useCallback((mode: ReplyMode) => dispatch({ type: "set_reply_mode", mode }), []);
-  const dismiss = useCallback(() => dispatch({ type: "dismiss_notice" }), []);
-  const newConversation = useCallback(() => socketRef.current?.newConversation(), []);
-
-  const inputDisabled = !state.connected || !historyReady || state.turnInProgress || state.pendingText !== null;
 
   const orbState = deriveOrbState({
     phase: state.voice.phase,
     mic: state.voice.mic,
     playing: player.playing,
     turnInProgress: state.turnInProgress,
-    activeRootId: activeRoot,
+    activeRootId: state.activeRootId,
   });
 
   return (
     <>
       <OrbStage state={orbState} level={mic.level} getAmplitude={player.amplitude} />
-      <main className="hud">
-        <header className="hud-top">
-          <h1 className="brand">Tony</h1>
-          <div className="hud-actions">
-            <TranscriptDrawer messages={state.messages} waitText={state.waitText} />
-            <button type="button" className="icon" aria-label="Nueva conversación" onClick={newConversation}>
-              <PlusIcon />
-            </button>
-          </div>
-        </header>
-        <StatusBanner connected={state.connected} notice={state.notice} onDismiss={dismiss} />
-        <Subtitles messages={state.messages} waitText={state.waitText} />
-        <HudBar
-          voice={state.voice}
-          level={mic.level}
-          speaking={speaking}
-          replyMode={state.replyMode}
-          onModeChanged={onModeChanged}
-          fetchImpl={fetchImpl}
-          inputDisabled={inputDisabled}
-          onSend={send}
-          onToggleMic={() => void toggleMic()}
-          onStopAudio={stopAudio}
-          canCancel={activeRoot !== null}
-          onCancel={cancel}
-        />
-      </main>
       {state.confirmation ? <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} /> : null}
-      <DebugPanel state={state} storage={store} />
     </>
   );
 }

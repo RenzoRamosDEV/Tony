@@ -40,7 +40,7 @@ export function contrast(a: string, b: string): number {
 const theme = block(/:root \{[^}]*\}/);
 
 describe("colour contrast (WCAG AA)", () => {
-  it("has a single dark HUD theme, independent of the system preference", () => {
+  it("has a single dark theme, independent of the system preference", () => {
     expect(css.match(/:root \{/g)).toHaveLength(1);
     expect(css).not.toContain("prefers-color-scheme");
     expect(theme).toContain("color-scheme: dark");
@@ -57,27 +57,26 @@ describe("colour contrast (WCAG AA)", () => {
     expect(contrast(variable(theme, "--accent-fg"), variable(theme, "--accent"))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("declares focus rings, reduced motion and the 80ch measure", () => {
+  it("declares focus rings and reduced motion", () => {
     expect(css).toContain(":focus-visible");
     expect(css).toContain("prefers-reduced-motion");
-    expect(css).toContain("max-width: 80ch");
   });
 });
 
-describe("HUD layout", () => {
-  it("puts the orb stage behind a click-through HUD", () => {
+describe("orb stage", () => {
+  it("is fixed full-screen behind everything else", () => {
     const stage = block(/\.stage \{[^}]*\}/);
-    const hud = block(/\.hud \{[^}]*\}/);
 
     expect(stage).toContain("position: fixed");
     expect(stage).toContain("inset: 0");
-    expect(hud).toContain("pointer-events: none");
   });
+});
 
-  it("overlays the debug panel as a drawer fixed to the right", () => {
-    const debug = block(/\.debug \{[^}]*\}/);
+describe("confirmation card", () => {
+  it("is centred and fixed over the orb", () => {
+    const confirmation = block(/\.confirmation \{[^}]*\}/);
 
-    expect(debug).toContain("position: fixed");
-    expect(debug).toContain("right: 0");
+    expect(confirmation).toContain("position: fixed");
+    expect(confirmation).toContain("left: 50%");
   });
 });
