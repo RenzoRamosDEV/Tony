@@ -1,7 +1,7 @@
 ---
 name: jarvis
 role: front
-model: claude-haiku
+model: claude-sonnet
 persona:
   address: señor
   language: es

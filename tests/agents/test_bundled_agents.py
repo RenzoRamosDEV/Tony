@@ -116,7 +116,7 @@ def test_jarvis_prompt_explains_delegation_and_its_native_tools() -> None:
     spec = load_agent(AGENTS_DIR / "jarvis", load_settings(None), {})
 
     assert spec.role == "front"
-    assert spec.model == "claude-haiku"
+    assert spec.model == "claude-sonnet"
     for name in ("delegate", "remember", "set_reply_mode"):
         assert name in spec.system_prompt
     assert "display_text" in spec.system_prompt and "speech_text" in spec.system_prompt
@@ -189,7 +189,7 @@ def test_viernes_ships_the_calendario_subagent_with_only_google_calendar_mcp() -
 
     assert spec.subagent_errors == {}
     child = spec.subagents["calendario"]
-    assert child.role == "worker" and child.model == "claude-haiku"
+    assert child.role == "worker" and child.model == "claude-sonnet"
     assert set(child.tools.mcpServers) == {"google-calendar"}
     assert child.tools.native == []
     assert child.parent == "viernes"
