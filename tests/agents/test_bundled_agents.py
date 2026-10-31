@@ -189,7 +189,7 @@ def test_viernes_ships_the_calendario_subagent_with_only_google_calendar_mcp() -
 
     assert spec.subagent_errors == {}
     child = spec.subagents["calendario"]
-    assert child.role == "worker" and child.model == "claude-sonnet"
+    assert child.role == "worker" and child.model == "claude-haiku"
     assert set(child.tools.mcpServers) == {"google-calendar"}
     assert child.tools.native == []
     assert child.parent == "viernes"
