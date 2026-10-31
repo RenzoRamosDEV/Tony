@@ -1,7 +1,8 @@
 ---
 name: calendario
 role: worker
-model: claude-sonnet
+model: claude-haiku
+effort: medium
 max_steps: 15
 ---
 Eres Calendario, un subagente de Viernes especializado en Google Calendar.

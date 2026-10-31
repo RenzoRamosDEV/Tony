@@ -15,7 +15,11 @@ from tony.core.mcp import ToolCatalog
 ECHO_SCHEMA = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
 
 
-def worker_spec(system_prompt: str = "Eres Viernes.", max_steps: int = 20) -> AgentSpec:
+def worker_spec(
+    system_prompt: str = "Eres Viernes.",
+    max_steps: int = 20,
+    effort: str | None = None,
+) -> AgentSpec:
     return AgentSpec(
         name="viernes",
         role="worker",
@@ -23,6 +27,7 @@ def worker_spec(system_prompt: str = "Eres Viernes.", max_steps: int = 20) -> Ag
         max_steps=max_steps,
         system_prompt=system_prompt,
         path=Path("/tmp/viernes"),
+        effort=effort,
     )
 
 

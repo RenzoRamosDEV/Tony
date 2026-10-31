@@ -69,6 +69,16 @@ def test_turns_model_output_format_and_streaming() -> None:
     assert options.can_use_tool is noop_can_use_tool
 
 
+def test_effort_is_passed_to_options_when_set() -> None:
+    options = options_for(spec=worker_spec(effort="medium"))
+
+    assert options.effort == "medium"
+
+
+def test_effort_is_none_by_default() -> None:
+    assert options_for().effort is None
+
+
 def test_sdk_ignores_mcp_servers_from_any_other_configuration() -> None:
     assert options_for().strict_mcp_config is True
 

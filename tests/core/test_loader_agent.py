@@ -121,6 +121,45 @@ def test_missing_frontmatter_is_reported(tmp_repo: Path, settings) -> None:
     assert "frontmatter" in str(exc_info.value)
 
 
+def test_effort_field_is_loaded(tmp_repo: Path, settings) -> None:
+    folder = make_agent(
+        tmp_repo / "agents",
+        "x",
+        "---\nname: x\nrole: worker\nmodel: claude-haiku\neffort: medium\n---\nHola\n",
+    )
+
+    spec = load_agent(folder, settings, {})
+
+    assert spec.effort == "medium"
+
+
+def test_effort_defaults_to_none(tmp_repo: Path, settings) -> None:
+    folder = make_agent(
+        tmp_repo / "agents",
+        "x",
+        "---\nname: x\nrole: worker\nmodel: claude-sonnet\n---\nHola\n",
+    )
+
+    spec = load_agent(folder, settings, {})
+
+    assert spec.effort is None
+
+
+def test_invalid_effort_names_field_and_allowed_values(tmp_repo: Path, settings) -> None:
+    folder = make_agent(
+        tmp_repo / "agents",
+        "x",
+        "---\nname: x\nrole: worker\nmodel: claude-sonnet\neffort: turbo\n---\nHola\n",
+    )
+
+    with pytest.raises(AgentLoadError) as exc_info:
+        load_agent(folder, settings, {})
+
+    message = str(exc_info.value)
+    assert "effort" in message
+    assert "medium" in message
+
+
 def test_unknown_model_alias_lists_available(tmp_repo: Path, settings) -> None:
     folder = make_agent(
         tmp_repo / "agents", "x", "---\nname: x\nrole: worker\nmodel: claude-ultra\n---\nHola\n"

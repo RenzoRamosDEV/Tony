@@ -159,6 +159,7 @@ name: investigador
 role: worker
 model: claude-sonnet
 engine: claude_sdk
+effort: null
 persona:
   address: ''
   language: es

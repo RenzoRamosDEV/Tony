@@ -96,6 +96,7 @@ def build_options(
         permission_mode="default",
         max_turns=spec.max_steps,
         model=settings.models[spec.model],
+        effort=spec.effort,
         can_use_tool=can_use_tool,
         setting_sources=[],
         strict_mcp_config=True,

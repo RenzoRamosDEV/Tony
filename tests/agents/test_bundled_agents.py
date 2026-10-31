@@ -82,7 +82,8 @@ def test_viernes_is_a_worker_with_filesystem_mcp() -> None:
     spec = load_agent(AGENTS_DIR / "viernes", load_settings(None), {"HOME": "/home/x"})
 
     assert spec.role == "worker"
-    assert spec.model == "claude-sonnet"
+    assert spec.model == "claude-haiku"
+    assert spec.effort == "medium"
     assert "TaskResult" in spec.system_prompt
     assert isinstance(spec.tools.mcpServers["filesystem"], StdioServer)
     assert spec.tools.mcpServers["filesystem"].args[-1] == "/home/x/notas"
@@ -116,7 +117,8 @@ def test_jarvis_prompt_explains_delegation_and_its_native_tools() -> None:
     spec = load_agent(AGENTS_DIR / "jarvis", load_settings(None), {})
 
     assert spec.role == "front"
-    assert spec.model == "claude-sonnet"
+    assert spec.model == "claude-haiku"
+    assert spec.effort == "medium"
     for name in ("delegate", "remember", "set_reply_mode"):
         assert name in spec.system_prompt
     assert "display_text" in spec.system_prompt and "speech_text" in spec.system_prompt
@@ -152,7 +154,8 @@ def test_viernes_ships_the_investigador_subagent_without_tools_of_its_own() -> N
 
     assert spec.subagent_errors == {}
     child = spec.subagents["investigador"]
-    assert child.role == "worker" and child.model == "claude-sonnet"
+    assert child.role == "worker" and child.model == "claude-haiku"
+    assert child.effort == "medium"
     assert child.tools.mcpServers == {} and child.tools.native == []
     assert child.parent == "viernes"
     assert "fuentes" in child.system_prompt
@@ -189,7 +192,8 @@ def test_viernes_ships_the_calendario_subagent_with_only_google_calendar_mcp() -
 
     assert spec.subagent_errors == {}
     child = spec.subagents["calendario"]
-    assert child.role == "worker" and child.model == "claude-sonnet"
+    assert child.role == "worker" and child.model == "claude-haiku"
+    assert child.effort == "medium"
     assert set(child.tools.mcpServers) == {"google-calendar"}
     assert child.tools.native == []
     assert child.parent == "viernes"
@@ -205,7 +209,8 @@ def test_viernes_ships_the_archivista_subagent_with_only_filesystem_mcp() -> Non
 
     assert spec.subagent_errors == {}
     child = spec.subagents["archivista"]
-    assert child.role == "worker" and child.model == "claude-sonnet"
+    assert child.role == "worker" and child.model == "claude-haiku"
+    assert child.effort == "medium"
     assert isinstance(child.tools.mcpServers["filesystem"], StdioServer)
     assert child.tools.mcpServers["filesystem"].args[-1] == "/home/x/notas"
     assert child.tools.native == []

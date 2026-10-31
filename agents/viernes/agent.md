@@ -1,7 +1,8 @@
 ---
 name: viernes
 role: worker
-model: claude-sonnet
+model: claude-haiku
+effort: medium
 persona:
   address: ""
   language: es

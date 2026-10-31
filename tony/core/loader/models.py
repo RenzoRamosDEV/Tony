@@ -85,6 +85,7 @@ class AgentSpec(StrictModel):
     role: Literal["front", "worker"]
     model: str
     engine: str = "claude_sdk"
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
     persona: Persona = Persona()
     style: Style = Style()
     max_steps: int = 20
