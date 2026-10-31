@@ -3,7 +3,28 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
+import type { MicCaptureDeps } from "./audio/capture";
 import type { Envelope } from "./protocol/types";
+
+class FakeTrack {
+  stop(): void {}
+}
+
+function fakeMicDeps(): MicCaptureDeps {
+  const node = { port: { onmessage: null as ((event: { data: Float32Array }) => void) | null }, connect() {}, disconnect() {} };
+  const context = {
+    sampleRate: 48000,
+    audioWorklet: { addModule: async () => undefined },
+    createMediaStreamSource: () => ({ connect: () => undefined, disconnect: () => undefined }),
+    close: async () => undefined,
+  };
+  return {
+    getUserMedia: async () => ({ getTracks: () => [new FakeTrack()] }) as unknown as MediaStream,
+    createContext: () => context as unknown as AudioContext,
+    createNode: () => node as unknown as AudioWorkletNode,
+    workletUrl: "worklet.js",
+  };
+}
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -95,6 +116,7 @@ function mount(routes: Record<string, unknown> = {}) {
         calls,
       )}
       storage={storage}
+      micDeps={fakeMicDeps()}
     />,
   );
   const ws = FakeWebSocket.instances[FakeWebSocket.instances.length - 1]!;
@@ -109,11 +131,38 @@ describe("App", () => {
     storage.clear();
   });
 
-  it("renders only the orb stage", () => {
+  it("renders the orb stage with the engine selector, mic toggle and chat overlay", async () => {
     mount();
 
     expect(document.querySelector(".stage")).not.toBeNull();
-    expect(document.querySelector(".hud-corner")).toBeNull();
+    expect(await screen.findByRole("combobox", { name: "Motor" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /micrófono/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /mensaje/i })).toBeInTheDocument();
+  });
+
+  it("sends audio.start before capturing and audio.end on stop", async () => {
+    const { ws } = mount();
+    act(() => ws.open());
+    act(() => ws.receive(helloOk()));
+    await screen.findByRole("button", { name: /micrófono/i });
+
+    await userEvent.click(screen.getByRole("button", { name: /micrófono/i }));
+    expect(ws.sent.at(-1)).toEqual({
+      v: 1,
+      type: "audio.start",
+      seq: ws.sent.length,
+      conversation_id: "c-1",
+      payload: { sample_rate: 16000, channels: 1, format: "f32" },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /micrófono/i }));
+    expect(ws.sent.at(-1)).toEqual({
+      v: 1,
+      type: "audio.end",
+      seq: ws.sent.length,
+      conversation_id: "c-1",
+      payload: {},
+    });
   });
 
   it("shows the confirmation card and sends confirm when accepted", async () => {

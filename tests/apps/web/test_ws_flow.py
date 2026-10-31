@@ -130,15 +130,17 @@ def test_set_mode_persists_or_fails(tmp_path: Path) -> None:
     with build_test_app(tmp_path, turns=["Hola."]) as client:
         with open_chat(client) as (ws, _):
             send(ws, "set_mode", {"reply_mode": "text"})
+            assert ws.receive_json()["payload"]["code"] == "reply_mode_locked"
             send(ws, "set_mode", {"reply_mode": "loud"})
-            assert ws.receive_json()["payload"]["code"] == "invalid_reply_mode"
+            assert ws.receive_json()["payload"]["code"] == "reply_mode_locked"
+            send(ws, "set_mode", {"reply_mode": "voice"})
             send(ws, "user.text", {"text": "hola"})
             accepted = ws.receive_json()
             drain_until(ws, "assistant.final")
 
-    assert accepted["payload"]["effective_mode"] == "text"
+    assert accepted["payload"]["effective_mode"] == "voice"
     persisted = json.loads((tmp_path / "memory" / "settings.json").read_text())
-    assert persisted == {"reply_mode": "text"}
+    assert persisted == {"reply_mode": "voice"}
 
 
 @pytest.mark.parametrize(

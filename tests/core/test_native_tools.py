@@ -36,6 +36,8 @@ class RecordingHandlers:
         return f"Guardado: - [2026-10-28] {text}"
 
     async def set_reply_mode(self, mode: str) -> str:
+        if mode != "voice":
+            raise ValueError("el modo de respuesta está fijado a voz y no se puede cambiar")
         self.modes.append(mode)
         return mode
 
@@ -163,10 +165,21 @@ async def test_set_reply_mode_persists_valid_values() -> None:
     handlers = RecordingHandlers()
     tools = NativeToolSet(["set_reply_mode"], handlers)
 
+    reply = await tools.handler("set_reply_mode")({"modo": "voice"})
+
+    assert reply_text(reply) == "voice"
+    assert handlers.modes == ["voice"]
+
+
+async def test_set_reply_mode_rejects_a_locked_value_as_a_tool_error() -> None:
+    handlers = RecordingHandlers()
+    tools = NativeToolSet(["set_reply_mode"], handlers)
+
     reply = await tools.handler("set_reply_mode")({"modo": "text"})
 
-    assert reply_text(reply) == "text"
-    assert handlers.modes == ["text"]
+    assert reply["is_error"] is True
+    assert "voz" in reply_text(reply)
+    assert handlers.modes == []
 
 
 async def test_set_reply_mode_rejects_unknown_values_listing_the_allowed_ones() -> None:

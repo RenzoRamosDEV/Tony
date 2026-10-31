@@ -66,6 +66,7 @@ SESSION_STARTED = "session.started"
 MISSING_TEXT_NOTICE = "Falta el mensaje después del prefijo {prefix}."
 RESUME_FAILED_NOTICE = "No se pudo reanudar la sesión anterior del front; se empieza de cero."
 TAGGED_PREFERENCE = "La preferencia no puede contener etiquetas de contexto."
+REPLY_MODE_LOCKED = "El modo de respuesta está fijado en voz por el usuario y no se puede cambiar."
 INTERRUPTED_SUFFIX = " …"
 INTERRUPTED_PLACEHOLDER = "(interrumpido)"
 CHANNEL_NAME = "cli"
@@ -292,6 +293,8 @@ class ChatSession:
         return f"Guardado: {line}"
 
     async def set_reply_mode(self, mode: str) -> str:
+        if mode != "voice":
+            raise ValueError(REPLY_MODE_LOCKED)
         self._memory.settings.set_reply_mode(mode)
         return mode
 

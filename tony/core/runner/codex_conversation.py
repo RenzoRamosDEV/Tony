@@ -7,6 +7,13 @@ through the same `ToolBarrier`/`BridgeServer` plumbing as `CodexCliRunner`.
 Voice streaming degrades for this engine (documented Non-Goal, design.md): there is no
 partial `on_speech` chunk during generation. `on_speech`/`on_text` are each called at
 most once per turn, after the full structured reply is parsed.
+
+Security policy (non-negotiable, see tasks.md): `-s read-only`, never
+`--dangerously-bypass-approvals-and-sandbox` nor `--approve-for-me`. `-c
+approval_policy=never` is not one of those: it only stops codex's own approval wait,
+which `exec` can never satisfy (there is no interactive terminal to answer it), without
+loosening the sandbox. Every tool call still crosses our own `ToolBarrier`/`ConfirmGate`
+first, which is what actually allows, confirms or denies it.
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ from tony.core.runner.strict_schema import strict_schema
 FRONT_OWNER_ID = "front"
 GATEWAY_MODULE = "tony.core.runner.mcp_gateway_main"
 SANDBOX_MODE = "read-only"
+APPROVAL_POLICY_OVERRIDE = "approval_policy=never"
 TextCallback = Callable[[str], Awaitable[None]]
 TURN_FAILED = "No pude completar el turno: la salida de codex no cumple el esquema. {diagnostic}"
 NO_RESULT_EVENT = "codex no devolvió ningún mensaje final"
@@ -125,7 +133,15 @@ class CodexCliConversation:
             ["-m", GATEWAY_MODULE, "--socket", str(socket_path), "--catalog", str(catalog_path)]
         )
         profile = self._settings.engines[self._spec.engine]
-        base = [*self._codex_command, *codex_account_args(profile), "-s", SANDBOX_MODE, "exec"]
+        base = [
+            *self._codex_command,
+            *codex_account_args(profile),
+            "-s",
+            SANDBOX_MODE,
+            "-c",
+            APPROVAL_POLICY_OVERRIDE,
+            "exec",
+        ]
         if profile.auth == "account":
             self._env = account_env("codex_cli", self._env)
         if self.session_id is not None:

@@ -88,7 +88,7 @@ def test_reconnect_older_than_the_buffer_requests_a_resync(tmp_path: Path) -> No
             after = ws2.receive_json()
 
     assert ok["payload"]["resync"] is True and ok["payload"]["last_seq"] == 700
-    assert after["type"] == "error" and after["payload"]["code"] == "invalid_reply_mode"
+    assert after["type"] == "error" and after["payload"]["code"] == "reply_mode_locked"
 
 
 def test_second_socket_is_rejected_and_relayed_after_close(tmp_path: Path) -> None:

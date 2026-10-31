@@ -8,7 +8,12 @@ socket. The barrier itself - allow, confirm, timeout, log - is the exact same ob
 `ClaudeSdkRunner` would build; only the transport to reach it differs.
 
 Security policy (non-negotiable, see tasks.md): `-s read-only`, never
-`--dangerously-bypass-approvals-and-sandbox` nor `--approve-for-me`.
+`--dangerously-bypass-approvals-and-sandbox` nor `--approve-for-me`. `-c
+approval_policy=never` is not one of those: it only stops codex's own approval wait,
+which `exec` can never satisfy (there is no interactive terminal to answer it), without
+loosening the sandbox. Every tool call still crosses our own `ToolBarrier`/`ConfirmGate`
+first - the same gate `ClaudeSdkRunner` uses - which is what actually allows, confirms
+or denies it.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from tony.core.runner.strict_schema import strict_schema
 
 GATEWAY_MODULE = "tony.core.runner.mcp_gateway_main"
 SANDBOX_MODE = "read-only"
+APPROVAL_POLICY_OVERRIDE = "approval_policy=never"
 INVALID_STRUCTURED_OUTPUT = "la salida de codex no cumple el esquema de TaskResult"
 NO_RESULT_EVENT = "codex no devolvió ningún mensaje final"
 APPROVAL_BLOCKED = "Codex bloqueó la llamada a la herramienta por su propia política de aprobación."
@@ -97,6 +103,8 @@ class CodexCliRunner:
             str(schema_path),
             "-s",
             SANDBOX_MODE,
+            "-c",
+            APPROVAL_POLICY_OVERRIDE,
             "-c",
             f"mcp_servers.tony.command={gateway_command}",
             "-c",

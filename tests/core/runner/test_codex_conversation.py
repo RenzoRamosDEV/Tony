@@ -270,3 +270,7 @@ async def test_codex_exposes_native_delegation_and_resumes_with_valid_sandbox_fl
     assert len(requests) == 2
     assert arguments[1].index("-s") < arguments[1].index("resume")
     assert arguments[1][arguments[1].index("resume") + 1] == "session"
+    # approval_policy=never only stops codex's own (redundant, un-satisfiable in
+    # headless exec) approval wait; our ToolBarrier/ConfirmGate is still the one
+    # gate that actually allows, confirms or denies every tool call.
+    assert "-c" in arguments[1] and "approval_policy=never" in arguments[1]

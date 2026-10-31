@@ -116,7 +116,7 @@ def test_frame_size_limit_is_16_kib(tmp_path: Path) -> None:
             still_open = ws.receive_json()
 
     assert too_large["payload"]["code"] == "audio_frame_too_large"
-    assert still_open["payload"]["code"] == "invalid_reply_mode"
+    assert still_open["payload"]["code"] == "reply_mode_locked"
 
 
 def test_speech_then_silence_is_transcribed_and_answered_by_voice(tmp_path: Path) -> None:
@@ -175,7 +175,7 @@ def test_empty_transcription_starts_no_turn(tmp_path: Path) -> None:
             only = ws.receive_json()
         assert client.app.state.runner.prompts == []
 
-    assert only["payload"]["code"] == "invalid_reply_mode"
+    assert only["payload"]["code"] == "reply_mode_locked"
 
 
 def test_a_spoken_prefix_applies_like_a_typed_one(tmp_path: Path) -> None:
@@ -231,7 +231,7 @@ def test_closing_the_socket_discards_the_open_utterance(tmp_path: Path) -> None:
             only = ws2.receive_json()
 
     assert ok["payload"]["last_seq"] == 0
-    assert only["payload"]["code"] == "invalid_reply_mode"
+    assert only["payload"]["code"] == "reply_mode_locked"
     assert client.app.state.runner.prompts == []
 
 

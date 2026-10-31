@@ -27,7 +27,7 @@ from tony.core.channels.ports import (
     TaskProgress,
     UserAccepted,
 )
-from tony.core.channels.session import ChatSession, Memory
+from tony.core.channels.session import REPLY_MODE_LOCKED, ChatSession, Memory
 from tony.core.config import Limits, load_settings
 from tony.core.loader import AgentSpec, Persona, Style, ToolConfig
 from tony.core.memory.conversations import ConversationStore
@@ -917,10 +917,15 @@ async def test_text_input_states_its_modality_and_keeps_generating_ids(tmp_memor
     assert "Modalidad de entrada: text" in h.runner.prompts[0]
 
 
-async def test_set_reply_mode_by_phrase_applies_to_the_next_audio_message(tmp_memory: Path) -> None:
+async def test_set_reply_mode_by_phrase_is_rejected_because_the_mode_is_locked(
+    tmp_memory: Path,
+) -> None:
     async def switching(prompt: str, handlers: Any) -> dict[str, Any]:
-        await handlers.set_reply_mode("text")
-        return {"display_text": "Por escrito.", "speech_text": "Por escrito."}
+        try:
+            await handlers.set_reply_mode("text")
+        except ValueError as exc:
+            return {"display_text": str(exc), "speech_text": str(exc)}
+        return {"display_text": "no debería ocurrir", "speech_text": None}
 
     h = Harness(tmp_memory, [switching, "Vale."])
     await h.start()
@@ -928,9 +933,18 @@ async def test_set_reply_mode_by_phrase_applies_to_the_next_audio_message(tmp_me
     first = await h.session.handle("respóndeme por escrito", "audio")
     second = await h.session.handle("¿qué hora es?", "audio")
 
-    assert [a.effective_mode for a in h.channel.of_type(UserAccepted)] == ["voice", "text"]
-    assert spoken(first) == ("Por escrito.", "Por escrito.", "voice")
-    assert spoken(second) == ("Vale.", None, "text")
+    assert [a.effective_mode for a in h.channel.of_type(UserAccepted)] == ["voice", "voice"]
+    assert spoken(first) == (REPLY_MODE_LOCKED, REPLY_MODE_LOCKED, "voice")
+    assert spoken(second) == ("Vale.", None, "voice")
+
+
+async def test_set_reply_mode_accepts_voice_and_rejects_any_other_mode(tmp_memory: Path) -> None:
+    h = Harness(tmp_memory, ["nunca"])
+    await h.start()
+
+    assert await h.session.set_reply_mode("voice") == "voice"
+    with pytest.raises(ValueError, match=REPLY_MODE_LOCKED):
+        await h.session.set_reply_mode("text")
 
 
 async def test_speech_chunks_become_speech_deltas_only_outside_text_mode(tmp_memory: Path) -> None:

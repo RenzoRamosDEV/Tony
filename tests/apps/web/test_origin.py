@@ -49,12 +49,13 @@ def test_localhost_origin_is_equivalent_to_loopback_host(tmp_path: Path) -> None
     with build_test_app(tmp_path) as client:
         response = client.patch(
             "/api/settings",
-            json={"reply_mode": "text"},
+            json={"reply_mode": "voice"},
             headers={"Origin": "http://localhost:8787"},
         )
 
     assert response.status_code == 200
-    assert json.loads((tmp_path / "memory" / "settings.json").read_text()) == {"reply_mode": "text"}
+    settings_path = tmp_path / "memory" / "settings.json"
+    assert json.loads(settings_path.read_text()) == {"reply_mode": "voice"}
 
 
 def test_websocket_with_a_foreign_origin_is_rejected_before_any_message(tmp_path: Path) -> None:

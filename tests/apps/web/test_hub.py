@@ -188,14 +188,17 @@ async def test_set_mode_persists_or_rejects(h: HubHarness) -> None:
     settings_path = h.hub.runtime.memory.settings.path
 
     await h.send(socket, "set_mode", {"reply_mode": "text"})
-    assert json.loads(settings_path.read_text()) == {"reply_mode": "text"}
-    assert socket.types() == ["hello.ok"]
+    assert socket.sent[-1]["payload"]["code"] == "reply_mode_locked"
+    assert socket.types() == ["hello.ok", "error"]
+    assert not settings_path.exists()
 
     await h.send(socket, "set_mode", {"reply_mode": "loud"})
-    assert socket.sent[-1]["payload"]["code"] == "invalid_reply_mode"
-    assert json.loads(settings_path.read_text()) == {"reply_mode": "text"}
+    assert socket.sent[-1]["payload"]["code"] == "reply_mode_locked"
     await h.send(socket, "set_mode", {})
-    assert socket.sent[-1]["payload"]["code"] == "invalid_reply_mode"
+    assert socket.sent[-1]["payload"]["code"] == "reply_mode_locked"
+
+    await h.send(socket, "set_mode", {"reply_mode": "voice"})
+    assert json.loads(settings_path.read_text()) == {"reply_mode": "voice"}
 
 
 async def test_cancel_reaches_the_active_task_and_rejects_unknown_ids(tmp_path: Path) -> None:

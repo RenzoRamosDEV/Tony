@@ -183,7 +183,10 @@ class NativeToolSet:
                     f"modo '{mode}' no válido; valores permitidos: {', '.join(REPLY_MODES)}",
                     is_error=True,
                 )
-            return text_reply(await self._handlers.set_reply_mode(mode))
+            try:
+                return text_reply(await self._handlers.set_reply_mode(mode))
+            except ValueError as exc:
+                return text_reply(str(exc), is_error=True)
 
         return self._register(
             "set_reply_mode",

@@ -60,6 +60,7 @@ TURN_CLOSE_BUDGET_S = 5.0
 DRAIN_BUDGET_S = 1.0
 AUDIO_IN_PROGRESS = "ya hay una intervención de audio abierta"
 AUDIO_NOT_STARTED = "envía audio.start antes de los frames de audio"
+REPLY_MODE_LOCKED = "el modo de respuesta está fijado en voz y no se puede cambiar"
 FRAME_TOO_LARGE = "frame de audio de {size} bytes; el máximo es {limit}"
 AUDIO_OVER_BUDGET = "demasiado audio pendiente de procesar; se descartó el frame"
 NO_SPEECH = "no hay síntesis en curso para el mensaje {}"
@@ -507,6 +508,10 @@ class ConversationHub:
                 await self._attach(socket, 0)
 
     async def set_mode(self, reply_mode: str) -> None:
+        if reply_mode != "voice":
+            if self.socket is not None:
+                await self._error(self.socket, "reply_mode_locked", REPLY_MODE_LOCKED)
+            return
         try:
             self.runtime.memory.settings.set_reply_mode(reply_mode)
         except ValueError as exc:

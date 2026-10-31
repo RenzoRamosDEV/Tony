@@ -4,12 +4,15 @@ import { createApi } from "./api/client";
 import type { MicCaptureDeps } from "./audio/capture";
 import { useMicCapture, usePcmPlayer } from "./audio/hooks";
 import { applyToPlayback } from "./audio/playbackEvents";
+import { ChatPanel } from "./components/ChatPanel";
 import { ConfirmationCard } from "./components/ConfirmationCard";
+import { EngineSelector } from "./components/EngineSelector";
+import { MicButton } from "./components/MicButton";
 import { deriveOrbState } from "./orb/orbState";
 import { OrbStage } from "./orb/OrbStage";
 import { initialState, reduce } from "./protocol/reducer";
 import { ChatSocket, defaultSocketUrl } from "./protocol/socket";
-import type { Envelope } from "./protocol/types";
+import { AUDIO_START_PAYLOAD, type Envelope } from "./protocol/types";
 
 export const CONVERSATION_KEY = "tony.conversation_id";
 
@@ -154,6 +157,27 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
     socketRef.current?.send({ type: "confirm", payload: { confirmation_id: confirmationId, approved } });
   }, []);
 
+  const sendText = useCallback(
+    (text: string) => {
+      const clientId = crypto.randomUUID();
+      socketRef.current?.send({ type: "user.text", payload: { text, client_id: clientId } });
+      dispatch({ type: "sent", text, clientId });
+    },
+    [dispatch],
+  );
+
+  const toggleMic = useCallback(() => {
+    if (state.voice.mic === "on") {
+      mic.stop();
+      socketRef.current?.send({ type: "audio.end", payload: {} });
+      dispatch({ type: "mic", on: false });
+    } else {
+      socketRef.current?.send({ type: "audio.start", payload: AUDIO_START_PAYLOAD });
+      mic.start();
+      dispatch({ type: "mic", on: true });
+    }
+  }, [mic, state.voice.mic]);
+
   const orbState = deriveOrbState({
     phase: state.voice.phase,
     mic: state.voice.mic,
@@ -165,6 +189,9 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
   return (
     <>
       <OrbStage state={orbState} level={mic.level} getAmplitude={player.amplitude} />
+      <EngineSelector api={api} busy={state.turnInProgress || state.voice.mic === "on"} />
+      <MicButton mic={state.voice.mic} phase={state.voice.phase} available={state.voice.available} onToggle={toggleMic} />
+      <ChatPanel messages={state.messages} turnInProgress={state.turnInProgress} onSend={sendText} />
       {state.confirmation ? <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} /> : null}
     </>
   );

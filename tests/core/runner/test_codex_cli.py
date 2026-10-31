@@ -126,6 +126,10 @@ async def test_the_built_command_never_bypasses_approvals_and_always_uses_read_o
     assert "--dangerously-bypass-approvals-and-sandbox" not in argv
     assert "--approve-for-me" not in argv
     assert "-s" in argv and argv[argv.index("-s") + 1] == "read-only"
+    # approval_policy=never only stops codex's own (redundant, un-satisfiable in
+    # headless exec) approval wait; our ToolBarrier/ConfirmGate is still the one
+    # gate that actually allows, confirms or denies every tool call.
+    assert "-c" in argv and "approval_policy=never" in argv
 
 
 async def test_the_subprocess_never_inherits_this_process_stdin(

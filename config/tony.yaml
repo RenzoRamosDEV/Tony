@@ -3,16 +3,16 @@
 #
 # front: jarvis
 # worker: viernes
-# reply_mode: auto            # auto | voice | text | both
+reply_mode: voice             # auto | voice | text | both; fijado a voice, bloqueado en /api/settings y el tool del agente
 # models:
 #   claude-haiku: claude-haiku-5-5
 #   claude-sonnet: claude-sonnet-5-5
-# voice:
-#   stt: faster-whisper/base      # small: más preciso, ~3 veces más lento
-#   tts: piper/es_MX-ald-medium?speed=0.95
+voice:
+  stt: faster-whisper/base      # small: más preciso, ~3 veces más lento
+  tts: kokoro/em_alex*0.6+em_santa*0.4?speed=0.94   # KOKORO-MEZCLA-GRAVE-LATINO: más grave, es-419
 #   # Alias de voz: motor/voz[?speed=0.5..1.5&lang=es-419|es]; lang solo en Kokoro.
 #   # Alternativas (escúchalas en samples/voices/ con scripts/voice_samples.py):
-#   #   tts: kokoro/em_alex*0.6+em_santa*0.4?speed=0.94   # más grave, ~1 s más lenta
+#   #   tts: piper/es_MX-ald-medium?speed=0.95
 #   #   tts: kokoro/em_alex?speed=0.94
 #   #   tts: kokoro/ef_dora?lang=es                       # voz anterior (peninsular)
 #   vad: silero

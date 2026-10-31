@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api")
 
 STATUS_CODES = {"unknown_task": 404, "invalid_confirmation": 409}
 HTTP_ERROR_CODES = {404: "not_found", 405: "method_not_allowed", 403: "forbidden_origin"}
+REPLY_MODE_LOCKED = "el modo de respuesta está fijado en voz y no se puede cambiar"
 
 
 class ApiError(Exception):
@@ -129,6 +130,8 @@ async def get_settings(request: Request) -> dict[str, Any]:
 
 @router.patch("/settings")
 async def patch_settings(request: Request, body: SettingsPatch) -> dict[str, Any]:
+    if body.reply_mode != "voice":
+        raise ApiError(403, "reply_mode_locked", REPLY_MODE_LOCKED)
     runtime_of(request).memory.settings.set_reply_mode(body.reply_mode)
     return {"reply_mode": body.reply_mode, "reply_mode_source": "settings"}
 

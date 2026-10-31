@@ -127,7 +127,7 @@ def test_text_mode_sends_no_tts(tmp_path: Path) -> None:
             send(ws, "set_mode", {"reply_mode": "loud"})
             after = ws.receive_json()
 
-    assert "tts.start" not in types(seen) and after["payload"]["code"] == "invalid_reply_mode"
+    assert "tts.start" not in types(seen) and after["payload"]["code"] == "reply_mode_locked"
 
 
 def test_both_mode_shows_everything_and_speaks_only_the_speech_text(tmp_path: Path) -> None:
@@ -190,7 +190,7 @@ def test_cancel_by_message_id_stops_the_speech_without_end(tmp_path: Path) -> No
     assert (
         again["payload"]["code"] == "unknown_task" and neither["payload"]["code"] == "unknown_task"
     )
-    assert after["payload"]["code"] == "invalid_reply_mode"
+    assert after["payload"]["code"] == "reply_mode_locked"
     assert len(tts.sentences) <= 2
 
 
@@ -241,7 +241,7 @@ def test_failure_in_the_second_sentence_degrades_to_text(tmp_path: Path) -> None
     error = envelopes(seen, "error")[0]["payload"]
     assert error["code"] == "tts_failed" and "frase 2" in error["detail"]
     assert envelopes(seen, "assistant.final")[0]["payload"]["display_text"] == TWO["display_text"]
-    assert after["payload"]["code"] == "invalid_reply_mode"
+    assert after["payload"]["code"] == "reply_mode_locked"
 
 
 def test_an_engine_that_fails_to_load_reports_tts_failed_without_start(tmp_path: Path) -> None:

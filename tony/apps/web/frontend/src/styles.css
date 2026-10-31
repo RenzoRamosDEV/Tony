@@ -192,6 +192,172 @@ pre {
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
 }
 
+/* Holographic HUD chrome: cut corners, no fill, accent-only ink. */
+
+.holo {
+  --cut: 8px;
+  position: relative;
+  background: rgb(5 7 10 / 0.3);
+  color: var(--accent);
+  border: none;
+  border-radius: 0;
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 600;
+  clip-path: polygon(
+    var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%,
+    0 100%, 0 var(--cut)
+  );
+}
+
+.holo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  clip-path: polygon(
+    var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%,
+    0 100%, 0 var(--cut),
+    0 calc(var(--cut) + 1px), 1px calc(var(--cut) + 1px), 1px calc(100% - 1px), calc(100% - var(--cut) - 1px) calc(100% - 1px),
+    calc(100% - var(--cut) - 0.6px) calc(100% - var(--cut) - 0.6px), calc(100% - 1px) calc(100% - var(--cut) - 0.6px),
+    calc(100% - 1px) 1px, calc(var(--cut) + 1px) 1px, var(--cut) 0
+  );
+  background: rgb(255 157 46 / 0.55);
+  pointer-events: none;
+}
+
+.hud-corner {
+  position: fixed;
+  z-index: 2;
+  top: 1rem;
+  left: 1rem;
+  padding: 0.55rem 0.8rem;
+}
+
+.hud-corner select {
+  font: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  padding: 0.1rem 0.2rem;
+}
+
+.hud-corner .warn {
+  margin: 0.4rem 0 0;
+  font-size: 0.85em;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--warn);
+}
+
+.mic-toggle {
+  position: fixed;
+  z-index: 2;
+  bottom: 1.2rem;
+  left: 1rem;
+  padding: 0.5rem 0.8rem;
+}
+
+.mic-toggle[data-mic-state="on"] {
+  color: var(--warn);
+}
+
+.mic-toggle[data-mic-state="on"]::before {
+  background: rgb(255 143 128 / 0.65);
+}
+
+/* Chat overlay: captions straight on the stage, no card, no border. */
+
+.chat-overlay {
+  position: fixed;
+  z-index: 2;
+  right: 1rem;
+  bottom: 1.2rem;
+  top: 5rem;
+  width: min(22rem, calc(100vw - 2.5rem));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, transparent, black 2.5rem);
+}
+
+.chat-lines {
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: right;
+  pointer-events: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 157 46 / 0.4) transparent;
+}
+
+.chat-lines::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-lines::-webkit-scrollbar-thumb {
+  background: rgb(255 157 46 / 0.4);
+}
+
+.chat-line {
+  font-size: 0.92rem;
+  line-height: 1.4;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 0.9), 0 0 24px rgb(0 0 0 / 0.6);
+  color: var(--fg);
+}
+
+.chat-speaker {
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.chat-line-user .chat-speaker {
+  color: var(--muted);
+}
+
+.chat-empty {
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.85em;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 0.9);
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.5rem;
+  width: 100%;
+  pointer-events: auto;
+}
+
+.chat-form input {
+  flex: 1;
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgb(255 157 46 / 0.4);
+  border-radius: 0;
+  padding: 0.3rem 0.1rem;
+  text-align: right;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 0.9);
+}
+
+.chat-form input::placeholder {
+  color: var(--muted);
+}
+
 /* Confirmation: a centred, non-blocking card over the orb. */
 
 .confirmation {
