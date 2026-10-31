@@ -92,3 +92,23 @@ llamada real al binario `codex`) hecha fuera de su sandbox, que bloquea los sock
 el resto de Tony. El bloqueo de aprobación de Codex sobre llamadas a tools MCP (hallazgo anterior)
 ahora se reporta como un error específico en español («Codex bloqueó la llamada... por su propia
 política de aprobación») en vez de un fallo genérico de esquema.
+
+### Hallazgo empírico: `tony run` no estaba conectado a la selección de motor
+
+Grupos 1-3 dejaron deliberadamente `tony/apps/cli/run_task.py` con su propio
+`default_runner_factory` fijo a `ClaudeSdkRunner`, sin consultar `AgentSpec.engine`. Esto
+significaba que `tony engine set <agente> codex_cli` no tenía ningún efecto en `tony run`:
+seguía usando Claude en silencio. Detectado en la verificación manual del grupo 8 al comparar
+los campos de `usage` del registro JSONL (campos `total_cost_usd`/`num_turns`, propios del
+motor de Claude) con lo esperado para `codex_cli`. Corregido (commit `79253db`): cuando no se
+inyecta una factory explícita (el caso de producción), `run_task()` resuelve el motor del
+agente vía `tony.core.runner.engine_factory.build_runner_factory` tras cargar su `AgentSpec`,
+igual que ya hacía `tony chat`. Las factories inyectadas explícitamente en los tests siguen
+funcionando sin cambios.
+
+Repetida la comprobación 8.3 ya con el arreglo puesto: `tony run viernes "..."` con `viernes`
+en `codex_cli` produjo, por fin, el `usage: {}` propio de `codex_cli.py` y el error esperado
+("Codex bloqueó la llamada a la herramienta por su propia política de aprobación"), consistente
+con el hallazgo empírico anterior sobre la aprobación de Codex. El comando lanzado nunca incluyó
+`--dangerously-bypass-approvals-and-sandbox` ni `--approve-for-me` (verificado en el código de
+`_build_argv`, inmutable desde el hallazgo anterior).
