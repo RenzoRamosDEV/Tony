@@ -212,16 +212,6 @@ function pointGeometry(positions: Float32Array, seed: number, minShade: number):
   return geometry;
 }
 
-function concat(...parts: Float32Array[]): Float32Array {
-  const out = new Float32Array(parts.reduce((total, part) => total + part.length, 0));
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
 function lines(name: string, geometry: BufferGeometry, material: ShaderMaterial): LineSegments {
   const object = new LineSegments(geometry, material);
   object.name = name;
@@ -316,17 +306,16 @@ function buildOrb(shared: SharedUniforms) {
   );
   arcLines.userData.count = ARC_COUNT;
 
+  // Short sparks tucked just inside the outermost shell, never poking past its
+  // silhouette, so the orb reads as one solid form instead of a loose starburst.
   const streaks = lines(
     "streaks",
     lineGeometry(
-      concat(
-        radialStreaks(50, { count: 260, innerRadius: 0.3, outerRadius: 1.4, minLength: 0.03, maxLength: 0.16 }),
-        radialStreaks(52, { count: 220, innerRadius: 1.36, outerRadius: 2.05, minLength: 0.05, maxLength: 0.3 }),
-      ),
+      radialStreaks(50, { count: 140, innerRadius: 0.5, outerRadius: 1.3, minLength: 0.02, maxLength: 0.08 }),
       51,
-      0.2,
+      0.3,
     ),
-    glowMaterial(shared, { opacity: 0.4, flicker: 0.5 }, LINE_VERTEX, LINE_FRAGMENT),
+    glowMaterial(shared, { opacity: 0.22, flicker: 0.35 }, LINE_VERTEX, LINE_FRAGMENT),
   );
 
   const cloudPositions = particles(60);
@@ -365,7 +354,7 @@ function defaultComposer(renderer: RendererLike, scene: Scene, camera: Perspecti
   const target = new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 });
   const composer = new EffectComposer(webgl, target);
   const renderPass = new RenderPass(scene, camera);
-  const bloom = new UnrealBloomPass(new Vector2(256, 256), 1, 0.28, 0.16);
+  const bloom = new UnrealBloomPass(new Vector2(256, 256), 1.25, 0.42, 0.18);
   const output = new OutputPass();
   composer.addPass(renderPass);
   composer.addPass(bloom);
