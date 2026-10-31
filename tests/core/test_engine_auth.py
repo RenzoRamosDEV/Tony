@@ -8,7 +8,7 @@ from pydantic import SecretStr
 
 from tony.core.config import TonySettings
 from tony.core.config.engine_auth import load_engine_auth, save_engine_auth, validate_api_model
-from tony.core.runner.auth import account_env, claude_account_options, codex_account_args
+from tony.core.runner.auth import claude_account_options
 
 
 def test_credentials_roundtrip_private_and_excluded_from_settings(tmp_path):
@@ -47,16 +47,12 @@ def test_account_credentials_are_isolated_from_api_environment(monkeypatch, tmp_
     assert options["env"]["ANTHROPIC_API_KEY"] == ""
     assert options["env"]["CLAUDE_CODE_USE_BEDROCK"] == ""
     assert json.loads(options["settings"])["forceLoginMethod"] == "claudeai"
-    assert "OPENAI_API_KEY" not in account_env("codex_cli")
-    assert 'forced_login_method="chatgpt"' in codex_account_args(settings.engines["codex-account"])
     assert os.environ["OPENAI_API_KEY"] == "another-key"
 
 
 @pytest.mark.parametrize(
     "engine,status,valid",
     [
-        ("codex-account", b"Logged in using ChatGPT", True),
-        ("codex-account", b"Logged in using an API key", False),
         ("claude-account", b'{"loggedIn":true,"authMethod":"claude.ai"}', True),
         ("claude-account", b'{"loggedIn":true,"authMethod":"api_key"}', False),
         ("claude-account", b'{"loggedIn":false}', False),

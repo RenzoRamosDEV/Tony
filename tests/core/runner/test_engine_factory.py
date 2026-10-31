@@ -11,8 +11,6 @@ from pathlib import Path
 
 from tony.core.config import EngineProfile, load_settings
 from tony.core.loader import AgentSpec
-from tony.core.runner.codex_cli import CodexCliRunner
-from tony.core.runner.codex_conversation import CodexCliConversation
 from tony.core.runner.conversation import ClaudeSdkConversation
 from tony.core.runner.engine_factory import build_conversation, build_runner_factory
 from tony.core.runner.factory import default_worker_runner_factory
@@ -21,13 +19,6 @@ from tony.core.runner.factory import default_worker_runner_factory
 def make_spec(engine: str = "claude_sdk") -> AgentSpec:
     return AgentSpec(
         name="viernes", role="worker", model="claude-sonnet", engine=engine, path=Path("/tmp/x")
-    )
-
-
-def codex_settings():
-    settings = load_settings(None)
-    return settings.model_copy(
-        update={"engines": {**settings.engines, "codex": EngineProfile(type="codex_cli")}}
     )
 
 
@@ -41,21 +32,6 @@ def test_build_conversation_resolves_claude_sdk_to_the_claude_sdk_conversation()
     settings = load_settings(None)
 
     assert build_conversation(settings, make_spec()) is ClaudeSdkConversation
-
-
-def test_build_runner_factory_resolves_codex_cli_to_a_codex_runner_factory() -> None:
-    settings = codex_settings()
-    factory = build_runner_factory(settings, make_spec(engine="codex"))
-
-    runner = factory(settings, "t1", object(), object(), None, None)
-
-    assert isinstance(runner, CodexCliRunner)
-
-
-def test_build_conversation_resolves_codex_cli_to_the_codex_conversation() -> None:
-    settings = codex_settings()
-
-    assert build_conversation(settings, make_spec(engine="codex")) is CodexCliConversation
 
 
 def test_litellm_factories_resolve_named_profile():

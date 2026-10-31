@@ -34,9 +34,9 @@ El sistema SHALL cargar `agents/<nombre>/agent.md` como un frontmatter YAML deli
 - **THEN** la carga falla con un error que indica que falta el frontmatter
 
 #### Scenario: `engine` declarado y válido
-- **GIVEN** un `agent.md` con `engine: codex_cli` y `tony.yaml` con ese perfil declarado en `engines`
+- **GIVEN** un `agent.md` con `engine: openai_gpt` y `tony.yaml` con ese perfil declarado en `engines`
 - **WHEN** se carga el agente
-- **THEN** la definición resultante tiene `engine: codex_cli`
+- **THEN** la definición resultante tiene `engine: openai_gpt`
 
 #### Scenario: `engine` desconocido
 - **GIVEN** un `agent.md` con `engine: no_declarado` y `tony.yaml` sin ese perfil en `engines`

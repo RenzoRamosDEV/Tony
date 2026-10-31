@@ -19,7 +19,7 @@ from tony.core.loader.agentmd import edit_agent_frontmatter
 from tony.core.loader.frontmatter import FrontmatterError
 
 app = typer.Typer(
-    help="Gestiona el motor de un agente (claude_sdk, codex_cli, litellm).",
+    help="Gestiona el motor de un agente (claude_sdk, litellm).",
     no_args_is_help=True,
 )
 

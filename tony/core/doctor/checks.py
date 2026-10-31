@@ -101,14 +101,6 @@ async def run_checks(
             }
         }
     )
-    if check_external and any(
-        profile.type == "codex_cli" for profile in used_settings.engines.values()
-    ):
-        results.append(
-            CheckResult("codex_cli", None, "omitido (--offline)")
-            if offline
-            else check_codex_cli(env)
-        )
     results.extend(check_litellm(used_settings, load_env(paths.dotenv)))
     results.append(check_node(env, agents))
     results.extend(check_voice(env, settings))
@@ -142,19 +134,6 @@ def check_claude_cli(env: Environment) -> CheckResult:
         False,
         "el CLI 'claude' no está en el PATH",
         "instala Claude Code CLI y autentícalo con `claude login`",
-    )
-
-
-def check_codex_cli(env: Environment) -> CheckResult:
-    """Check binary availability locally; authentication is not probed."""
-    path = env.which("codex")
-    if path:
-        return CheckResult("codex_cli", True, path)
-    return CheckResult(
-        "codex_cli",
-        False,
-        "el CLI 'codex' no está en el PATH",
-        "instala Codex CLI y autentícate con `codex login`",
     )
 
 

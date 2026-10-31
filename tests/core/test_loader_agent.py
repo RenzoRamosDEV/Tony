@@ -177,16 +177,18 @@ def test_engine_defaults_to_claude_sdk_when_absent(tmp_repo: Path, settings) -> 
 def test_engine_declared_and_valid_is_kept(tmp_repo: Path) -> None:
     from tony.core.config.settings import EngineProfile, TonySettings
 
-    settings = TonySettings(engines={"codex_cli": EngineProfile(type="codex_cli")})
+    settings = TonySettings(
+        engines={"openai_gpt": EngineProfile(type="litellm", model="openai/gpt-4o")}
+    )
     folder = make_agent(
         tmp_repo / "agents",
         "x",
-        "---\nname: x\nrole: worker\nmodel: claude-sonnet\nengine: codex_cli\n---\nHola\n",
+        "---\nname: x\nrole: worker\nmodel: claude-sonnet\nengine: openai_gpt\n---\nHola\n",
     )
 
     spec = load_agent(folder, settings, {})
 
-    assert spec.engine == "codex_cli"
+    assert spec.engine == "openai_gpt"
 
 
 def test_unknown_engine_profile_lists_available(tmp_repo: Path, settings) -> None:

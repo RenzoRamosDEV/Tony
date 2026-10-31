@@ -241,8 +241,6 @@ def test_declared_engine_profiles_merge_with_the_implicit_claude_sdk(tmp_repo: P
         write_yaml(
             tmp_repo,
             "engines:\n"
-            "  codex_cli:\n"
-            "    type: codex_cli\n"
             "  gemini:\n"
             "    type: litellm\n"
             "    model: gemini/gemini-2.0-flash\n",
@@ -251,7 +249,6 @@ def test_declared_engine_profiles_merge_with_the_implicit_claude_sdk(tmp_repo: P
 
     assert settings.engines == {
         "claude_sdk": EngineProfile(type="claude_sdk"),
-        "codex_cli": EngineProfile(type="codex_cli"),
         "gemini": EngineProfile(type="litellm", model="gemini/gemini-2.0-flash"),
     }
 

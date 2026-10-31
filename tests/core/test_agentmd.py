@@ -11,11 +11,11 @@ def test_edit_preserves_body_and_other_fields(tmp_path, body):
 
     path = tmp_path / "agent.md"
     path.write_bytes(("---\nname: viernes\nrole: worker\n---\n" + body).encode())
-    result = edit_agent_frontmatter(path, lambda data: {**data, "engine": "codex_cli"})
-    assert result == {"name": "viernes", "role": "worker", "engine": "codex_cli"}
+    result = edit_agent_frontmatter(path, lambda data: {**data, "engine": "openai_gpt"})
+    assert result == {"name": "viernes", "role": "worker", "engine": "openai_gpt"}
     assert (
         path.read_bytes()
-        == ("---\nname: viernes\nrole: worker\nengine: codex_cli\n---\n" + body).encode()
+        == ("---\nname: viernes\nrole: worker\nengine: openai_gpt\n---\n" + body).encode()
     )
 
 
@@ -29,7 +29,7 @@ def test_invalid_header_leaves_file_untouched(tmp_path, text):
     path = tmp_path / "agent.md"
     path.write_text(text)
     with pytest.raises(FrontmatterError):
-        edit_agent_frontmatter(path, lambda data: {**data, "engine": "codex_cli"})
+        edit_agent_frontmatter(path, lambda data: {**data, "engine": "openai_gpt"})
     assert path.read_text() == text
 
 
@@ -46,7 +46,7 @@ def test_failed_replacement_leaves_original(tmp_path, monkeypatch):
 
     monkeypatch.setattr(atomic.os, "replace", fail)
     with pytest.raises(OSError, match="replacement failed"):
-        edit_agent_frontmatter(path, lambda data: {**data, "engine": "codex_cli"})
+        edit_agent_frontmatter(path, lambda data: {**data, "engine": "openai_gpt"})
     assert path.read_text() == original
     assert list(tmp_path.iterdir()) == [path]
 

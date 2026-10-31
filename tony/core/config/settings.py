@@ -48,7 +48,7 @@ class WebSettings(StrictModel):
     host: str = "127.0.0.1"
 
 
-EngineType = Literal["claude_sdk", "codex_cli", "litellm"]
+EngineType = Literal["claude_sdk", "litellm"]
 IMPLICIT_CLAUDE_SDK_ENGINE = "claude_sdk"
 
 

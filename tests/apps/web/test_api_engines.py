@@ -12,7 +12,10 @@ from tony.apps.web.options import WebOptions
 from tony.apps.web.server import create_app
 from tony.core.channels import bootstrap
 
-CONFIG = "engines:\n  coding:\n    type: codex_cli\n  fast:\n    type: litellm\n    model: gpt-4o\n"
+CONFIG = (
+    "engines:\n  coding:\n    type: litellm\n    model: gpt-4o-mini\n"
+    "  fast:\n    type: litellm\n    model: gpt-4o\n"
+)
 
 
 @pytest.fixture
@@ -124,10 +127,9 @@ async def test_engine_api_lists_profiles_and_rejects_unknown(engines):
         assert view["active"] == "claude_sdk"
         assert {p["name"]: p["type"] for p in view["profiles"]} == {
             "claude_sdk": "claude_sdk",
-            "coding": "codex_cli",
+            "coding": "litellm",
             "fast": "litellm",
             "claude-account": "claude_sdk",
-            "codex-account": "codex_cli",
             "openai-api": "litellm",
             "anthropic-api": "litellm",
         }

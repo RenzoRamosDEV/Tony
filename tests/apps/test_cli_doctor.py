@@ -163,7 +163,7 @@ def test_alternative_engine_diagnostics(cli, monkeypatch, command, key_source):
     write_tool_json({})
 
     (cli / "config/tony.yaml").write_text(
-        "worker: viernes\nengines:\n  coding:\n    type: codex_cli\n"
+        "worker: viernes\nengines:\n  coding:\n    type: litellm\n    model: gpt-4o-mini\n"
         "  fast:\n    type: litellm\n    model: gpt-4o\n"
     )
     for name, profile in (("viernes", "coding"), ("jarvis", "fast")):
@@ -176,7 +176,6 @@ def test_alternative_engine_diagnostics(cli, monkeypatch, command, key_source):
         monkeypatch.setenv("OPENAI_API_KEY", "test-only-secret")
 
     def validate_environment(*, model):
-        assert model == "gpt-4o"
         return {"missing_keys": [] if os.environ.get("OPENAI_API_KEY") else ["OPENAI_API_KEY"]}
 
     monkeypatch.setitem(
@@ -192,7 +191,3 @@ def test_alternative_engine_diagnostics(cli, monkeypatch, command, key_source):
         assert "añade OPENAI_API_KEY a config/.env" in result.output
     else:
         assert "✓ litellm:fast: gpt-4o" in result.output
-    if command[0] == "doctor":
-        assert "· codex_cli: omitido (--offline)" in result.output
-    else:
-        assert "codex_cli" not in result.output

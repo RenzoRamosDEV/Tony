@@ -47,14 +47,6 @@ def test_voice_marker_is_declared_and_excluded_by_default() -> None:
     assert "not voice" in pytest_options["addopts"]
 
 
-def test_codex_marker_is_declared_and_excluded_by_default() -> None:
-    project = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
-    pytest_options = project["tool"]["pytest"]["ini_options"]
-
-    assert any(marker.startswith("codex:") for marker in pytest_options["markers"])
-    assert "not codex" in pytest_options["addopts"]
-
-
 def test_torch_is_pinned_to_the_cpu_index() -> None:
     project = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
     indexes = {index["name"]: index for index in project["tool"]["uv"]["index"]}

@@ -17,17 +17,14 @@ CLAUDE_API_ENV = (
     "CLAUDE_CODE_USE_VERTEX",
     "CLAUDE_CODE_USE_FOUNDRY",
 )
-CODEX_API_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")
 
 
 def account_env(engine: str, base: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ if base is None else base)
-    for name in CLAUDE_API_ENV if engine == "claude_sdk" else CODEX_API_ENV:
+    if engine == "claude_sdk":
         # SDK merges its env with the parent's, so explicit empty overrides are needed.
-        if engine == "claude_sdk":
+        for name in CLAUDE_API_ENV:
             env[name] = ""
-        else:
-            env.pop(name, None)
     return env
 
 
@@ -45,12 +42,6 @@ def claude_account_options(profile: EngineProfile) -> dict:
     }
 
 
-def codex_account_args(profile: EngineProfile) -> list[str]:
-    if profile.auth != "account":
-        return []
-    return ["-c", 'forced_login_method="chatgpt"', "-c", 'model_provider="openai"']
-
-
 async def require_credentials(profile: EngineProfile) -> None:
     if profile.auth == "api_key":
         if not profile.api_key:
@@ -58,22 +49,16 @@ async def require_credentials(profile: EngineProfile) -> None:
         return
     if profile.auth != "account":
         return
-    codex = profile.type == "codex_cli"
-    argv = (
-        ["codex", "login", "status"]
-        if codex
-        else [
-            "claude",
-            "--setting-sources",
-            "",
-            "--settings",
-            json.dumps({"forceLoginMethod": "claudeai", "apiKeyHelper": ""}),
-            "auth",
-            "status",
-            "--json",
-        ]
-    )
-    instruction = "codex login" if codex else "claude auth login"
+    argv = [
+        "claude",
+        "--setting-sources",
+        "",
+        "--settings",
+        json.dumps({"forceLoginMethod": "claudeai", "apiKeyHelper": ""}),
+        "auth",
+        "status",
+        "--json",
+    ]
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -87,18 +72,15 @@ async def require_credentials(profile: EngineProfile) -> None:
             proc.kill()
             await proc.wait()
             raise
-        if codex:
-            valid = proc.returncode == 0 and b"chatgpt" in (stdout + stderr).lower()
-        else:
-            status = json.loads(stdout)
-            valid = (
-                proc.returncode == 0
-                and isinstance(status, dict)
-                and status.get("loggedIn")
-                and status.get("authMethod") == "claude.ai"
-            )
+        status = json.loads(stdout)
+        valid = (
+            proc.returncode == 0
+            and isinstance(status, dict)
+            and status.get("loggedIn")
+            and status.get("authMethod") == "claude.ai"
+        )
         if valid:
             return
     except (OSError, ValueError, TimeoutError):
         pass
-    raise ValueError(f"Inicia sesión con tu cuenta en el equipo de Tony: {instruction}")
+    raise ValueError("Inicia sesión con tu cuenta en el equipo de Tony: claude auth login")

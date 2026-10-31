@@ -14,7 +14,8 @@ runner = CliRunner()
 def inventory(tmp_repo, monkeypatch):
     monkeypatch.chdir(tmp_repo)
     (tmp_repo / "config/tony.yaml").write_text(
-        "engines:\n  coding:\n    type: codex_cli\n  fast:\n    type: litellm\n    model: gpt-4o\n"
+        "engines:\n  coding:\n    type: litellm\n    model: gpt-4o-mini\n"
+        "  fast:\n    type: litellm\n    model: gpt-4o\n"
     )
     write_agent(tmp_repo / "agents", "viernes")
     write_agent(tmp_repo / "agents/viernes/subagents", "helper")

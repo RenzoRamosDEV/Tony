@@ -1,10 +1,8 @@
 """ToolBarrier: the transport-agnostic cancel -> allow -> confirm -> timeout -> log logic.
 
-`ToolProxyFactory` builds in-process SDK proxies for `claude_sdk`; a future stdio MCP
-gateway for `codex_cli` needs the exact same cancellation/confirmation/timeout/logging
-order without any `claude_agent_sdk` transport wiring. This module tests that logic in
-isolation from `ToolProxyFactory`, and that `ToolProxyFactory` is built on top of it
-rather than duplicating it.
+`ToolProxyFactory` builds in-process SDK proxies for `claude_sdk`. This module tests that
+logic in isolation from `ToolProxyFactory`, and that `ToolProxyFactory` is built on top of
+it rather than duplicating it.
 """
 
 from __future__ import annotations
