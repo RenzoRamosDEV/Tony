@@ -85,8 +85,6 @@ const CORE_GOLD = "#ffd27a";
 const PULSE_RATE = 3.2;
 const ARC_COUNT = 6;
 const CAMERA_DISTANCE = 5.9;
-/** Lifts the orb so the subtitles and the HUD bar sit under it rather than over its core. */
-const VIEW_LIFT = 0.075;
 
 const LINE_VERTEX = /* glsl */ `
   #define SPARKLE 1.7
@@ -520,7 +518,6 @@ export function createOrbScene(canvas: HTMLCanvasElement, deps: OrbSceneDeps = {
       composer.setPixelRatio(ratio);
       composer.setSize(width, height);
       camera.aspect = width / Math.max(1, height);
-      camera.setViewOffset(width, height, 0, height * VIEW_LIFT, width, height);
       camera.updateProjectionMatrix();
     },
     setAutoRotate(enabled) {
