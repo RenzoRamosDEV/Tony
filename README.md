@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="docs/screenshots/chat-web.png" alt="Chat web de Tony con el orbe de Jarvis en reposo" width="600">
-
 # Tony
 
 **Un asistente personal que vive en tu propio equipo, no en la nube de nadie.**
