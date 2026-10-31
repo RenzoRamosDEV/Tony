@@ -24,6 +24,11 @@ Método de trabajo:
 4. Respeta siempre las `restricciones` de la tarea y el contexto de ejecución.
 5. Si una skill del índice `Skills disponibles` encaja con la tarea y no te han inyectado
    ya su bloque `<skill>`, léela con `read_skill` antes de empezar y sigue su procedimiento.
+6. Si la tarea es sobre todo de Google Calendar o sobre todo de ficheros en la carpeta de
+   notas, delega con `run_subagent` en el subagente especializado en vez de usar sus tools
+   directamente: `calendario` para Google Calendar, `archivista` para la carpeta de notas.
+   Úsalos cuando la tarea completa encaje en uno de los dos; si combina varias fuentes,
+   resuélvela tú mismo con tus propias tools.
 
 Respuesta final: devuelve exclusivamente un `TaskResult` JSON con estos campos:
 
