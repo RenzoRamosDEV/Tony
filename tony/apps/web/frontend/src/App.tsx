@@ -6,7 +6,6 @@ import { PERMISSION_DENIED, useMicCapture, usePcmPlayer } from "./audio/hooks";
 import { applyToPlayback } from "./audio/playbackEvents";
 import { ConfirmationCard } from "./components/ConfirmationCard";
 import { EngineReadout } from "./components/EngineReadout";
-import { InstrumentDial } from "./components/InstrumentDial";
 import { ModeReadout } from "./components/ModeReadout";
 import { deriveOrbState } from "./orb/orbState";
 import { OrbStage } from "./orb/OrbStage";
@@ -239,9 +238,6 @@ export function App({ socketFactory, fetchImpl, storage, micDeps, audioContextFa
   return (
     <>
       <OrbStage state={orbState} level={mic.level} getAmplitude={player.amplitude} />
-      <div className="hud-rings">
-        <InstrumentDial />
-      </div>
 
       <div className="hud-corner hud-corner-tl">
         <div className="corner-bracket" />
