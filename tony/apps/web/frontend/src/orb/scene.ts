@@ -15,6 +15,7 @@ import {
   Points,
   Scene,
   ShaderMaterial,
+  Spherical,
   Sprite,
   SpriteMaterial,
   Vector2,
@@ -431,13 +432,59 @@ export function createOrbScene(canvas: HTMLCanvasElement, deps: OrbSceneDeps = {
   controls.minDistance = 3.2;
   controls.maxDistance = 9;
   controls.autoRotate = true;
-  controls.autoRotateSpeed = 0.5;
+  controls.autoRotateSpeed = 0;
+
+  // Idle drift: when not dragged, the camera wanders the orb along a random
+  // diagonal (up-right, down-left, ...) instead of spinning on one fixed axis,
+  // so it keeps "orbiting" the way it does under a real mouse drag.
+  let driftEnabled = true;
+  let dragging = false;
+  controls.addEventListener("start", () => {
+    dragging = true;
+  });
+  controls.addEventListener("end", () => {
+    dragging = false;
+  });
+  const driftSpherical = new Spherical();
+  const MIN_POLAR = 0.45;
+  const MAX_POLAR = Math.PI - 0.45;
+  const DRIFT_SPEED = 0.16;
+  let azimuthVelocity = 0;
+  let polarVelocity = 0;
+  let azimuthTarget = 0;
+  let polarTarget = 0;
+  let driftTimer = 0;
+
+  function pickDriftDirection(): void {
+    const angle = Math.random() * Math.PI * 2;
+    azimuthTarget = Math.cos(angle) * DRIFT_SPEED;
+    polarTarget = Math.sin(angle) * DRIFT_SPEED * 0.6;
+    driftTimer = 4 + Math.random() * 5;
+  }
+  pickDriftDirection();
 
   let pulsePhase = 0;
 
   return {
     update(params, dtMs) {
       const dt = dtMs / 1000;
+
+      if (driftEnabled && !dragging) {
+        driftTimer -= dt;
+        if (driftTimer <= 0) {
+          pickDriftDirection();
+        }
+        const ease = Math.min(1, dt * 0.5);
+        azimuthVelocity += (azimuthTarget - azimuthVelocity) * ease;
+        polarVelocity += (polarTarget - polarVelocity) * ease;
+        driftSpherical.setFromVector3(camera.position);
+        driftSpherical.theta += azimuthVelocity * dt;
+        driftSpherical.phi = Math.min(MAX_POLAR, Math.max(MIN_POLAR, driftSpherical.phi + polarVelocity * dt));
+        driftSpherical.makeSafe();
+        camera.position.setFromSpherical(driftSpherical);
+        camera.lookAt(0, 0, 0);
+      }
+
       shared.uTime.value += dt;
       pulsePhase += dt * PULSE_RATE;
       shared.uDisplacement.value = params.displacement;
@@ -478,6 +525,7 @@ export function createOrbScene(canvas: HTMLCanvasElement, deps: OrbSceneDeps = {
     },
     setAutoRotate(enabled) {
       controls.autoRotate = enabled;
+      driftEnabled = enabled;
     },
     onInteraction(start, end) {
       controls.addEventListener("start", start);
