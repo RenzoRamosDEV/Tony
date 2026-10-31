@@ -28,6 +28,7 @@ function fakeComposer() {
 
 class FakeControls implements ControlsLike {
   enablePan = true;
+  enableZoom = true;
   enableDamping = false;
   dampingFactor = 0;
   minDistance = 0;
@@ -208,6 +209,7 @@ describe("createOrbScene", () => {
     const { controls } = build();
 
     expect(controls.enablePan).toBe(false);
+    expect(controls.enableZoom).toBe(false);
     expect(controls.enableDamping).toBe(true);
     expect(controls.minDistance).toBeGreaterThan(0);
     expect(controls.maxDistance).toBeGreaterThan(controls.minDistance);

@@ -50,6 +50,7 @@ type InteractionEvent = "start" | "end";
 
 export interface ControlsLike {
   enablePan: boolean;
+  enableZoom: boolean;
   enableDamping: boolean;
   dampingFactor: number;
   minDistance: number;
@@ -425,6 +426,7 @@ export function createOrbScene(canvas: HTMLCanvasElement, deps: OrbSceneDeps = {
   const composer = (deps.createComposer ?? defaultComposer)(renderer, scene, camera);
   const controls = (deps.createControls ?? defaultControls)(camera, canvas);
   controls.enablePan = false;
+  controls.enableZoom = false;
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
   controls.minDistance = 3.2;
