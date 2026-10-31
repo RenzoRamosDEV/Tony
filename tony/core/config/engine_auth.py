@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from tony.core.config.settings import ConfigError, EngineProfile, TonySettings
 
 BUILTINS = {
+    "claude-account": EngineProfile(type="claude_sdk", auth="account"),
     "codex-account": EngineProfile(type="codex_cli", auth="account"),
     "openai-api": EngineProfile(type="litellm", auth="api_key", model="openai/gpt-4o"),
     "anthropic-api": EngineProfile(
