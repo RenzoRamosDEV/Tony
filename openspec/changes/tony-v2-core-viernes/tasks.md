@@ -43,7 +43,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 - [x] 7.1 Red: integration test connecting the fake stdio server and listing tools as `<server>.<tool>`; Green: implement `McpManager` async context manager with stdio transport and placeholder resolution at start; verify test passes
 - [x] 7.2 Red: tests for failure isolation (non-existent command, undefined `${VAR}`, server hanging past an injected short connect timeout) -> server marked down, `error` event + stderr line, other server tools available; Green: implement per-server `wait_for` (default 10 s) and status tracking; verify tests pass
 - [x] 7.3 Red: test with an in-process streamable-HTTP MCP server (local `mcp` SDK app on an ephemeral port) listing `remote.ping`; Green: implement HTTP transport with resolved headers; verify test passes
-- [ ] 7.4 Red: tests for `call(tool_id, args)` (success content to text, MCP error result -> error reply, unknown id -> "not available") and that stdio processes exit after the context closes; Green: implement; verify tests pass
+- [x] 7.4 Red: tests for `call(tool_id, args)` (success content to text, MCP error result -> error reply, unknown id -> "not available") and that stdio processes exit after the context closes; Green: implement; verify tests pass
 - [ ] 7.5 Red: tests for native tool registry (injected `now` tool exposed as `tony.now`, production registry empty); Green: implement; verify tests pass
 
 ## 8. Guard and tool proxy (`tony/core/guard`, `tony/core/orchestrator`)

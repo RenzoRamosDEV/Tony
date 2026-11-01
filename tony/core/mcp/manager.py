@@ -9,11 +9,12 @@ from typing import Any, Self
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+from mcp.types import CallToolResult, TextContent
 
 from tony.core.config.placeholders import SecretMasker, resolve_placeholders
 from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
-from tony.core.orchestrator.ports import EventSink
+from tony.core.orchestrator.ports import EventSink, ToolReply
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class McpManager:
         self._sink = sink
         self._log_dir = log_dir
         self._stack = AsyncExitStack()
+        self._sessions: dict[str, ClientSession] = {}
 
     async def __aenter__(self) -> Self:
         for name, server in self.spec.mcp_servers.items():
@@ -60,16 +62,25 @@ class McpManager:
     async def __aexit__(self, *exc_info: object) -> None:
         await self._stack.aclose()
 
+    async def call(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
+        tool = next((tool for tool in self.tools if tool.id == tool_id), None)
+        if tool is None:
+            return ToolReply(text=f"tool {tool_id} is not available", is_error=True)
+        result = await self._sessions[tool.server].call_tool(tool.name, args)
+        return _to_reply(result)
+
     async def _start(self, name: str, declared: McpServer) -> None:
         stack = AsyncExitStack()
         try:
             async with asyncio.timeout(self.connect_timeout):
-                listed = await self._connect(name, declared, stack)
+                session = await self._connect(name, declared, stack)
+                listed = await session.list_tools()
         except Exception as error:
             await stack.aclose()
             self._mark_down(name, _describe(error, self.connect_timeout))
             return
         self._stack.push_async_callback(stack.aclose)
+        self._sessions[name] = session
         self.tools += [
             CatalogTool(
                 id=f"{name}.{tool.name}",
@@ -82,7 +93,9 @@ class McpManager:
         ]
         self.status[name] = ServerStatus(up=True)
 
-    async def _connect(self, name: str, declared: McpServer, stack: AsyncExitStack) -> Any:
+    async def _connect(
+        self, name: str, declared: McpServer, stack: AsyncExitStack
+    ) -> ClientSession:
         resolved, used = resolve_placeholders(
             declared.model_dump(exclude_unset=True), self._variables
         )
@@ -92,7 +105,7 @@ class McpManager:
         read, write = await stack.enter_async_context(transport)
         session = await stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
-        return await session.list_tools()
+        return session
 
     async def _transport(self, name: str, server: McpServer, stack: AsyncExitStack) -> Any:
         if server.is_stdio:
@@ -119,3 +132,11 @@ def _describe(error: BaseException, timeout: float) -> str:
     if isinstance(error, TimeoutError):
         return f"connect timeout after {timeout:g} s"
     return str(error) or type(error).__name__
+
+
+def _to_reply(result: CallToolResult) -> ToolReply:
+    text = "\n".join(
+        block.text if isinstance(block, TextContent) else f"[{block.type}]"
+        for block in result.content
+    )
+    return ToolReply(text=text, is_error=bool(result.is_error))
