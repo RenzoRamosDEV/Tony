@@ -1,5 +1,10 @@
+import functools
+
 from tests.apps.desktop.test_app import fake_factory
-from tony.apps.desktop.app import launch
+from tests.fakes.web_view import FakeWebView
+from tony.apps.desktop import app as desktop_app
+
+launch = functools.partial(desktop_app.launch, view_factory=FakeWebView)
 
 
 class FakeChannel:
@@ -72,7 +77,7 @@ def test_channel_messages_reveal_and_focus_listens(qtbot, tmp_path):
     revealed = []
 
     def run_loop(app, window):
-        window.reveal = lambda edith=False: revealed.append(edith)
+        window.reveal = lambda confirmation=False: revealed.append(confirmation)
         channel.served[0]("show")
         channel.served[0]("focus")
         qtbot.waitUntil(lambda: bool(runtimes[0].commands), timeout=5000)
@@ -94,7 +99,7 @@ def test_the_x11_hotkey_reveals_and_listens(qtbot, tmp_path):
     FakeHotkeys.instances.clear()
 
     def run_loop(app, window):
-        window.reveal = lambda edith=False: revealed.append(edith)
+        window.reveal = lambda confirmation=False: revealed.append(confirmation)
         [hotkeys] = FakeHotkeys.instances
         assert list(hotkeys.mapping) == ["<cmd>+j"]
         presser = threading.Thread(target=hotkeys.press, args=("<cmd>+j",))
@@ -118,15 +123,23 @@ def test_the_x11_hotkey_reveals_and_listens(qtbot, tmp_path):
     assert FakeHotkeys.instances[0].stopped
 
 
-def test_an_invalid_hotkey_is_shown_and_the_app_keeps_running(qtbot, tmp_path):
+def test_an_invalid_hotkey_is_published_and_the_app_keeps_running(qtbot, tmp_path, monkeypatch):
     from tests.fakes.desktop import FakeHotkeys
+    from tony.apps.desktop.widgets.main_window import MainWindow
 
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "tony.yaml").write_text("desktop:\n  hotkey: 'Super+'\n")
-    seen = []
+    published, seen = [], []
+    dispatch = MainWindow.dispatch
+
+    def recording(window, event):
+        published.append(event)
+        dispatch(window, event)
+
+    monkeypatch.setattr(MainWindow, "dispatch", recording)
 
     def run_loop(app, window):
-        seen.append([b.markdown for b in window.presenters.chat.bubbles])
+        seen.append(window.isVisible())
         window.close()
         return 0
 
@@ -139,9 +152,9 @@ def test_an_invalid_hotkey_is_shown_and_the_app_keeps_running(qtbot, tmp_path):
         hotkeys=FakeHotkeys,
     )
 
-    assert code == 0
-    [bubbles] = seen
-    assert any("desktop.hotkey" in text for text in bubbles)
+    assert code == 0 and seen == [True]
+    errors = [event for event in published if event["type"] == "error"]
+    assert any("desktop.hotkey" in event["message"] for event in errors)
 
 
 def test_no_hotkey_on_wayland(qtbot, tmp_path):
@@ -169,7 +182,7 @@ def test_a_hidden_window_notifies_pending_confirmations(qtbot, tmp_path):
         window.hide()
         window.dispatch(ev.needs_confirmation("t1", "fs.delete", "{}", "¿Autoriza?", True))
         seen.append(list(notifier.shown))
-        window.reveal = lambda edith=False: revealed.append(edith)
+        window.reveal = lambda confirmation=False: revealed.append(confirmation)
         notifier.click()
         window.close()
         return 0

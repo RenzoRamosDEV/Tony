@@ -14,7 +14,7 @@ class Notifier(Protocol):
 
 class ConfirmationAttention:
     """Shows one native notification per pending confirmation while the window is out of
-    sight; clicking it reveals the Edith banner. A failing notifier is reported once."""
+    sight; clicking it reveals the confirmation card. A failing notifier is reported once."""
 
     def __init__(
         self,

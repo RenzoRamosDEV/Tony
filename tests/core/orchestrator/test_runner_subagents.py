@@ -8,7 +8,6 @@ from tests.core.orchestrator.viernes_home import make_viernes_home
 from tests.fakes.fake_engine import ByAgentEngine, CallTool, Final, Hang, Raise
 from tests.fakes.processes import processes_mentioning
 from tests.fakes.servers import fake_fs_entry
-from tony.apps.desktop.presenters.activity import ActivityPresenter
 from tony.core.config.settings import load_config
 from tony.core.events.messages import TaskRequest
 from tony.core.orchestrator.ports import Usage
@@ -133,13 +132,12 @@ async def test_subagent_result_returned_audited_logged_and_published(tmp_path):
     [task_result] = [event for event in published if event["type"] == "result"]
     assert (task_result["input_tokens"], task_result["output_tokens"]) == (14, 7)
     assert processes_mentioning(str(notes)) == []
-    presenter = ActivityPresenter()
-    for event in published:
-        presenter.apply(event)
-    [task] = presenter.tasks
-    assert [(sub.name, [call.tool for call in sub.calls]) for sub in task.subagents] == [
-        ("resumidor", ["filesystem.read_file"])
+    subagent_calls = [
+        (event["agent"].partition("/")[2], event["tool"])
+        for event in calls
+        if "/" in event["agent"]
     ]
+    assert subagent_calls == [("resumidor", "filesystem.read_file")]
 
 
 async def test_unknown_subagent_lists_available(tmp_path):

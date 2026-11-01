@@ -1,26 +1,31 @@
 import os
 import sys
 from collections.abc import Callable, Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from PySide6.QtCore import QObject, Signal, Slot
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, QUrl, Signal, Slot
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from tony.apps.desktop.bridge import CoreThread, QtEventBridge, Runtime
 from tony.apps.desktop.hotkey_spec import Hotkeys, HotkeysFactory, register_hotkey
 from tony.apps.desktop.instance_channel import socket_name
+from tony.apps.desktop.page_bridge import PageBridge
+from tony.apps.desktop.page_policy import missing_build_message, web_dist
 from tony.apps.desktop.presenters.attention import ConfirmationAttention, Notifier
-from tony.apps.desktop.presenters.bundle import Presenters
+from tony.apps.desktop.presenters.tray import TrayPresenter
 from tony.apps.desktop.system.single_instance import InstanceServer, send_to_running
 from tony.apps.desktop.system.tray import create_tray
 from tony.apps.desktop.widgets.main_window import MainWindow
+from tony.apps.desktop.widgets.web_view import create_web_view
 from tony.core.config.settings import DesktopSettings, load_config
 from tony.core.events import core_events
 from tony.core.events.core_events import Publisher
 
 RuntimeFactory = Callable[[Publisher], Runtime]
 EventLoop = Callable[[QApplication, MainWindow], int]
+ViewFactory = Callable[[QUrl, PageBridge], QWidget]
 
 
 def default_runtime_factory(root: Path) -> RuntimeFactory:
@@ -43,14 +48,36 @@ def default_runtime_factory(root: Path) -> RuntimeFactory:
     return factory
 
 
-def open_desktop(root: Path, runtime_factory: RuntimeFactory) -> tuple[MainWindow, CoreThread]:
-    """Show the window and start the core thread; closing the window stops the core."""
-    bridge = QtEventBridge()
-    core = CoreThread(runtime_factory, bridge)
-    presenters = Presenters.create(core.submit, root)
-    window = MainWindow(presenters, on_close=core.stop)
-    bridge.event.connect(window.dispatch)
-    presenters.edith.load_audit()
+def web_view(home: QUrl, bridge: PageBridge) -> QWidget:
+    view = create_web_view(home, bridge)
+    view.load(home)
+    return view
+
+
+def _local_now() -> datetime:
+    return datetime.now().astimezone()
+
+
+def open_desktop(
+    root: Path,
+    runtime_factory: RuntimeFactory,
+    *,
+    view_factory: ViewFactory = web_view,
+    dist: Path | None = None,
+) -> tuple[MainWindow, CoreThread]:
+    """Show the window on the built page and start the core thread; closing the window stops
+    the core. Without a build the window shows how to make one and everything else still runs."""
+    events = QtEventBridge()
+    core = CoreThread(runtime_factory, events)
+    page = PageBridge(core.submit, lambda event: window.report(event), root, now=_local_now)
+    index = (dist or web_dist()) / "index.html"
+    if index.is_file():
+        content = view_factory(QUrl.fromLocalFile(str(index)), page)
+    else:
+        content = QLabel(missing_build_message(index.parent))
+        content.setWordWrap(True)
+    window = MainWindow(TrayPresenter(), page, content, on_close=core.stop)
+    events.event.connect(window.dispatch)
     window.show()
     core.start()
     return window, core
@@ -135,19 +162,25 @@ def launch(
     environ: Mapping[str, str] = os.environ,
     hotkeys: HotkeysFactory = pynput_hotkeys,
     notifier: Callable[[], ClosableNotifier] = desktop_notifications,
+    view_factory: ViewFactory = web_view,
 ) -> int:
     """Raise the running instance, or open the app and serve the single-instance channel."""
+    # Qt WebEngine must be loaded before the QApplication is created.
+    from PySide6 import QtWebEngineWidgets  # noqa: F401
+
     app = QApplication.instance() or QApplication(sys.argv)
     channel = channel or LocalChannel(socket_name(environ, os.getuid()))
     if channel.send("focus" if focus else "show"):
         return 0
-    window, core = open_desktop(root, runtime_factory or default_runtime_factory(root))
+    window, core = open_desktop(
+        root, runtime_factory or default_runtime_factory(root), view_factory=view_factory
+    )
     app.aboutToQuit.connect(core.stop)
 
     summoner = Summoner(window, core.submit)
     channel.serve(summoner.summon)
     settings = desktop_settings(root)
-    tray = create_tray(window, window.presenters.tray, enabled=settings.tray, quit=app.quit)
+    tray = create_tray(window, window.tray_presenter, enabled=settings.tray, quit=app.quit)
     hotkey = register_hotkey(
         settings.hotkey,
         environ,
@@ -159,7 +192,7 @@ def launch(
     attention = ConfirmationAttention(
         notifications,
         window_hidden=lambda: not window.isVisible() or window.isMinimized(),
-        reveal=lambda edith: window.reveal(edith=edith),
+        reveal=lambda confirmation: window.reveal(confirmation=confirmation),
         report=window.dispatch,
     )
     window.dispatched.connect(attention.apply)

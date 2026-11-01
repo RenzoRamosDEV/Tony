@@ -1,4 +1,7 @@
-"""Offscreen end-to-end: real CoreRuntime, fake engines, one MCP server down at start."""
+"""Offscreen end-to-end: real CoreRuntime, fake engines, one MCP server down at start, the page
+side driven through the page bridge (no Chromium)."""
+
+import json
 
 import pytest
 
@@ -7,8 +10,8 @@ from tests.core.orchestrator.tony_home import make_tony_home
 from tests.fakes.fake_chat import FakeChatEngine, Say
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final
 from tests.fakes.processes import processes_mentioning
+from tests.fakes.web_view import FakeWebView
 from tony.apps.desktop.app import open_desktop
-from tony.apps.desktop.presenters.activity import DOWN_COLOUR
 from tony.core.orchestrator.runtime import CoreRuntime
 
 NO_PIN = SHIPPED_POLICY_YAML.replace("pin_required: true", "pin_required: false")
@@ -19,7 +22,7 @@ def home_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
 
 
-def test_mcp_down_at_start_is_marked_red_and_delegation_still_works(qtbot, tmp_path):
+def test_mcp_down_at_start_reaches_the_page_and_delegation_still_works(qtbot, tmp_path):
     broken = {"broken": {"command": "/nonexistent/tony-no-such-cmd"}}
     home, notes = make_tony_home(tmp_path, policy=NO_PIN, extra_servers=broken)
     chat = FakeChatEngine(
@@ -35,22 +38,31 @@ def test_mcp_down_at_start_is_marked_red_and_delegation_still_works(qtbot, tmp_p
     def factory(publish):
         return CoreRuntime(home, publish, chat_engine=chat, engine=worker, environ={})
 
-    window, core = open_desktop(home, factory)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html>")
+    window, core = open_desktop(home, factory, view_factory=FakeWebView, dist=dist)
     qtbot.addWidget(window)
-    servers = window.activity_panel.servers
+    page = []
+    window.bridge.event.connect(lambda text: page.append(json.loads(text)))
+    window.bridge.ready()
 
-    qtbot.waitUntil(lambda: servers.count() == 2, timeout=10000)
-    rows = {servers.item(i).text(): servers.item(i) for i in range(servers.count())}
-    [down] = [item for text, item in rows.items() if text.startswith("viernes/broken")]
-    assert down.foreground().color().name().upper() == DOWN_COLOUR.upper()
+    def servers():
+        return {(e["agent"], e["server"]): e["up"] for e in page if e["type"] == "mcp_status"}
 
-    window.input.setText("Lee mi nota")
-    window.input.returnPressed.emit()
-    qtbot.waitUntil(lambda: "comprar pan" in window.chat_view.html, timeout=10000)
+    qtbot.waitUntil(lambda: len(servers()) == 2, timeout=10000)
+    assert servers()[("viernes", "broken")] is False
 
+    window.bridge.send(json.dumps({"type": "send_message", "text": "Lee mi nota"}))
+
+    def reply():
+        return [e for e in page if e["type"] == "result" and e["scope"] == "turn"]
+
+    qtbot.waitUntil(lambda: bool(reply()), timeout=10000)
+    assert "comprar pan" in reply()[0]["text"]
     assert worker.replies[0].text == "# Nota A\nComprar pan."
-    task = window.activity_panel.tree.topLevelItem(0)
-    assert task.child(0).text(0) == "filesystem.read_file — allow"
+    calls = [(e["tool"], e["verdict"]) for e in page if e["type"] == "tool_call"]
+    assert ("filesystem.read_file", "allow") in calls
     assert window.isVisible() and core.is_alive()
     window.close()
     assert not core.is_alive()

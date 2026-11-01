@@ -1,9 +1,9 @@
 from typing import Literal
 
-from tony.apps.desktop.presenters.chat import NEUTRAL
 from tony.apps.desktop.presenters.observable import Observable
 from tony.core.events.core_events import Event
 
+NEUTRAL = "#6B7280"
 TrayState = Literal["idle", "working", "awaiting_confirmation"]
 TRAY_LOOKS: dict[TrayState, tuple[str, str]] = {
     "idle": ("Tony — en espera", NEUTRAL),

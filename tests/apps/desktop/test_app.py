@@ -1,5 +1,13 @@
+import json
+
+import pytest
+from PySide6.QtWidgets import QLabel
+
 from tests.fakes.fake_runtime import FakeRuntime
+from tests.fakes.web_view import FakeWebView
 from tony.apps.desktop.app import launch, open_desktop
+from tony.apps.desktop.page_policy import BUILD_COMMAND
+from tony.core.events import core_events as ev
 
 
 def fake_factory(runtimes):
@@ -10,32 +18,121 @@ def fake_factory(runtimes):
     return factory
 
 
-def test_open_desktop_shows_the_window_and_survives_an_error_event(qtbot, tmp_path):
-    runtimes = []
-    window, core = open_desktop(tmp_path, fake_factory(runtimes))
-    qtbot.addWidget(window)
+@pytest.fixture
+def dist(tmp_path):
+    folder = tmp_path / "dist"
+    folder.mkdir()
+    (folder / "index.html").write_text("<!doctype html>")
+    return folder
 
+
+def open_window(qtbot, tmp_path, dist, runtimes):
+    window, core = open_desktop(
+        tmp_path, fake_factory(runtimes), view_factory=FakeWebView, dist=dist
+    )
+    qtbot.addWidget(window)
+    return window, core
+
+
+def page_events(window):
+    received = []
+    window.bridge.event.connect(lambda text: received.append(json.loads(text)))
+    return received
+
+
+def test_the_built_page_is_loaded_from_a_file_url_with_the_tony_channel(qtbot, tmp_path, dist):
+    window, core = open_window(qtbot, tmp_path, dist, [])
+
+    view = window.centralWidget()
+    assert isinstance(view, FakeWebView)
+    assert view.home.isLocalFile()
+    assert view.home.toLocalFile() == str(dist / "index.html")
+    assert view.channel_objects == {"tony": window.bridge}
     assert window.isVisible() and core.is_alive()
-    runtimes[0].publish({"type": "error", "ts": "x", "source": "front", "message": "model down"})
-    qtbot.waitUntil(lambda: bool(window.presenters.chat.bubbles), timeout=2000)
-
-    assert window.isVisible()
-    assert "model down" in window.chat_view.html
     window.close()
-    assert not core.is_alive()
-    assert runtimes[0].stopped
 
 
-def test_commands_from_the_window_reach_the_runtime(qtbot, tmp_path):
+def test_without_a_build_the_window_shows_the_build_command_and_the_core_runs(qtbot, tmp_path):
+    runtimes, dispatched = [], []
+    window, core = open_window(qtbot, tmp_path, tmp_path / "missing", runtimes)
+    window.dispatched.connect(dispatched.append)
+
+    label = window.centralWidget()
+    assert isinstance(label, QLabel)
+    assert BUILD_COMMAND in label.text()
+    assert core.is_alive()
+    runtimes[0].publish(ev.voice_state("ready"))
+    qtbot.waitUntil(lambda: bool(dispatched), timeout=5000)
+    assert dispatched[0]["type"] == "voice_state"
+    window.close()
+
+
+def test_core_events_reach_the_page_as_json_once_ready(qtbot, tmp_path, dist):
     runtimes = []
-    window, core = open_desktop(tmp_path, fake_factory(runtimes))
-    qtbot.addWidget(window)
+    window, _ = open_window(qtbot, tmp_path, dist, runtimes)
+    received = page_events(window)
+    runtimes[0].publish(ev.token("jarvis", "perdido"))
+    qtbot.wait(50)
 
-    window.presenters.chat.send("Hola")
-    qtbot.waitUntil(lambda: bool(runtimes[0].commands), timeout=2000)
+    window.bridge.ready()
+    event = ev.token("jarvis", "Hola")
+    runtimes[0].publish(event)
+
+    qtbot.waitUntil(lambda: bool(received), timeout=5000)
+    assert received == [event]
+    window.close()
+
+
+def test_page_commands_reach_the_runtime(qtbot, tmp_path, dist):
+    runtimes = []
+    window, _ = open_window(qtbot, tmp_path, dist, runtimes)
+
+    window.bridge.send('{"type": "send_message", "text": "Hola"}')
+    qtbot.waitUntil(lambda: bool(runtimes[0].commands), timeout=5000)
     window.close()
 
     assert runtimes[0].commands == [{"type": "send_message", "text": "Hola"}]
+
+
+def test_refused_page_commands_reach_the_tray_path_but_not_the_core(qtbot, tmp_path, dist):
+    runtimes, dispatched = [], []
+    window, _ = open_window(qtbot, tmp_path, dist, runtimes)
+    window.dispatched.connect(dispatched.append)
+    received = page_events(window)
+    window.bridge.ready()
+
+    window.bridge.send('{"type": "stop"}')
+    qtbot.wait(50)
+
+    assert [(e["type"], e["source"]) for e in dispatched] == [("error", "stop")]
+    assert received == dispatched
+    assert runtimes[0].commands == [] and not runtimes[0].stopped
+    window.close()
+
+
+def test_reveal_on_the_confirmation_restores_and_asks_the_page_to_focus(qtbot, tmp_path, dist):
+    window, _ = open_window(qtbot, tmp_path, dist, [])
+    focus = []
+    window.bridge.focusConfirmation.connect(lambda: focus.append(True))
+    window.showMinimized()
+
+    window.reveal(confirmation=True)
+
+    assert not window.isMinimized() and window.isVisible()
+    assert focus == [True]
+    window.reveal()
+    assert focus == [True]
+    window.close()
+
+
+def test_closing_the_window_stops_the_core(qtbot, tmp_path, dist):
+    runtimes = []
+    window, core = open_window(qtbot, tmp_path, dist, runtimes)
+
+    window.close()
+
+    assert not core.is_alive()
+    assert runtimes[0].stopped
 
 
 def test_launch_runs_the_event_loop_and_stops_the_core(qtbot, tmp_path):
