@@ -2,6 +2,9 @@ import gc
 
 import pytest
 
+# Qt WebEngine must be imported before the QApplication (the `qapp` fixture) exists.
+from PySide6 import QtWebEngineWidgets  # noqa: F401
+
 
 @pytest.fixture(autouse=True)
 def collect_qt_garbage_on_main_thread():
