@@ -95,7 +95,7 @@ rules:                        # en orden; gana la primera que aplica
       numeric_above: {arg: importe, value: 100}
 limits: {tool_timeout_s: 20, task_timeout_s: 300, confirm_timeout_s: 60,
          max_denied_retries: 3, token_alert: 50000, max_steps_per_agent: 30}
-auth: {pin_required: true, lock_after_min: 30}   # se valida, aún no se aplica
+auth: {pin_required: true, lock_after_min: 30}   # ver «PIN de Edith»
 ```
 
 Orden de evaluación: se recorren las reglas en orden de fichero; gana la primera cuyo patrón
@@ -129,6 +129,36 @@ tarea superan `token_alert` se registra un único evento `token_alert`, sin canc
 
 La política incluida y sus casos de prueba offline están en `agents/edith/policy.yaml` y
 `evals/politica.yaml`.
+
+### PIN de Edith
+
+Con `auth.pin_required: true` (el valor de la política incluida) las tareas delegadas exigen
+que la sesión de Edith esté desbloqueada con un PIN. Se guarda una sola vez:
+
+```bash
+uv run tony pin --help
+uv run tony pin set      # pide el PIN dos veces sin mostrarlo; mínimo 4 caracteres
+```
+
+`tony pin set` guarda solo el hash argon2 del PIN en `config/edith.lock` (permisos `0600`,
+ignorado por git) y sustituye el anterior; si las dos entradas no coinciden o el PIN es corto
+sale con error sin tocar el fichero. El PIN nunca se escribe en claro en ficheros, logs,
+eventos ni salida.
+
+- Al arrancar (`tony chat` o la app de escritorio) se pide el PIN; en la app aparece un diálogo
+  con el campo oculto y un botón de cancelar.
+- Tras el 3.er PIN erróneo seguido hay que esperar 10 s, tras el 4.º 30 s y a partir del 5.º
+  60 s; un intento durante la espera se rechaza sin comprobarlo ni contarlo. Un PIN correcto
+  pone el contador a cero.
+- Modo solo conversación: si se cancela el PIN, o no existe `config/edith.lock` (o no es un hash
+  válido), el agente de conversación sigue respondiendo pero `delegate` devuelve
+  `{"error": "locked"}` sin pedir el PIN. Se puede desbloquear después con `/pin` en
+  `tony chat` o con la acción «Desbloquear» de la app.
+- Rebloqueo por inactividad: si llega un mensaje `lock_after_min` minutos (30 por defecto) o más
+  después del anterior, la sesión se bloquea y el PIN se pide en el siguiente `delegate`, que
+  espera hasta `confirm_timeout_s`; cancelar o no responder devuelve `{"error": "locked"}`.
+  La inactividad se mide entre mensajes, no entre pulsaciones.
+- Con `pin_required: false` no se pide nunca.
 
 ### Auditoría: `logs/audit.jsonl`
 

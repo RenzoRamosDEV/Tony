@@ -1,4 +1,5 @@
 import asyncio
+import getpass as getpass_module
 import sys
 from collections.abc import Callable
 from datetime import datetime
@@ -14,6 +15,7 @@ from tony.core.events.messages import TaskRequest
 from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
 from tony.core.guard.claude_wording import ClaudeWording
 from tony.core.guard.confirm import CliConfirmer, thread_line_reader
+from tony.core.guard.pin import LOCK_FILE, MIN_PIN_LENGTH, PinStore
 from tony.core.orchestrator.claude_engine import ClaudeEngine
 from tony.core.orchestrator.ports import ModelEngine
 from tony.core.orchestrator.runner import NotWorkerError, RunDeps, WordingFactory, run_task
@@ -38,8 +40,25 @@ def create_app(
     wording_factory: WordingFactory | None = ClaudeWording,
     readline_factory: Callable[[], Callable[[], str | None]] = stdin_readline,
     now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
+    getpass: Callable[[str], str] = getpass_module.getpass,
 ) -> typer.Typer:
     app = typer.Typer(no_args_is_help=True)
+    pin_app = typer.Typer(no_args_is_help=True, help="Manage Edith's PIN.")
+    app.add_typer(pin_app, name="pin")
+
+    @pin_app.command("set")
+    def pin_set() -> None:
+        """Ask the PIN twice and store its argon2 hash in config/edith.lock."""
+        first = getpass("PIN: ")
+        second = getpass("Repeat the PIN: ")
+        if first != second:
+            typer.echo("tony: the PIN entries do not match", err=True)
+            raise typer.Exit(USAGE_ERROR)
+        if len(first) < MIN_PIN_LENGTH:
+            typer.echo(f"tony: the PIN must have at least {MIN_PIN_LENGTH} characters", err=True)
+            raise typer.Exit(USAGE_ERROR)
+        PinStore(resolve_home()).set(first)
+        typer.echo(f"PIN stored in {LOCK_FILE}")
 
     @app.callback()
     def main() -> None:
