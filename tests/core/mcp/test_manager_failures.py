@@ -1,7 +1,9 @@
+import asyncio
 import sys
 
 import pytest
 
+from tests.fakes.processes import processes_mentioning
 from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
 from tests.fakes.variables import secret_variables
@@ -99,3 +101,29 @@ def test_default_connect_timeout_is_ten_seconds(tmp_path):
 )
 def test_describe_reports_the_root_cause(error, expected):
     assert _describe(error, 2.5) == expected
+
+
+async def test_cancel_while_connecting_closes_the_server_process(tmp_path):
+    marker = f"tony-cancel-marker-{tmp_path.name}"
+    hanging = {**HANGING, "args": [*HANGING["args"], marker]}
+    spec = ToolSpec.model_validate({"mcpServers": {"slow": hanging}})
+    manager = McpManager(
+        spec,
+        variables=secret_variables({}),
+        masker=SecretMasker(),
+        sink=ListEventSink(),
+        log_dir=tmp_path / "logs",
+    )
+
+    async def enter():
+        async with manager:
+            pass
+
+    entering = asyncio.create_task(enter())
+    while not processes_mentioning(marker):
+        await asyncio.sleep(0.02)
+    entering.cancel()
+    await asyncio.gather(entering, return_exceptions=True)
+
+    assert entering.cancelled()
+    assert processes_mentioning(marker) == []

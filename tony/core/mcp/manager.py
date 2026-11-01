@@ -95,6 +95,9 @@ class McpManager:
             await stack.aclose()
             self._mark_down(name, _describe(error, self.connect_timeout))
             return
+        except BaseException:
+            await stack.aclose()
+            raise
         self._stack.push_async_callback(stack.aclose)
         self._sessions[name] = session
         self.tools += [
