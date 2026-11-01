@@ -168,8 +168,14 @@ async def test_logs_call_then_result_in_order():
     await proxy.call("fs.read_file", {"path": "a.md"})
 
     assert sink.events == [
-        {"type": "tool_call", "tool": "fs.read_file", "args": {"path": "a.md"}},
-        {"type": "tool_result", "tool": "fs.read_file", "ok": True, "content": "contenido"},
+        {"type": "tool_call", "agent": "viernes", "tool": "fs.read_file", "args": {"path": "a.md"}},
+        {
+            "type": "tool_result",
+            "agent": "viernes",
+            "tool": "fs.read_file",
+            "ok": True,
+            "content": "contenido",
+        },
     ]
 
 
@@ -190,6 +196,7 @@ async def test_denied_call_is_logged_with_error_result():
     assert sink.types() == ["tool_call", "tool_result"]
     assert sink.events[-1] == {
         "type": "tool_result",
+        "agent": "viernes",
         "tool": "shell.run",
         "ok": False,
         "content": reply.text,

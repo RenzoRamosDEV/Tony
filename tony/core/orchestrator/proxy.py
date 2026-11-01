@@ -56,10 +56,12 @@ class ToolProxy:
         ]
 
     async def call(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
-        self._sink.emit(log_events.tool_call(tool_id, args))
+        self._sink.emit(log_events.tool_call(self._agent, tool_id, args))
         reply = await self._judge_and_execute(tool_id, args)
         reply = ToolReply(text=self._masker.mask(reply.text), is_error=reply.is_error)
-        self._sink.emit(log_events.tool_result(tool_id, ok=not reply.is_error, content=reply.text))
+        self._sink.emit(
+            log_events.tool_result(self._agent, tool_id, ok=not reply.is_error, content=reply.text)
+        )
         return reply
 
     async def _judge_and_execute(self, tool_id: str, args: dict[str, Any]) -> ToolReply:

@@ -19,20 +19,24 @@ def test_task_started():
 
 
 def test_tool_call():
-    event = log_events.tool_call("filesystem.read_file", {"path": "a.md"})
+    event = log_events.tool_call("viernes", "filesystem.read_file", {"path": "a.md"})
 
     assert roundtrip(event) == {
         "type": "tool_call",
+        "agent": "viernes",
         "tool": "filesystem.read_file",
         "args": {"path": "a.md"},
     }
 
 
 def test_tool_result():
-    event = log_events.tool_result("filesystem.read_file", ok=False, content="boom")
+    event = log_events.tool_result(
+        "viernes/resumidor", "filesystem.read_file", ok=False, content="boom"
+    )
 
     assert roundtrip(event) == {
         "type": "tool_result",
+        "agent": "viernes/resumidor",
         "tool": "filesystem.read_file",
         "ok": False,
         "content": "boom",
@@ -82,4 +86,27 @@ def test_task_finished_cancelled():
         "type": "task_finished",
         "outcome": "cancelled",
         "result": {"resumen": "", "datos": None, "pasos": [], "errores": ["tarea cancelada: x"]},
+    }
+
+
+def test_subagent_started():
+    event = log_events.subagent_started("viernes/resumidor", TaskRequest(objetivo="o"))
+
+    assert roundtrip(event) == {
+        "type": "subagent_started",
+        "agent": "viernes/resumidor",
+        "task": {"objetivo": "o", "contexto": "", "restricciones": []},
+    }
+
+
+def test_subagent_finished():
+    result = TaskResult(resumen="r", errores=[])
+
+    event = log_events.subagent_finished("viernes/resumidor", "ok", result)
+
+    assert roundtrip(event) == {
+        "type": "subagent_finished",
+        "agent": "viernes/resumidor",
+        "outcome": "ok",
+        "result": {"resumen": "r", "datos": None, "pasos": [], "errores": []},
     }

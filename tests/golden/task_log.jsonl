@@ -1,2 +1,4 @@
 {"ts": "2026-11-01T10:00:00+00:00", "task_id": "0123456789abcdef0123456789abcdef", "type": "task_started", "agent": "viernes"}
+{"ts": "2026-11-01T10:00:00+00:00", "task_id": "0123456789abcdef0123456789abcdef", "type": "tool_call", "agent": "viernes", "tool": "fs.read_file", "args": {"path": "a.md"}}
+{"ts": "2026-11-01T10:00:00+00:00", "task_id": "0123456789abcdef0123456789abcdef", "type": "tool_result", "agent": "viernes", "tool": "fs.read_file", "ok": true, "content": "token=*** ok"}
 {"ts": "2026-11-01T10:00:00+00:00", "task_id": "0123456789abcdef0123456789abcdef", "type": "tool_result", "content": "token=*** ok", "nested": {"list": ["***", 1]}}

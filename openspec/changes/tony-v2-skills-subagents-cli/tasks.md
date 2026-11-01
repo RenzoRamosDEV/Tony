@@ -22,7 +22,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 4. Task log agent field and subagent timeout exemption (`tony/core/events`, `tony/core/orchestrator/proxy.py`)
 
-- [ ] 4.1 Red: `log_events` and proxy tests: `tool_call` and `tool_result` events carry `agent`; update `tests/golden/task_log.jsonl` so the golden test fails until the field is emitted; add `subagent_started(agent, task)` and `subagent_finished(agent, outcome, result)` builders; Green: implement; verify tests pass
+- [x] 4.1 Red: `log_events` and proxy tests: `tool_call` and `tool_result` events carry `agent`; update `tests/golden/task_log.jsonl` so the golden test fails until the field is emitted; add `subagent_started(agent, task)` and `subagent_finished(agent, outcome, result)` builders; Green: implement; verify tests pass
 - [ ] 4.2 Red: proxy tests with a fake caller and `limits.tool_timeout_s: 0.05`: `tony.run_subagent` taking 0.2 s returns its reply with no timeout error; any other tool (including `tony.read_skill`) taking 0.2 s still times out; Green: add `UNTIMED_TOOLS`; verify tests pass
 
 ## 5. Skills and subagents in task runs (`tony/core/orchestrator/runner.py`, `conversation.py`)

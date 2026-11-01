@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from tony.core.config.placeholders import SecretMasker
+from tony.core.events import log_events
 from tony.core.logging.task_log import JsonlTaskLog, new_task_id
 
 GOLDEN = Path(__file__).resolve().parents[2] / "golden" / "task_log.jsonl"
@@ -40,6 +41,8 @@ def test_appends_one_json_object_per_line_matching_golden(tmp_path):
     log = JsonlTaskLog(tmp_path, TASK_ID, masker=SecretMasker({"s3cr3t"}), clock=fixed_clock)
 
     log.emit({"type": "task_started", "agent": "viernes"})
+    log.emit(log_events.tool_call("viernes", "fs.read_file", {"path": "a.md"}))
+    log.emit(log_events.tool_result("viernes", "fs.read_file", ok=True, content="token=s3cr3t ok"))
     log.emit(
         {"type": "tool_result", "content": "token=s3cr3t ok", "nested": {"list": ["s3cr3t", 1]}}
     )

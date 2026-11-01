@@ -10,12 +10,25 @@ def task_started(agent: str, task: TaskRequest) -> Event:
     return {"type": "task_started", "agent": agent, "task": task.model_dump(mode="json")}
 
 
-def tool_call(tool: str, args: dict[str, Any]) -> Event:
-    return {"type": "tool_call", "tool": tool, "args": args}
+def tool_call(agent: str, tool: str, args: dict[str, Any]) -> Event:
+    return {"type": "tool_call", "agent": agent, "tool": tool, "args": args}
 
 
-def tool_result(tool: str, *, ok: bool, content: str) -> Event:
-    return {"type": "tool_result", "tool": tool, "ok": ok, "content": content}
+def tool_result(agent: str, tool: str, *, ok: bool, content: str) -> Event:
+    return {"type": "tool_result", "agent": agent, "tool": tool, "ok": ok, "content": content}
+
+
+def subagent_started(agent: str, task: TaskRequest) -> Event:
+    return {"type": "subagent_started", "agent": agent, "task": task.model_dump(mode="json")}
+
+
+def subagent_finished(agent: str, outcome: Outcome, result: TaskResult) -> Event:
+    return {
+        "type": "subagent_finished",
+        "agent": agent,
+        "outcome": outcome,
+        "result": result.model_dump(mode="json"),
+    }
 
 
 def token_usage(*, input_tokens: int, output_tokens: int) -> Event:
