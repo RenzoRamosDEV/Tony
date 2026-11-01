@@ -90,7 +90,7 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
     engine = asyncio.create_task(_run_engine(run, request, deps))
     finished = await _race(engine, run.supervisor, timeout)
     if run.supervisor.cancelled.is_set():
-        return _finish(log, "cancelled", _failed(run.supervisor.reason or "tarea cancelada"))
+        return _finish(log, "cancelled", _failed(run.supervisor.reason))
     if not finished:
         return _finish(log, "timeout", _failed(f"task timed out after {timeout:g} s"))
     try:

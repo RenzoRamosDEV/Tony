@@ -30,8 +30,7 @@ def test_loads_policy_of_the_named_guard(tmp_path):
 def test_missing_file_names_it(tmp_path):
     error = load_error(tmp_path)
 
-    assert (error.file, error.field) == (FILE, None)
-    assert FILE in str(error)
+    assert (error.file, error.field, error.message) == (FILE, None, f"missing file {FILE}")
 
 
 def test_invalid_yaml_names_file(tmp_path):
@@ -49,8 +48,7 @@ def test_non_mapping_rejected(tmp_path, text):
 
     error = load_error(tmp_path)
 
-    assert (error.file, error.field) == (FILE, None)
-    assert "mapping" in error.message
+    assert (error.file, error.field, error.message) == (FILE, None, "must be a YAML mapping")
 
 
 def test_schema_error_names_file_and_field(tmp_path):

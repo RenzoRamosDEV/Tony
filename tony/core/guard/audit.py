@@ -57,7 +57,7 @@ class AuditLog:
             "tool": call.tool,
             "args_hash": args_hash(call.args),
             "args_preview": args_preview,
-            **ruling.model_dump(mode="json"),
+            **ruling.model_dump(),
             "duration_ms": duration_ms,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)

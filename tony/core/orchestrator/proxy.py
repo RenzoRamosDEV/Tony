@@ -57,7 +57,7 @@ class ToolProxy:
 
     async def _judge_and_execute(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
         if not self._supervisor.step(self._agent):
-            return _not_executed(tool_id, self._supervisor.reason or "task cancelled")
+            return _not_executed(tool_id, self._supervisor.reason)
         envelope = ToolCall(task_id=self._task_id, agent=self._agent, tool=tool_id, args=args)
         ruling = await self._guard.decide(envelope)
         if ruling.verdict == "deny":

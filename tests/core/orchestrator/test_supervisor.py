@@ -109,7 +109,7 @@ class TestCancel:
     def test_not_cancelled_initially(self):
         supervisor, _ = make()
 
-        assert (supervisor.reason, supervisor.cancelled.is_set()) == (None, False)
+        assert (supervisor.reason, supervisor.cancelled.is_set()) == ("", False)
 
 
 class TestTokenAlert:

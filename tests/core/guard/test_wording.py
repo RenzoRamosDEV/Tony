@@ -3,7 +3,12 @@ import pytest
 from tests.fakes.confirm import FakeWording
 from tony.core.config.placeholders import SecretMasker
 from tony.core.guard.audit import args_preview
-from tony.core.guard.wording import QuestionWording, template_question, worded_question
+from tony.core.guard.wording import (
+    WORDING_TIMEOUT_S,
+    QuestionWording,
+    template_question,
+    worded_question,
+)
 
 TOOL = "filesystem.delete_file"
 PREVIEW = '{"path": "/home/renzo/notas/viejo.md"}'
@@ -69,7 +74,7 @@ async def test_slow_model_falls_back_after_timeout():
 
 
 def test_default_timeout_is_five_seconds():
-    assert worded_question.__kwdefaults__["timeout"] == 5.0
+    assert WORDING_TIMEOUT_S == 5.0
 
 
 async def test_model_receives_masked_preview_only():

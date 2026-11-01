@@ -95,6 +95,13 @@ class TestAuditLog:
             "duration_ms": 0,
         }
 
+    def test_creates_missing_parent_folders(self, tmp_path):
+        root = tmp_path / "nuevo" / "home"
+
+        AuditLog(root, clock=fixed_clock).append(CALL, CONFIRMED, args_preview="p", duration_ms=1)
+
+        assert (root / AUDIT_FILE).is_file()
+
     def test_ts_converted_to_utc(self, tmp_path):
         plus_one = timezone(timedelta(hours=1))
         log = AuditLog(tmp_path, clock=lambda: datetime(2026, 11, 1, 0, 30, tzinfo=plus_one))

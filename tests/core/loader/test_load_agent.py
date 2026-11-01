@@ -59,6 +59,7 @@ def test_unknown_agent_names_missing_folder(tmp_path):
         load_agent(tmp_path, "nadie", TonyConfig(), native_tools=set())
 
     assert info.value.file == "agents/nadie/"
+    assert info.value.message == "agent folder agents/nadie/ does not exist"
 
 
 def test_missing_agent_md_names_file(tmp_path):
@@ -68,6 +69,7 @@ def test_missing_agent_md_names_file(tmp_path):
         load_agent(tmp_path, "viernes", TonyConfig(), native_tools=set())
 
     assert info.value.file == "agents/viernes/agent.md"
+    assert info.value.message == "missing file agents/viernes/agent.md"
 
 
 def test_model_alias_checked_against_configured_models(tmp_path):

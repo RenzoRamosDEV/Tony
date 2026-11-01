@@ -38,10 +38,11 @@ class FakeModelEngine:
         self.replies: list[ToolReply] = []
         self.offered: list[str] = []
         self.request = None
+        self.spec = None
         self.model_id: str | None = None
 
     async def run(self, spec, request, tools: list[ProxiedTool], model_id: str) -> EngineOutcome:
-        self.request, self.model_id = request, model_id
+        self.spec, self.request, self.model_id = spec, request, model_id
         self.offered = [tool.id for tool in tools]
         by_id = {tool.id: tool for tool in tools}
         for step in self._steps:

@@ -14,7 +14,7 @@ class TaskSupervisor:
 
     def __init__(self, limits: Limits, sink: EventSink) -> None:
         self.cancelled = asyncio.Event()
-        self.reason: str | None = None
+        self.reason = ""
         self.limits = limits
         self._sink = sink
         self._steps: Counter[str] = Counter()

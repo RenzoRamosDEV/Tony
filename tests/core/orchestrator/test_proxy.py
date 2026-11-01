@@ -99,7 +99,11 @@ async def test_unconfirmed_call_is_not_executed_and_cancels(user_decision, reaso
     reply = await proxy.call("fs.delete_file", {"path": "a.md"})
 
     assert caller.calls == []
-    assert reply.is_error is True and "fs.delete_file" in reply.text
+    assert reply == ToolReply(
+        text="tool fs.delete_file was not executed: "
+        f"not confirmed by the user ({user_decision or 'deny'})",
+        is_error=True,
+    )
     assert supervisor.cancelled.is_set() and reason_part in supervisor.reason
 
 
@@ -110,7 +114,11 @@ async def test_step_overflow_skips_the_guard_and_cancels():
     reply = await proxy.call("fs.read_file", {})
 
     assert len(guard.calls) == 1 and len(caller.calls) == 1
-    assert reply.is_error is True and "fs.read_file" in reply.text
+    assert reply == ToolReply(
+        text="tool fs.read_file was not executed: "
+        "tarea cancelada: viernes superó el límite de 1 pasos",
+        is_error=True,
+    )
     assert supervisor.reason == "tarea cancelada: viernes superó el límite de 1 pasos"
     assert sink.types() == ["tool_call", "tool_result", "tool_call", "tool_result"]
 

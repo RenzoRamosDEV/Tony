@@ -66,6 +66,15 @@ def test_prints_header_and_lines_oldest_first(tmp_path):
     ]
 
 
+def test_table_exact_text(tmp_path):
+    write_audit(tmp_path, line("2026-11-01T09:00:00Z", "deny", "default", tool="foo.bar"))
+
+    assert audit(tmp_path).stdout == (
+        "ts                    agent    tool     verdict  rule     user_decision\n"
+        "2026-11-01T09:00:00Z  viernes  foo.bar  deny     default  -\n"
+    )
+
+
 def test_columns_are_aligned(tmp_path):
     write_audit(tmp_path, line("2026-11-01T09:00:00Z"), line("2026-11-01T09:00:01Z", tool="x.y"))
 
@@ -96,6 +105,22 @@ def test_today_uses_the_local_date(tmp_path):
     assert [row[0] for row in rows(result.stdout)[1:]] == ["2026-10-31T23:30:00Z"]
 
 
+def test_today_follows_the_timezone_of_now_not_the_machine(tmp_path):
+    utc_minus_five = timezone(timedelta(hours=-5))
+    write_audit(tmp_path, line("2026-10-31T15:30:00Z"), line("2026-11-01T04:30:00Z"))
+    app = create_app(
+        engine_factory=lambda: FakeModelEngine([]),
+        now=lambda: datetime(2026, 10, 31, 20, 0, tzinfo=utc_minus_five),
+    )
+
+    result = CliRunner().invoke(app, ["audit", "--today"], env={"TONY_HOME": str(tmp_path)})
+
+    assert [row[0] for row in rows(result.stdout)[1:]] == [
+        "2026-10-31T15:30:00Z",
+        "2026-11-01T04:30:00Z",
+    ]
+
+
 def test_filters_combine(tmp_path):
     write_audit(
         tmp_path,
@@ -114,6 +139,7 @@ def test_missing_file_prints_header_only(tmp_path):
 
     assert result.exit_code == 0
     assert rows(result.stdout) == [HEADER]
+    assert result.stderr == ""
 
 
 def test_no_match_prints_header_only(tmp_path):
@@ -131,8 +157,7 @@ def test_malformed_lines_skipped_with_one_warning(tmp_path):
 
     assert result.exit_code == 0
     assert len(rows(result.stdout)) == 2
-    assert result.stderr.count("\n") == 1
-    assert "3 malformed" in result.stderr and "logs/audit.jsonl" in result.stderr
+    assert result.stderr == "tony: skipped 3 malformed lines in logs/audit.jsonl\n"
 
 
 @pytest.mark.parametrize("verdict", ["maybe", "ALLOW", ""])

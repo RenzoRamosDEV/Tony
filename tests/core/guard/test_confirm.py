@@ -3,6 +3,7 @@ import io
 import subprocess
 import sys
 import textwrap
+import threading
 
 import pytest
 
@@ -75,3 +76,39 @@ async def test_no_channel_answers_no():
 )
 def test_confirmers_satisfy_port(confirmer):
     assert isinstance(confirmer, Confirmer)
+
+
+async def test_reader_thread_is_a_daemon():
+    seen = []
+
+    def readline():
+        seen.append(threading.current_thread().daemon)
+        return "s\n"
+
+    await CliConfirmer(readline=readline, err=io.StringIO()).ask(QUESTION)
+
+    assert seen == [True]
+
+
+def test_late_answer_after_the_loop_closed_is_ignored(monkeypatch):
+    errors, readers = [], []
+    monkeypatch.setattr(threading, "excepthook", errors.append)
+    release = threading.Event()
+
+    def readline():
+        readers.append(threading.current_thread())
+        release.wait(5)
+        return "s\n"
+
+    async def main():
+        confirmer = CliConfirmer(readline=readline, err=io.StringIO())
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(confirmer.ask(QUESTION), 0.05)
+
+    asyncio.run(main())
+    release.set()
+    [reader] = readers
+    reader.join(5)
+
+    assert not reader.is_alive()
+    assert errors == []
