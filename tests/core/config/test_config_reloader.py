@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import sys
 from datetime import UTC, datetime
 
 import pytest
@@ -68,6 +69,9 @@ def test_diff_servers_equivalent_defaults_unchanged():
         ("agents/viernes/skills/x/SKILL.md", None),
         ("agents/viernes/tool.json", None),
         ("agents/viernes/subagents/r/x/tool/tool.json", None),
+        ("agents/viernes/subagents/r/tool/other.json", None),
+        ("agents/viernes/other/r/tool/tool.json", None),
+        ("other/viernes/subagents/r/tool/tool.json", None),
         ("config/tony.yaml", None),
     ],
 )
@@ -137,7 +141,7 @@ async def test_invalid_policy_reported_and_previous_kept(harness):
 
     assert harness.policy.current().default == "allow"
     [event] = harness.published
-    assert (event["type"], event["source"]) == ("error", "reload")
+    assert (event["type"], event["source"], event["ts"]) == ("error", "reload", FIXED.isoformat())
     assert POLICY_FILE in event["message"]
     assert harness.stderr.getvalue().startswith(f"tony: warning: {POLICY_FILE}")
 
@@ -180,8 +184,9 @@ async def test_removed_server_published_down(harness):
 
     assert harness.probed == []
     assert [
-        (e["type"], e["agent"], e["server"], e["up"], e["reason"]) for e in harness.published
-    ] == [("mcp_status", "viernes", "b", False, "removed from tool.json")]
+        (e["type"], e["agent"], e["server"], e["up"], e["reason"], e["ts"])
+        for e in harness.published
+    ] == [("mcp_status", "viernes", "b", False, "removed from tool.json", FIXED.isoformat())]
 
 
 async def test_subagent_tool_json_uses_subagent_key(harness):
@@ -190,6 +195,26 @@ async def test_subagent_tool_json_uses_subagent_key(harness):
     await harness.touch(SUB_FILE)
 
     assert harness.probed == [("viernes/resumidor", "s", "q")]
+
+
+async def test_unrelated_path_does_not_stop_the_batch(harness):
+    write(harness.root, TOOL_FILE, json.dumps({"mcpServers": {"a": {"command": "x"}}}))
+
+    await harness.touch("agents/viernes/agent.md", TOOL_FILE)
+
+    assert [e["server"] for e in harness.published] == ["b"]
+
+
+async def test_failing_probe_does_not_break_waiting(tmp_path):
+    harness = Harness(tmp_path, {})
+
+    async def failing(key, name, entry):
+        raise RuntimeError("boom")
+
+    harness.reloader._probe = failing
+    write(tmp_path, TOOL_FILE, json.dumps({"mcpServers": {"n": {"command": "x"}}}))
+
+    await harness.touch(TOOL_FILE)
 
 
 async def test_unrelated_paths_ignored(harness):
@@ -238,17 +263,46 @@ async def test_run_consumes_stream_and_stop_cancels_pending_probes(tmp_path):
 
 async def test_real_probe_publishes_status_and_leaves_no_process(tmp_path):
     published = []
-    probe = mcp_probe(tmp_path, environ={}, publish=published.append, clock=lambda: FIXED)
-    entry = McpServer.model_validate(fake_fs_entry(str(tmp_path / "probe-notes")))
-    (tmp_path / "probe-notes").mkdir()
+    notes = tmp_path / "probe-notes"
+    notes.mkdir()
+    probe = mcp_probe(
+        tmp_path, environ={"NOTES_DIR": str(notes)}, publish=published.append, clock=lambda: FIXED
+    )
+    entry = McpServer.model_validate(fake_fs_entry("${NOTES_DIR}"))
 
     async with asyncio.timeout(20):
         await probe("viernes", "notas", entry)
 
-    assert [(e["type"], e["agent"], e["server"], e["up"]) for e in published] == [
-        ("mcp_status", "viernes", "notas", True)
+    assert [(e["type"], e["agent"], e["server"], e["up"], e["ts"]) for e in published] == [
+        ("mcp_status", "viernes", "notas", True, FIXED.isoformat())
     ]
-    assert processes_mentioning(str(tmp_path / "probe-notes")) == []
+    assert (tmp_path / "logs" / "mcp" / "notas.log").is_file()
+    assert processes_mentioning(str(notes)) == []
+
+
+async def test_real_probe_of_broken_server_publishes_reason(tmp_path):
+    published = []
+    probe = mcp_probe(tmp_path, environ={}, publish=published.append, connect_timeout=0.5)
+    entry = McpServer.model_validate({"command": "/nonexistent/tony-no-such-cmd"})
+
+    async with asyncio.timeout(20):
+        await probe("viernes", "roto", entry)
+
+    [event] = published
+    assert event["up"] is False and "tony-no-such-cmd" in event["reason"]
+
+
+async def test_real_probe_uses_the_connect_timeout(tmp_path):
+    published = []
+    probe = mcp_probe(tmp_path, environ={}, publish=published.append, connect_timeout=0.2)
+    entry = McpServer.model_validate(
+        {"command": sys.executable, "args": ["-c", "import time; time.sleep(30)"]}
+    )
+
+    async with asyncio.timeout(10):
+        await probe("viernes", "lento", entry)
+
+    assert published[0]["reason"] == "connect timeout after 0.2 s"
 
 
 async def test_default_stderr_is_resolved_when_warning(tmp_path, capsys):

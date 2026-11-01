@@ -87,7 +87,7 @@ def test_guard_refused_without_creating_tool_folder(home):
     with pytest.raises(DefinitionError) as info:
         add(home, key="edith")
 
-    assert "guard" in str(info.value)
+    assert (info.value.file, info.value.message) == ("agents/edith/", "a guard agent has no tools")
     assert not (home / "agents/edith/tool").exists()
 
 
@@ -95,7 +95,7 @@ def test_missing_agent_names_folder(home):
     with pytest.raises(DefinitionError) as info:
         add(home, key="nadie")
 
-    assert info.value.file == "agents/nadie/"
+    assert str(info.value) == "agents/nadie/: agent folder agents/nadie/ does not exist"
 
 
 def test_missing_tool_json_names_path(home):
@@ -104,7 +104,7 @@ def test_missing_tool_json_names_path(home):
     with pytest.raises(DefinitionError) as info:
         add(home)
 
-    assert info.value.file == FILE
+    assert str(info.value) == f"{FILE}: missing file {FILE}"
     assert not (home / FILE).exists()
 
 
@@ -193,3 +193,29 @@ def test_invalid_existing_file_names_it_and_is_unchanged(home, broken):
 
     assert info.value.file == FILE
     assert text(home) == broken
+
+
+def test_duplicate_message_names_server_and_file(home):
+    with pytest.raises(DefinitionError) as info:
+        add(home, "filesystem")
+
+    assert info.value.message == f"server 'filesystem' already exists in {FILE}"
+
+
+def test_file_without_servers_key_gets_one(home):
+    (home / FILE).write_text("{}")
+
+    add(home)
+
+    assert json.loads(text(home)) == {"mcpServers": {"notas": {"command": "uvx"}}}
+
+
+@pytest.mark.parametrize("agent_md", [None, "sin frontmatter"])
+def test_folder_without_readable_role_is_not_a_guard(home, agent_md):
+    md = home / "agents/viernes/agent.md"
+    if agent_md is None:
+        md.unlink()
+    else:
+        md.write_text(agent_md)
+
+    assert add(home) == FILE

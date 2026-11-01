@@ -73,7 +73,7 @@ def test_http_entry_with_headers(home, url):
         (["x", "https://e.test", "--env", "A=b"], "--env"),
         (["x", "npx", "--env", "TOKEN"], "--env"),
         (["x", "npx", "--env", "=x"], "--env"),
-        (["x", "npx", "--header", "sin-igual"], "--header"),
+        (["x", "https://e.test", "--header", "sin-igual"], "--header"),
     ],
 )
 def test_usage_errors_leave_file_unchanged(home, args, option):
@@ -138,3 +138,52 @@ def test_placeholder_secret_not_warned(home):
 
     assert result.exit_code == 0
     assert result.stderr == ""
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["x", "npx", "--header", "A=b"], "tony: --header does not apply to a stdio server\n"),
+        (["x", "https://e", "--arg", "a"], "tony: --arg does not apply to an HTTP server\n"),
+        (["x", "https://e", "--env", "A=b"], "tony: --env does not apply to an HTTP server\n"),
+        (["x", "npx", "--env", "A"], "tony: --env expects KEY=VALUE\n"),
+        (["x", "https://e", "--header", "A"], "tony: --header expects KEY=VALUE\n"),
+        (["x", "npx", "--agent", "nadie"], None),
+    ],
+)
+def test_error_messages(home, args, message):
+    agent = [] if "--agent" in args else ["--agent", "viernes"]
+
+    result = mcp(home, "add", *args, *agent)
+
+    expected = message or "tony: agents/nadie/: agent folder agents/nadie/ does not exist\n"
+    assert result.stderr == expected
+
+
+def test_value_split_on_first_equals(home):
+    assert mcp(home, "add", "x", "npx", "--env", "A=b=c", "--agent", "viernes").exit_code == 0
+
+    assert servers(home)["x"]["env"] == {"A": "b=c"}
+
+
+def test_literal_secret_header_warned(home):
+    result = mcp(
+        home,
+        "add",
+        "r",
+        "https://e.test",
+        "--header",
+        "Authorization=Bearer x",
+        "--agent",
+        "viernes",
+    )
+
+    assert result.exit_code == 0
+    assert "Authorization" in result.stderr and "Bearer x" not in result.stderr
+
+
+def test_mcp_without_command_shows_help(home):
+    result = mcp(home)
+
+    assert "Manage the agents' MCP servers." in result.output
+    assert "add" in result.output and "list" in result.output

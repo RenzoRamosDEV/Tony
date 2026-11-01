@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from typer.testing import CliRunner
 
@@ -37,6 +39,7 @@ def test_one_up_one_down(tmp_path):
     assert broken[:3] == ["viernes", "roto", "error:"]
     assert broken[3].endswith(" 0") and "tony-no-such-cmd" in broken[3]
     assert processes_mentioning(str(notes)) == []
+    assert (home / "logs" / "mcp" / "filesystem.log").is_file()
 
 
 def test_agent_without_servers_prints_header_only(tmp_path):
@@ -100,3 +103,28 @@ def test_mcp_help_lists_commands(tmp_path):
 
     assert result.exit_code == 0
     assert "add" in result.stdout and "list" in result.stdout
+
+
+def test_unknown_agent_message(tmp_path):
+    home, _ = make_tony_home(tmp_path)
+
+    result = mcp_list(home, "--agent", "nadie")
+
+    assert result.stderr == "tony: agents/nadie/: agent folder agents/nadie/ does not exist\n"
+
+
+def test_natives_are_not_listed_and_environ_resolves_placeholders(tmp_path, monkeypatch):
+    home, notes = make_tony_home(tmp_path)
+    tool_json = home / "agents/viernes/tool/tool.json"
+    servers = {"notas": fake_fs_entry("${NOTES_DIR}")}
+    tool_json.write_text(json.dumps({"mcpServers": servers, "native": ["read_skill"]}))
+    monkeypatch.setenv("NOTES_DIR", str(notes))
+
+    result = CliRunner().invoke(
+        create_app(),
+        ["mcp", "list", "--agent", "viernes"],
+        env={"TONY_HOME": str(home), "NOTES_DIR": str(notes)},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert rows(result.stdout)[1:] == [["viernes", "notas", "ok", FAKE_TOOLS]]

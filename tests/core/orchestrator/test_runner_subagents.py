@@ -9,6 +9,7 @@ from tests.fakes.fake_engine import ByAgentEngine, CallTool, Final, Hang, Raise
 from tests.fakes.processes import processes_mentioning
 from tests.fakes.servers import fake_fs_entry
 from tony.apps.desktop.presenters.activity import ActivityPresenter
+from tony.core.config.settings import load_config
 from tony.core.events.messages import TaskRequest
 from tony.core.orchestrator.ports import Usage
 from tony.core.orchestrator.runner import RunDeps, run_task
@@ -202,7 +203,51 @@ async def test_subagent_engine_error_is_returned_and_parent_continues(tmp_path):
     assert reply.is_error and json.loads(reply.text)["errores"] == ["model down"]
     finished = [line for line in log_lines(home) if line["type"] == "subagent_finished"]
     assert [line["outcome"] for line in finished] == ["error"]
+    errors = [
+        (line["source"], line["message"]) for line in log_lines(home) if line["type"] == "error"
+    ]
+    assert errors == [("engine", "model down")]
     assert result.resumen == "seguí"
+
+
+async def test_subagent_error_without_message_uses_type_name(tmp_path):
+    home, _ = make_home(tmp_path)
+
+    engine, _ = await run(
+        home,
+        {
+            "viernes": [CALL_SUB, Final(structured={"resumen": "seguí"})],
+            "resumidor": [Raise(RuntimeError())],
+        },
+    )
+
+    assert json.loads(sub_reply(engine).text)["errores"] == ["RuntimeError"]
+
+
+async def test_subagent_runs_its_own_model_request_and_natives(tmp_path):
+    home, _ = make_home(tmp_path)
+    folder = home / "agents/viernes/subagents/resumidor"
+    md = folder / "agent.md"
+    md.write_text(md.read_text().replace("model: claude-sonnet", "model: claude-haiku"))
+    tool_json = folder / "tool/tool.json"
+    tool_json.write_text(
+        json.dumps({**json.loads(tool_json.read_text()), "native": ["read_skill"]})
+    )
+
+    engine, _ = await run(
+        home,
+        {
+            "viernes": [CALL_SUB, Final(structured=echo_reply)],
+            "resumidor": [Final(structured=SUB_RESULT)],
+        },
+    )
+
+    sub = engine.engines["resumidor"]
+    assert sub_reply(engine).is_error is False
+    assert sub.model_id == load_config(home).resolve_model("claude-haiku")
+    assert sub.model_id != engine.engines["viernes"].model_id
+    assert sub.request.objetivo == "Resume a.md"
+    assert "tony.read_skill" in sub.offered
 
 
 async def test_repeated_denials_inside_subagent_cancel_parent(tmp_path):

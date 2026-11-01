@@ -1,7 +1,7 @@
 import pytest
 
 from tony.core.mcp.native import NativeScope
-from tony.core.orchestrator.natives import NATIVE_TOOLS, read_skill
+from tony.core.orchestrator.natives import NATIVE_TOOLS, read_skill, run_subagent
 from tony.core.orchestrator.ports import ToolReply
 
 
@@ -69,7 +69,44 @@ async def test_traversal_not_found(tmp_path, name):
 async def test_missing_name_argument_not_found(tmp_path):
     reply = await bound(tmp_path).run({})
 
-    assert reply.is_error and "not found" in reply.text
+    assert reply == ToolReply(text="skill '' not found; available: none", is_error=True)
+
+
+@pytest.mark.parametrize("factory", [read_skill, run_subagent])
+def test_natives_describe_themselves(tmp_path, factory):
+    assert factory(NativeScope(root=tmp_path, agent="viernes")).description
+
+
+async def test_unbound_run_subagent_is_an_error(tmp_path):
+    tool = run_subagent(NativeScope(root=tmp_path, agent="viernes"))
+
+    assert await tool.run({"name": "x", "tarea": {"objetivo": "o"}}) == ToolReply(
+        text="subagents are not available here", is_error=True
+    )
+
+
+async def test_run_subagent_passes_name_and_request(tmp_path):
+    calls = []
+
+    async def runner(name, request):
+        calls.append((name, request.objetivo))
+        return ToolReply(text="ok")
+
+    tool = run_subagent(NativeScope(root=tmp_path, agent="viernes", run_subagent=runner))
+
+    assert await tool.run({"tarea": {"objetivo": "o"}}) == ToolReply(text="ok")
+    assert calls == [("", "o")]
+
+
+async def test_nested_tarea_error_names_its_location(tmp_path):
+    async def runner(name, request):
+        raise AssertionError("must not run")
+
+    tool = run_subagent(NativeScope(root=tmp_path, agent="viernes", run_subagent=runner))
+
+    reply = await tool.run({"name": "x", "tarea": {"objetivo": "o", "restricciones": [1]}})
+
+    assert reply.is_error and reply.text.startswith("invalid tarea: restricciones.0: ")
 
 
 async def test_skill_added_after_binding_is_readable(tmp_path):

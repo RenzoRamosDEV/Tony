@@ -257,3 +257,39 @@ def test_run_starts_no_watcher(tmp_path):
 
     assert result.exit_code == 0
     assert changes.started == []
+
+
+def test_invalid_edits_keep_the_previous_config_in_chat(tmp_path):
+    home = home_with(tmp_path)
+    tool_json = home / "agents" / "viernes" / "tool" / "tool.json"
+    tool_json.write_text(
+        json.dumps({**json.loads(tool_json.read_text()), "native": ["read_skill"]})
+    )
+    changes = FakeChanges()
+    policy = home / "agents" / "edith" / "policy.yaml"
+
+    def break_files():
+        policy.write_text("default: [roto\n")
+        tool_json.write_text('{"mcpServers": {}, "confirm": []}')
+        changes.push_from_thread(policy, tool_json)
+        return True
+
+    read = CallTool("filesystem.read_file", {"path": "a.md"})
+    worker = FakeModelEngine([read, Final(structured=DONE)])
+    delegate = [CallTool("tony.delegate", {"objetivo": "Lee"}), Say("ok")]
+    chat = FakeChatEngine(delegate, delegate)
+    lines = paced(
+        "uno",
+        lambda: len(audit_rules(home)) == 1,
+        break_files,
+        lambda: changes.handled == 1,
+        "dos",
+    )
+
+    result, _ = invoke(home, lines, chat, worker=worker, changes=changes)
+
+    assert result.exit_code == 0, result.output
+    assert audit_rules(home) == ["filesystem.read_*/allow", "filesystem.read_*/allow"]
+    assert "tony.read_skill" in worker.offered
+    assert "tony: warning: agents/edith/policy.yaml" in result.stderr
+    assert "tony: agents/viernes/tool/tool.json: confirm" in result.stderr
