@@ -53,3 +53,15 @@ dev = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["tony", "tests"]
+
+[tool.mutmut]
+source_paths = ["tony/"]
+also_copy = ["agents/"]
+# Repository layout checks read files outside the copied tree and cover no mutated code.
+pytest_add_cli_args = [
+    "-p", "no:cacheprovider",
+    "--ignore=tests/test_layout.py",
+    "--ignore=tests/test_gitignore.py",
+    "--ignore=tests/core/config/test_bundled_config.py",
+    "--ignore=tests/fakes/test_fake_fs_server.py",
+]

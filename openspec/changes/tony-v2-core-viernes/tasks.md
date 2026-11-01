@@ -68,7 +68,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 ## 11. Final verification
 
 - [x] 11.1 Run `uv run pytest` (offline, no `evals`/`voice`) and `uv run ruff check` and `uv run ruff format --check`; verify all pass and no test exceeds the 30 s timeout
-- [ ] 11.2 Configure `[tool.mutmut]` with `source_paths` limited to files added by this change, `do_not_mutate` for the SDK adapter's live client call and MCP transport opening code (justify: they need a subprocess/CLI unavailable in mutmut's copied tree); run `timeout 180 uv run mutmut run` and `uv run mutmut results`; verify mutation score > 95% or record each surviving mutant with justification in the commit body; abort and narrow scope if it exceeds 3 minutes
+- [x] 11.2 Configure `[tool.mutmut]` with `source_paths` limited to files added by this change, `do_not_mutate` for the SDK adapter's live client call and MCP transport opening code (justify: they need a subprocess/CLI unavailable in mutmut's copied tree); run `timeout 180 uv run mutmut run` and `uv run mutmut results`; verify mutation score > 95% or record each surviving mutant with justification in the commit body; abort and narrow scope if it exceeds 3 minutes
 - [ ] 11.3 Grep the change's files and logs produced by the test suite for any resolved secret value used in tests; verify none found
 
 ## Workflow follow-up
