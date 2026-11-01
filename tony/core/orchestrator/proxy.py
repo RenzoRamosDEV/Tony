@@ -13,6 +13,9 @@ from tony.core.mcp.manager import CatalogTool
 from tony.core.orchestrator.ports import EventSink, ProxiedTool, ToolReply
 from tony.core.orchestrator.supervisor import TaskSupervisor
 
+UNTIMED_TOOLS = frozenset({"tony.run_subagent"})
+"""Bounded by the parent task's timeout and cancellation instead of the per-call timeout."""
+
 
 class ToolCaller(Protocol):
     async def call(self, tool_id: str, args: dict[str, Any]) -> ToolReply: ...
@@ -85,7 +88,7 @@ class ToolProxy:
         return await self._execute(tool_id, args)
 
     async def _execute(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
-        timeout = self._supervisor.limits.tool_timeout_s
+        timeout = None if tool_id in UNTIMED_TOOLS else self._supervisor.limits.tool_timeout_s
         try:
             return await asyncio.wait_for(self._caller.call(tool_id, args), timeout)
         except TimeoutError:

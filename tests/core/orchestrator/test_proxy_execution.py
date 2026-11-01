@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -98,3 +99,31 @@ async def test_secret_is_masked_even_with_list_sink():
 
 def test_default_tool_timeout_is_twenty_seconds():
     assert Limits().tool_timeout_s == pytest.approx(20.0)
+
+
+class SleepingCaller:
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    async def call(self, tool_id, args):
+        await asyncio.sleep(self.seconds)
+        return ToolReply(text=f"{tool_id} done")
+
+
+async def test_run_subagent_is_not_bounded_by_tool_timeout():
+    sink = ListEventSink()
+    proxy = proxy_for(SleepingCaller(0.2), sink, SecretMasker(), timeout=0.05)
+
+    reply = await proxy.call("tony.run_subagent", {})
+
+    assert reply == ToolReply(text="tony.run_subagent done")
+
+
+@pytest.mark.parametrize("tool_id", ["tony.read_skill", "fs.read_file"])
+async def test_other_tools_still_time_out(tool_id):
+    sink = ListEventSink()
+    proxy = proxy_for(SleepingCaller(0.2), sink, SecretMasker(), timeout=0.05)
+
+    reply = await proxy.call(tool_id, {})
+
+    assert reply.is_error and "timed out" in reply.text
