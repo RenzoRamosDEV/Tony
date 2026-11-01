@@ -79,7 +79,7 @@ def load_tool_spec(root: Path, key: str, *, native_tools: Collection[str]) -> To
 
 
 def parse_tool_spec(text: str, *, file: str, native_tools: Collection[str]) -> ToolSpec:
-    data = _parse_json(text, file)
+    data = parse_json(text, file)
     forbidden = _find_permission_key(data)
     if forbidden:
         raise DefinitionError(file, forbidden, f"permissions belong to {POLICY_FILE}")
@@ -106,7 +106,7 @@ def _check_server_name(name: str, file: str) -> None:
         )
 
 
-def _parse_json(text: str, file: str) -> dict[str, Any]:
+def parse_json(text: str, file: str) -> dict[str, Any]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as error:
