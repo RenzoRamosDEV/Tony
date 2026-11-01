@@ -41,6 +41,10 @@ Every verdict SHALL append exactly one JSON line to `logs/audit.jsonl` (folder c
 - **WHEN** Viernes makes a call
 - **THEN** `agent` is `viernes`
 
+#### Scenario: Subagent call
+- **WHEN** Viernes' subagent `resumidor` calls `filesystem.read_file`
+- **THEN** the audit line has `agent: "viernes/resumidor"` and the same `task_id` as Viernes' own calls in that task
+
 ### Requirement: Argument hash
 `args_hash` SHALL be the lowercase SHA-256 hex digest of the canonical JSON of the args (sorted keys, separators `, ` and `: `, non-ASCII kept), so equal args always produce equal hashes regardless of key order.
 

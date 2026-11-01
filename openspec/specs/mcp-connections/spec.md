@@ -31,7 +31,7 @@ A server that fails to connect SHALL be marked down, logged to the task log as a
 - **THEN** the broken server is marked down, an `error` event naming it is written to the task log and stderr, the filesystem tools are callable, and the run continues to completion
 
 ### Requirement: Tool identifiers
-MCP tools SHALL be identified as `<server>.<tool>` and native tools as `tony.<name>`. Server names `tony` MUST be rejected to avoid collisions.
+MCP tools SHALL be identified as `<server>.<tool>` and native tools as `tony.<name>`. Server names `tony` MUST be rejected to avoid collisions. Tony SHALL provide exactly the native tools `read_skill` and `run_subagent`, bound to the calling agent at each run.
 
 #### Scenario: Native tool id
 - **WHEN** Tony provides a native tool named `now` and an agent's `tool.json` declares `"native": ["now"]`
@@ -44,6 +44,14 @@ MCP tools SHALL be identified as `<server>.<tool>` and native tools as `tony.<na
 #### Scenario: Unknown native tool
 - **WHEN** `native` lists a name Tony does not provide
 - **THEN** loading fails with an error naming the file and the field `native`
+
+#### Scenario: Production natives
+- **WHEN** the production native tool names are listed
+- **THEN** they are exactly `read_skill` and `run_subagent`
+
+#### Scenario: Natives bound per agent
+- **WHEN** Viernes and its subagent `resumidor` both declare `read_skill` and each calls it with a skill name of its own folder
+- **THEN** each receives the body from its own `skills/` folder
 
 ### Requirement: Connections are closed
 All server connections opened for a task SHALL be closed when the task finishes, fails or times out, and no stdio server process SHALL outlive the task.

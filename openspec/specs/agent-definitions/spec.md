@@ -21,7 +21,7 @@ An agent SHALL be declared by `agents/<name>/agent.md`, consisting of a YAML fro
 - **THEN** loading fails with an error naming the file
 
 ### Requirement: Agent frontmatter schema
-The frontmatter SHALL contain exactly these fields, all required: `name` (string equal to the agent folder name), `role` (`front`, `worker` or `guard`), `model` (a model alias), `persona` (`language`: string, `tone`: string) and `voice` (`tts`: string of the form `kokoro/<voice>`). Unknown fields at any level MUST be rejected.
+The frontmatter SHALL contain these required fields: `name` (string equal to the agent folder name), `role` (`front`, `worker` or `guard`), `model` (a model alias), `persona` (`language`: string, `tone`: string) and `voice` (`tts`: string of the form `kokoro/<voice>`), plus the optional field `description` (non-empty string). Unknown fields at any level MUST be rejected.
 
 #### Scenario: Name differs from folder
 - **WHEN** `agents/viernes/agent.md` declares `name: friday`
@@ -47,8 +47,16 @@ The frontmatter SHALL contain exactly these fields, all required: `name` (string
 - **WHEN** `model` is `claude-opus` and that alias is not present in the configured `models`
 - **THEN** loading fails with an error naming the file and the field `model`
 
+#### Scenario: Optional description
+- **WHEN** the frontmatter adds `description: Resume textos largos`
+- **THEN** loading succeeds and the agent exposes that description
+
+#### Scenario: Empty description
+- **WHEN** the frontmatter declares `description: ""`
+- **THEN** loading fails with an error naming the file and the field `description`
+
 ### Requirement: Tool declaration schema
-Each agent whose role is not `guard` SHALL have `agents/<name>/tool/tool.json` with `mcpServers` (map of server name to a stdio entry `{command, args?, env?}` or an HTTP entry `{url, headers?}`) and `native` (list of native tool names, default `[]`). Each server entry MUST define exactly one of `command` or `url`; unknown keys MUST be rejected.
+Each agent whose role is not `guard` SHALL have `agents/<name>/tool/tool.json` with `mcpServers` (map of server name to a stdio entry `{command, args?, env?}` or an HTTP entry `{url, headers?}`) and `native` (list of native tool names, default `[]`). Each server entry MUST define exactly one of `command` or `url`; unknown keys MUST be rejected. Server names MUST match `^[A-Za-z0-9]+([-_][A-Za-z0-9]+)*$`.
 
 #### Scenario: Stdio and HTTP servers accepted
 - **WHEN** `tool.json` declares `{"mcpServers": {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/notas"]}, "remote": {"url": "https://example.test/mcp", "headers": {"Authorization": "Bearer ${REMOTE_TOKEN}"}}}}`
@@ -70,6 +78,14 @@ Each agent whose role is not `guard` SHALL have `agents/<name>/tool/tool.json` w
 - **WHEN** a `worker` or `front` agent folder has no `tool/tool.json`
 - **THEN** loading fails with an error naming the expected file path
 
+#### Scenario: Server name with a dot or double underscore
+- **WHEN** `tool.json` declares a server named `my.server` or `my__server`
+- **THEN** loading fails with an error naming the file and the field `mcpServers.<server>`
+
+#### Scenario: Server name boundaries
+- **WHEN** `tool.json` declares servers named `brave_search`, `gh-1` and `a`
+- **THEN** loading succeeds, and a server named `-x`, `x-` or the empty string is rejected naming the file
+
 ### Requirement: Permissions are not declared in tool.json
 The keys `allow` and `confirm` MUST be rejected at any depth of `tool.json`, with an error that names the file and the key and states that permissions belong to `agents/edith/policy.yaml`.
 
@@ -82,7 +98,7 @@ The keys `allow` and `confirm` MUST be rejected at any depth of `tool.json`, wit
 - **THEN** loading fails with an error naming the file, the key `mcpServers.<server>.allow`, and `agents/edith/policy.yaml`
 
 ### Requirement: Bundled Viernes agent
-The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-sonnet`, Spanish persona with tone `cercano, ágil y pragmático; humor sutil solo en el resumen`, a `kokoro/<voice>` voice, a system prompt instructing it to solve the structured task with its tools, to answer with the structured result and never to address the user outside `resumen`, and a `tool.json` declaring the filesystem MCP server.
+The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-sonnet`, Spanish persona with tone `cercano, ágil y pragmático; humor sutil solo en el resumen`, a `kokoro/<voice>` voice, a system prompt instructing it to solve the structured task with its tools, to answer with the structured result and never to address the user outside `resumen`, and a `tool.json` declaring the filesystem MCP server and the natives `read_skill` and `run_subagent`.
 
 #### Scenario: Bundled agent validates
 - **WHEN** the bundled `agents/viernes/` is loaded with the default configuration
@@ -91,6 +107,10 @@ The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-
 #### Scenario: Viernes persona
 - **WHEN** the bundled `agents/viernes/agent.md` is loaded
 - **THEN** its persona tone is `cercano, ágil y pragmático; humor sutil solo en el resumen`
+
+#### Scenario: Viernes natives
+- **WHEN** the bundled `agents/viernes/tool/tool.json` is loaded
+- **THEN** its `native` is `["read_skill", "run_subagent"]` and its catalog identifies them as `tony.read_skill` and `tony.run_subagent`
 
 ### Requirement: Guard agent has no tools
 An agent with role `guard` MUST NOT have a `tool/` folder; loading one that has it SHALL fail with an error naming `agents/<name>/tool/` and stating that a guard agent has no tools. A valid guard agent SHALL load with no MCP servers and no native tools.
