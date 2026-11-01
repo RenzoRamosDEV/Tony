@@ -7,13 +7,20 @@ from tony.core.events import core_events
 from tony.core.events.core_events import MaskingPublisher, ReplyMode
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.guard.session import SessionGate
+from tony.core.loader.agent import AgentDefinition
 from tony.core.memory.history import HistoryStore, StoredMessage
 from tony.core.memory.preferences import PreferencesFile
 from tony.core.orchestrator.agents import AgentSlots
 from tony.core.orchestrator.front_tools import WAITING_AFTER_S, FrontTools
 from tony.core.orchestrator.ports import ChatEngine
 from tony.core.orchestrator.prompt_sections import agent_prompt
-from tony.core.orchestrator.runner import SKILLS_SOURCE, RunDeps, agent_tools, run_task
+from tony.core.orchestrator.runner import (
+    SKILLS_SOURCE,
+    RunDeps,
+    agent_tools,
+    run_task,
+    with_live_tools,
+)
 
 PREFERENCES_HEADING = "## Preferencias del usuario"
 USER_LABEL = "usuario"
@@ -78,11 +85,12 @@ class Conversation:
         return reply
 
     async def _converse(self, message: str, earlier: list[StoredMessage]) -> str:
-        model_id = self._config.resolve_model(self.front.spec.model)
-        async with agent_tools(self.front, self._config, self._deps) as own_tools:
+        front = with_live_tools(self.front, self._deps)
+        model_id = self._config.resolve_model(front.spec.model)
+        async with agent_tools(front, self._config, self._deps) as own_tools:
             outcome = await self._chat_engine.converse(
-                self.front.spec,
-                self._system_prompt(),
+                front.spec,
+                self._system_prompt(front),
                 self._prompt(message, earlier),
                 [*self._front_tools.tools(), *own_tools],
                 model_id,
@@ -96,9 +104,9 @@ class Conversation:
             return text, self.reply_mode()
         return text[match.end() :], _PREFIX_MODES[match.group(1)]
 
-    def _system_prompt(self) -> str:
+    def _system_prompt(self, front: AgentDefinition) -> str:
         preferences = self._masker.mask(self.preferences.read()).strip()
-        body, errors = agent_prompt(self._deps.root, self.front, self._config)
+        body, errors = agent_prompt(self._deps.root, front, self._config)
         for error in errors:
             self._publish(core_events.error(SKILLS_SOURCE, str(error)))
         return f"{body}\n\n{PREFERENCES_HEADING}\n{preferences}" if preferences else body

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from tony.core.config.errors import DefinitionError
 from tony.core.config.placeholders import SecretMasker
+from tony.core.config.reload import PolicySource, StaticPolicy, ToolSpecSource
 from tony.core.config.secrets import Variables, load_variables
 from tony.core.config.settings import TonyConfig, load_config
 from tony.core.events import core_events, log_events
@@ -63,6 +64,10 @@ class RunDeps:
     task_timeout: float | None = None
     publish: Publisher = core_events.no_op
     user_cancel: asyncio.Event | None = None
+    policy_source: PolicySource | None = None
+    """Live policy of a long-running host; None reads `policy.yaml` from disk per task."""
+    tool_specs: ToolSpecSource | None = None
+    """Live tool declarations of a long-running host; None reads `tool.json` per task."""
 
 
 class NotWorkerError(Exception):
@@ -89,7 +94,11 @@ class _TaskRun:
 def _prepare_run(agent: AgentDefinition, config: TonyConfig, deps: RunDeps) -> _TaskRun:
     model_id = config.resolve_model(agent.spec.model)
     guard_agent = load_agent(deps.root, config.guard, config, native_tools=deps.native.keys())
-    policy = load_policy(deps.root, config.guard)
+    policy = (
+        deps.policy_source.current()
+        if deps.policy_source is not None
+        else load_policy(deps.root, config.guard)
+    )
     task_id = deps.task_id_factory()
     variables = load_variables(deps.root, deps.environ)
     masker = SecretMasker(variables.env_file_values.values())
@@ -112,7 +121,13 @@ def _prepare_run(agent: AgentDefinition, config: TonyConfig, deps: RunDeps) -> _
 
 async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> TaskResult:
     config = load_config(deps.root)
-    agent = load_agent(deps.root, agent_name, config, native_tools=deps.native.keys())
+    agent = load_agent(
+        deps.root,
+        agent_name,
+        config,
+        native_tools=deps.native.keys(),
+        tools=deps.tool_specs.spec_for(agent_name) if deps.tool_specs is not None else None,
+    )
     if agent.spec.role != "worker":
         raise NotWorkerError(agent_name, agent.spec.role)
     run = _prepare_run(agent, config, deps)
@@ -191,7 +206,12 @@ async def _run_subagent(
     """Run a subagent inside the parent task: same id, log, guard, supervisor and usage."""
     try:
         agent = load_subagent(
-            deps.root, parent.agent.name, name, parent.config, native_tools=deps.native.keys()
+            deps.root,
+            parent.agent.name,
+            name,
+            parent.config,
+            native_tools=deps.native.keys(),
+            tools_for=deps.tool_specs.spec_for if deps.tool_specs is not None else None,
         )
     except DefinitionError as error:
         return ToolReply(text=str(error), is_error=True)
@@ -273,13 +293,20 @@ def _edith(
         guard_model = config.resolve_model(guard_agent.spec.model)
         wording = deps.wording(guard_agent.spec.system_prompt, guard_model)
     return EdithGuard(
-        policy,
+        deps.policy_source or StaticPolicy(policy),
         confirmer=deps.confirmer,
         wording=wording,
         audit=AuditLog(deps.root, clock=deps.clock),
         masker=masker,
         monotonic=deps.monotonic,
     )
+
+
+def with_live_tools(agent: AgentDefinition, deps: RunDeps) -> AgentDefinition:
+    """The agent with its current live tool declaration, when the host keeps one."""
+    if deps.tool_specs is None:
+        return agent
+    return replace(agent, tools=deps.tool_specs.spec_for(agent.name))
 
 
 @asynccontextmanager

@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable
 
 from tony.core.config.placeholders import SecretMasker
+from tony.core.config.reload import PolicySource
 from tony.core.events.messages import Ruling, ToolCall, UserDecision
 from tony.core.guard.allow_always import offers_allow_always
 from tony.core.guard.audit import AuditLog, args_preview
@@ -17,7 +18,7 @@ class EdithGuard:
 
     def __init__(
         self,
-        policy: Policy,
+        policy: PolicySource,
         *,
         confirmer: Confirmer,
         wording: QuestionWording | None,
@@ -34,26 +35,29 @@ class EdithGuard:
 
     async def decide(self, call: ToolCall) -> Ruling:
         start = self._monotonic()
-        verdict = evaluate(self._policy, call.tool, call.args)
+        policy = self._policy.current()
+        verdict = evaluate(policy, call.tool, call.args)
         preview = args_preview(call.args, self._masker)
         user_decision = None
         if verdict.verdict == "confirm":
-            user_decision = await self._ask_user(call, preview, verdict.rule)
+            user_decision = await self._ask_user(policy, call, preview, verdict.rule)
         ruling = Ruling(verdict=verdict.verdict, rule=verdict.rule, user_decision=user_decision)
         duration_ms = round((self._monotonic() - start) * 1000)
         self._audit.append(call, ruling, args_preview=preview, duration_ms=duration_ms)
         return ruling
 
-    async def _ask_user(self, call: ToolCall, preview: str, rule: str) -> UserDecision:
+    async def _ask_user(
+        self, policy: Policy, call: ToolCall, preview: str, rule: str
+    ) -> UserDecision:
         question = await worded_question(self._wording, call.tool, preview, rule)
         request = ConfirmationRequest(
             task_id=call.task_id,
             tool=call.tool,
             args_preview=preview,
             question=question,
-            allow_always=offers_allow_always(self._policy, call.tool),
+            allow_always=offers_allow_always(policy, call.tool),
         )
-        timeout = self._policy.limits.confirm_timeout_s
+        timeout = policy.limits.confirm_timeout_s
         try:
             answer = await asyncio.wait_for(self._confirmer.ask(request), timeout)
         except TimeoutError:

@@ -1,11 +1,11 @@
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from pathlib import Path
 
 from tony.core.config.errors import DefinitionError
 from tony.core.config.settings import TonyConfig
 from tony.core.loader.agent import AgentDefinition, load_agent
 from tony.core.loader.agent_md import AgentSpec, parse_agent
-from tony.core.loader.tool_json import agent_folder, tool_file
+from tony.core.loader.tool_json import ToolSpec, agent_folder, tool_file
 
 WORKER_ROLE = "worker"
 RUN_SUBAGENT = "run_subagent"
@@ -24,12 +24,19 @@ def list_subagents(root: Path, parent: str, config: TonyConfig) -> list[tuple[st
 
 
 def load_subagent(
-    root: Path, parent: str, name: str, config: TonyConfig, *, native_tools: Collection[str]
+    root: Path,
+    parent: str,
+    name: str,
+    config: TonyConfig,
+    *,
+    native_tools: Collection[str],
+    tools_for: Callable[[str], ToolSpec] | None = None,
 ) -> AgentDefinition | None:
     if name not in _subagent_names(root, parent):
         return None
     key = f"{parent}/{name}"
-    agent = load_agent(root, key, config, native_tools=native_tools)
+    tools = tools_for(key) if tools_for is not None else None
+    agent = load_agent(root, key, config, native_tools=native_tools, tools=tools)
     _check_subagent(agent.spec, f"{agent_folder(key)}agent.md")
     if RUN_SUBAGENT in agent.tools.native:
         raise DefinitionError(tool_file(key), "native", "a subagent cannot run subagents")

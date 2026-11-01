@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from tests.fakes.confirm import FakeConfirmer
 from tony.core.config.placeholders import SecretMasker
+from tony.core.config.reload import StaticPolicy
 from tony.core.events.messages import ToolCall
 from tony.core.guard.audit import AUDIT_FILE, AuditLog
 from tony.core.guard.edith import EdithGuard
@@ -38,7 +39,7 @@ def call(tool, args=None):
 def make_edith(root, *, confirmer=None, wording=None, readings=(1.0, 1.0), policy=POLICY):
     confirmer = confirmer or FakeConfirmer()
     edith = EdithGuard(
-        policy,
+        StaticPolicy(policy),
         confirmer=confirmer,
         wording=wording,
         audit=AuditLog(root, clock=lambda: datetime(2026, 11, 1, 9, 0, tzinfo=UTC)),
