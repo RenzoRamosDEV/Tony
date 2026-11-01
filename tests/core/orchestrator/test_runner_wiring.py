@@ -9,6 +9,7 @@ from tests.fakes.confirm import FakeConfirmer
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final
 from tony.core.events.messages import TaskRequest
 from tony.core.mcp.native import NativeTool
+from tony.core.orchestrator.ports import ToolReply
 from tony.core.orchestrator.runner import NotWorkerError, RunDeps, run_task
 
 TASK_ID = "d" * 32
@@ -39,7 +40,7 @@ async def test_engine_receives_the_worker_spec(tmp_path):
 
 async def test_declared_native_tools_are_offered_and_run(tmp_path):
     async def now(args):
-        return "2026-11-01T10:00:00Z"
+        return ToolReply(text="2026-11-01T10:00:00Z")
 
     home, _ = make_viernes_home(tmp_path)
     tool_json = home / "agents" / "viernes" / "tool" / "tool.json"
@@ -47,11 +48,18 @@ async def test_declared_native_tools_are_offered_and_run(tmp_path):
     policy = "default: allow\n"
     (home / "agents" / "edith" / "policy.yaml").write_text(policy)
     engine = FakeModelEngine([CallTool("tony.now", {}), Final(structured=OK)])
-    native = {"now": NativeTool(description="Hora.", input_schema={}, run=now)}
+    scopes = []
+
+    def now_factory(scope):
+        scopes.append(scope)
+        return NativeTool(description="Hora.", input_schema={}, run=now)
+
+    native = {"now": now_factory}
 
     await run_task("viernes", REQUEST, deps_for(home, engine, native=native))
 
     assert engine.replies[0].text == "2026-11-01T10:00:00Z"
+    assert [(scope.root, scope.agent) for scope in scopes] == [(home, "viernes")]
 
 
 async def test_non_worker_error_names_the_role(tmp_path):

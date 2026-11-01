@@ -1,14 +1,18 @@
+import pytest
+
 from tests.fakes.sinks import ListEventSink
 from tests.fakes.variables import secret_variables
+from tony.core.config.errors import DefinitionError
 from tony.core.config.placeholders import SecretMasker
-from tony.core.loader.tool_json import ToolSpec
+from tony.core.loader.tool_json import ToolSpec, parse_tool_spec
 from tony.core.mcp.manager import McpManager
-from tony.core.mcp.native import NATIVE_TOOLS, NativeTool
+from tony.core.mcp.native import NativeScope, NativeTool
+from tony.core.orchestrator.natives import NATIVE_TOOLS
 from tony.core.orchestrator.ports import ToolReply
 
 
 async def fixed_now(args):
-    return "2026-11-01T10:00:00Z"
+    return ToolReply(text="2026-11-01T10:00:00Z")
 
 
 NOW = NativeTool(description="Current time.", input_schema={"type": "object"}, run=fixed_now)
@@ -44,11 +48,40 @@ async def test_undeclared_native_tool_is_not_exposed(tmp_path):
     assert reply.is_error is True
 
 
-def test_production_registry_is_empty():
-    assert NATIVE_TOOLS == {}
+def test_production_registry_keys():
+    assert set(NATIVE_TOOLS) == {"read_skill", "run_subagent"}
 
 
-async def test_manager_defaults_to_production_registry(tmp_path):
+@pytest.mark.parametrize("name", ["read_skill", "run_subagent"])
+def test_production_factories_bind_a_native_tool(tmp_path, name):
+    tool = NATIVE_TOOLS[name](NativeScope(root=tmp_path, agent="viernes"))
+
+    assert isinstance(tool, NativeTool)
+    assert tool.input_schema["type"] == "object"
+
+
+def test_factory_receives_scope_with_agent_key(tmp_path):
+    seen = []
+
+    def factory(scope):
+        seen.append(scope)
+        return NOW
+
+    scope = NativeScope(root=tmp_path, agent="viernes/resumidor")
+
+    assert factory(scope) is NOW
+    assert (seen[0].agent, seen[0].root) == ("viernes/resumidor", tmp_path)
+
+
+def test_loader_still_rejects_unknown_native():
+    with pytest.raises(DefinitionError) as info:
+        parse_tool_spec(
+            '{"mcpServers": {}, "native": ["now"]}', file="f.json", native_tools=NATIVE_TOOLS
+        )
+    assert info.value.field == "native"
+
+
+async def test_manager_defaults_to_no_natives(tmp_path):
     spec = ToolSpec.model_validate({"mcpServers": {}})
     manager = McpManager(
         spec,

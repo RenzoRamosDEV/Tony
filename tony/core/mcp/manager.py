@@ -15,7 +15,7 @@ from tony.core.config.placeholders import SecretMasker, resolve_placeholders
 from tony.core.config.secrets import Variables
 from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
-from tony.core.mcp.native import NATIVE_SERVER, NATIVE_TOOLS, NativeTool
+from tony.core.mcp.native import NATIVE_SERVER, NativeTool
 from tony.core.mcp.stderr import MaskedStderr
 from tony.core.orchestrator.ports import EventSink, ToolReply
 
@@ -48,7 +48,7 @@ class McpManager:
         sink: EventSink,
         log_dir: Path,
         connect_timeout: float = 10.0,
-        native: Mapping[str, NativeTool] = NATIVE_TOOLS,
+        native: Mapping[str, NativeTool] | None = None,
         on_status: StatusCallback = lambda server, status: None,
     ) -> None:
         self.spec = spec
@@ -61,7 +61,7 @@ class McpManager:
         self._log_dir = log_dir
         self._stack = AsyncExitStack()
         self._sessions: dict[str, ClientSession] = {}
-        self._native = {name: native[name] for name in spec.native}
+        self._native = {name: (native or {})[name] for name in spec.native}
         self._on_status = on_status
 
     async def __aenter__(self) -> Self:
@@ -92,7 +92,7 @@ class McpManager:
         if tool is None:
             return ToolReply(text=f"tool {tool_id} is not available", is_error=True)
         if tool.server == NATIVE_SERVER:
-            return ToolReply(text=await self._native[tool.name].run(args))
+            return await self._native[tool.name].run(args)
         result = await self._sessions[tool.server].call_tool(tool.name, args)
         return _to_reply(result)
 

@@ -54,9 +54,7 @@ def test_invalid_skill_reported_and_left_out(tmp_path, text, field):
     skills, errors = list_skills(tmp_path, "viernes")
 
     assert [skill.name for skill in skills] == ["ok"]
-    assert [(error.file, error.field) for error in errors] == [
-        (f"{SKILLS}/roto/SKILL.md", field)
-    ]
+    assert [(error.file, error.field) for error in errors] == [(f"{SKILLS}/roto/SKILL.md", field)]
 
 
 def test_non_directories_and_folders_without_skill_md_ignored(tmp_path):

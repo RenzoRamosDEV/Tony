@@ -23,7 +23,8 @@ from tony.core.guard.wording import QuestionWording
 from tony.core.loader.agent import AgentDefinition, load_agent
 from tony.core.logging.task_log import Clock, JsonlTaskLog, new_task_id, utc_now
 from tony.core.mcp.manager import McpManager
-from tony.core.mcp.native import NATIVE_TOOLS, NativeTool
+from tony.core.mcp.native import NativeFactory, NativeScope, NativeTool
+from tony.core.orchestrator.natives import NATIVE_TOOLS
 from tony.core.orchestrator.ports import (
     EngineOutcome,
     EventSink,
@@ -47,7 +48,7 @@ class RunDeps:
     confirmer: Confirmer = field(default_factory=NoChannelConfirmer)
     wording: WordingFactory | None = None
     environ: Mapping[str, str] = field(default_factory=lambda: os.environ)
-    native: Mapping[str, NativeTool] = field(default_factory=lambda: NATIVE_TOOLS)
+    native: Mapping[str, NativeFactory] = field(default_factory=lambda: NATIVE_TOOLS)
     clock: Clock = utc_now
     monotonic: Callable[[], float] = time.monotonic
     task_id_factory: Callable[[], str] = new_task_id
@@ -272,7 +273,7 @@ async def _proxied_tools(run: _TaskRun, deps: RunDeps) -> AsyncIterator[list[Pro
         masker=run.masker,
         sink=run.log,
         log_dir=deps.root / "logs" / "mcp",
-        native=deps.native,
+        native=_bind_natives(run, deps),
         on_status=lambda server, status: run.publish(
             core_events.mcp_status(
                 run.agent.name, server, up=status.up, reason=status.reason, clock=deps.clock
@@ -291,6 +292,11 @@ async def _proxied_tools(run: _TaskRun, deps: RunDeps) -> AsyncIterator[list[Pro
             clock=deps.clock,
         )
         yield proxy.wrap(manager.tools)
+
+
+def _bind_natives(run: _TaskRun, deps: RunDeps) -> dict[str, NativeTool]:
+    scope = NativeScope(root=deps.root, agent=run.agent.name)
+    return {name: deps.native[name](scope) for name in run.agent.tools.native}
 
 
 def _failed(message: str) -> TaskResult:

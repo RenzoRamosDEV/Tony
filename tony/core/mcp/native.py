@@ -1,15 +1,29 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from tony.core.orchestrator.ports import ToolReply
+
 NATIVE_SERVER = "tony"
+
+SubagentRunner = Callable[[dict[str, Any]], Awaitable[ToolReply]]
 
 
 @dataclass(frozen=True)
 class NativeTool:
     description: str
     input_schema: dict[str, Any]
-    run: Callable[[dict[str, Any]], Awaitable[str]]
+    run: Callable[[dict[str, Any]], Awaitable[ToolReply]]
 
 
-NATIVE_TOOLS: dict[str, NativeTool] = {}
+@dataclass(frozen=True)
+class NativeScope:
+    """What a native tool knows about the agent run it is bound to."""
+
+    root: Path
+    agent: str
+    run_subagent: SubagentRunner | None = None
+
+
+NativeFactory = Callable[[NativeScope], NativeTool]

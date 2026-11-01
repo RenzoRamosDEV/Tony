@@ -5,7 +5,7 @@ from pathlib import Path
 from tony.core.config.errors import DefinitionError
 from tony.core.config.settings import CONFIG_FILE, TonyConfig
 from tony.core.loader.agent import AgentDefinition, load_agent
-from tony.core.mcp.native import NATIVE_TOOLS
+from tony.core.orchestrator.natives import NATIVE_TOOLS
 
 
 @dataclass(frozen=True)
