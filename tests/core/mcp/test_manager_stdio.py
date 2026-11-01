@@ -93,3 +93,29 @@ async def test_only_values_of_secret_names_are_registered(tmp_path):
 
     assert notes.text == f"{tmp_path}/notas"
     assert masker.mask(f"{tmp_path} s3cr3t") == f"{tmp_path} ***"
+
+
+async def test_server_stderr_log_masks_env_file_secrets_but_not_home(tmp_path):
+    from tests.fakes.processes import processes_mentioning
+
+    masker = SecretMasker()
+    variables = Variables(
+        values={"HOME": str(tmp_path), "GITHUB_TOKEN": "s3cr3t"},
+        env_file_values={"GITHUB_TOKEN": "s3cr3t"},
+        secret_names=frozenset({"GITHUB_TOKEN"}),
+    )
+    marker = str(tmp_path / "stderr-marker")
+    env = {"TOKEN": "${GITHUB_TOKEN}", "NOTES": "${HOME}/notas", "ECHO_TO_STDERR": "TOKEN,NOTES"}
+    spec = ToolSpec.model_validate({"mcpServers": {"fs": fake_fs_entry(marker, env=env)}})
+    manager = McpManager(
+        spec, variables=variables, masker=masker, sink=ListEventSink(), log_dir=tmp_path / "mcp"
+    )
+
+    async with manager:
+        await manager.call("fs.list_directory", {"path": "."})
+
+    log = (tmp_path / "mcp" / "fs.log").read_text()
+    assert "TOKEN=***" in log
+    assert "s3cr3t" not in log
+    assert f"NOTES={tmp_path}/notas" in log
+    assert processes_mentioning(marker) == []

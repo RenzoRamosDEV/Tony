@@ -16,6 +16,7 @@ from tony.core.config.secrets import Variables
 from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
 from tony.core.mcp.native import NATIVE_SERVER, NATIVE_TOOLS, NativeTool
+from tony.core.mcp.stderr import MaskedStderr
 from tony.core.orchestrator.ports import EventSink, ToolReply
 
 
@@ -129,8 +130,7 @@ class McpManager:
 
     async def _transport(self, name: str, server: McpServer, stack: AsyncExitStack) -> Any:
         if server.is_stdio:
-            self._log_dir.mkdir(parents=True, exist_ok=True)
-            errlog = stack.enter_context((self._log_dir / f"{name}.log").open("a"))
+            errlog = stack.enter_context(MaskedStderr(self._log_dir / f"{name}.log", self._masker))
             params = StdioServerParameters(
                 command=server.command, args=server.args, env=server.env or None
             )

@@ -8,8 +8,8 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 2. Masked stdio stderr log (`tony/core/mcp`)
 
-- [ ] 2.1 Red: tests for `MaskedStderr(path, masker)` in isolation: lines written to the write end appear in the file masked (`auth with s3cr3t` -> `auth with ***`), non-secret lines unchanged, partial last line without newline flushed on close, all lines present after close, reader thread finished after close (bounded join); Green: implement `tony/core/mcp/stderr.py` (os pipe + daemon reader thread); verify tests pass
-- [ ] 2.2 Red: integration test with the fake stdio server writing to stderr a `config/.env` secret received through `env` and a `${HOME}` path: after the task, `logs/mcp/<server>.log` contains `***`, not the secret, and the home path unmasked; server process exited; Green: enter `MaskedStderr` on the server's exit stack before the transport in `McpManager._transport`; verify tests pass and the phase-01/02 MCP tests still pass
+- [x] 2.1 Red: tests for `MaskedStderr(path, masker)` in isolation: lines written to the write end appear in the file masked (`auth with s3cr3t` -> `auth with ***`), non-secret lines unchanged, partial last line without newline flushed on close, all lines present after close, reader thread finished after close (bounded join); Green: implement `tony/core/mcp/stderr.py` (os pipe + daemon reader thread); verify tests pass
+- [x] 2.2 Red: integration test with the fake stdio server writing to stderr a `config/.env` secret received through `env` and a `${HOME}` path: after the task, `logs/mcp/<server>.log` contains `***`, not the secret, and the home path unmasked; server process exited; Green: enter `MaskedStderr` on the server's exit stack before the transport in `McpManager._transport`; verify tests pass and the phase-01/02 MCP tests still pass
 
 ## 3. Core events and publishing (`tony/core/events`, `tony/core/orchestrator`, `tony/core/mcp`)
 
