@@ -25,8 +25,8 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 5. Memory (`tony/core/memory`)
 
-- [ ] 5.1 Red: tests for `PreferencesFile`: missing file reads as empty; `append_line` creates folder/file, normalises line breaks and surrounding spaces, masks `.env` values, rejects blank text; `reply_mode()` returns the last valid `reply_mode:` line or `None` (invalid value ignored); `set_reply_mode` replaces every existing line with one, or appends, leaving other lines intact; Green: implement `preferences.py`; verify tests pass
-- [ ] 5.2 Red: tests for `HistoryStore` on a tmp path: creates `memory/conversations.sqlite` and table `messages` with the specified columns; `add` stores masked content and UTC `ts`; `recent(cid, 20)` with 25 rows returns the last 20 oldest-first; other conversation ids excluded; boundaries 0, 19, 20, 21 rows; Green: implement `history.py` (stdlib `sqlite3`); verify tests pass
+- [x] 5.1 Red: tests for `PreferencesFile`: missing file reads as empty; `append_line` creates folder/file, normalises line breaks and surrounding spaces, masks `.env` values, rejects blank text; `reply_mode()` returns the last valid `reply_mode:` line or `None` (invalid value ignored); `set_reply_mode` replaces every existing line with one, or appends, leaving other lines intact; Green: implement `preferences.py`; verify tests pass
+- [x] 5.2 Red: tests for `HistoryStore` on a tmp path: creates `memory/conversations.sqlite` and table `messages` with the specified columns; `add` stores masked content and UTC `ts`; `recent(cid, 20)` with 25 rows returns the last 20 oldest-first; other conversation ids excluded; boundaries 0, 19, 20, 21 rows; Green: implement `history.py` (stdlib `sqlite3`); verify tests pass
 
 ## 6. Edith session and PIN (`tony/core/guard`, CLI)
 
