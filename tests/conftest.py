@@ -1,6 +1,8 @@
 import os
 
-import pytest
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+import pytest  # noqa: E402
 
 pytest_plugins = ["pytester"]
 

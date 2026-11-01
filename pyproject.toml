@@ -5,10 +5,13 @@ description = "Asistente personal local con agentes Jarvis, Viernes y Edith."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "argon2-cffi>=25.1.0",
     "claude-agent-sdk==0.2.176",
+    "markdown-it-py>=4.2.0",
     "mcp==2.3.0",
     "pydantic>=2.14.2",
     "pydantic-settings>=2.16.2",
+    "pyside6>=6.12.0",
     "pyyaml>=6.0.3",
     "typer>=0.27.3",
 ]
@@ -27,6 +30,7 @@ packages = ["tony"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 timeout = 30
+qt_api = "pyside6"
 testpaths = ["tests"]
 markers = [
     "evals: pruebas con modelo real (solo con TONY_EVALS=1)",
@@ -47,6 +51,7 @@ dev = [
     "mutmut>=3.8.1",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1",
+    "pytest-qt>=4.5.0",
     "pytest-timeout>=2.4.0",
     "ruff>=0.17.3",
 ]

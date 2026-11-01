@@ -4,7 +4,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 1. Dependencies and test setup
 
-- [ ] 1.1 Add runtime dependencies `pyside6`, `argon2-cffi`, `markdown-it-py` and dev dependency `pytest-qt` with `uv add`; set `qt_api = "pyside6"` in `[tool.pytest.ini_options]`; set `os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")` at the top of `tests/conftest.py`; add a smoke test creating a `QWidget` with `qtbot`; verify `uv run pytest` passes headless and `uv run ruff check` is clean
+- [x] 1.1 Add runtime dependencies `pyside6`, `argon2-cffi`, `markdown-it-py` and dev dependency `pytest-qt` with `uv add`; set `qt_api = "pyside6"` in `[tool.pytest.ini_options]`; set `os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")` at the top of `tests/conftest.py`; add a smoke test creating a `QWidget` with `qtbot`; verify `uv run pytest` passes headless and `uv run ruff check` is clean
 
 ## 2. Masked stdio stderr log (`tony/core/mcp`)
 
