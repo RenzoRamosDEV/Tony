@@ -72,7 +72,7 @@ describe("targetParams", () => {
     expect(targetParams("thinking", 0, 1, false)).toEqual(targetParams("thinking", 0, 0, false));
   });
 
-  it.each(["idle", "listening", "thinking", "speaking"] as const)(
+  it.each(["idle", "listening", "thinking", "speaking", "confirming"] as const)(
     "reduced motion freezes %s and only changes brightness",
     (state) => {
       const reduced = targetParams(state, 0.2, 1, true);
@@ -89,6 +89,27 @@ describe("targetParams", () => {
       expect(reduced.bloom).toBe(normal.bloom);
     },
   );
+
+  it("confirming pulses slowly and strongly with little spin", () => {
+    const idle = targetParams("idle", 0, 0, false);
+    const thinking = targetParams("thinking", 0, 0, false);
+    const confirming = targetParams("confirming", 0, 0, false);
+
+    expect(confirming.pulse).toBeGreaterThan(thinking.pulse);
+    expect(confirming.spin).toBeLessThanOrEqual(idle.spin);
+    expect(confirming.ringSpeed).toBeLessThan(thinking.ringSpeed);
+    expect(confirming.glow).toBeGreaterThan(idle.glow);
+    expect(confirming.coreScale).toBe(1);
+  });
+
+  it("confirming ignores the microphone level and the amplitude", () => {
+    expect(targetParams("confirming", 1, 1, false)).toEqual(targetParams("confirming", 0, 0, false));
+  });
+
+  it("reduced motion tells confirming apart by brightness", () => {
+    expect(targetParams("confirming", 0, 0, true).glow).not.toBe(targetParams("idle", 0, 0, true).glow);
+    expect(targetParams("confirming", 0, 0, true).pulse).toBe(0);
+  });
 
   it("reduced motion still tells the states apart by brightness", () => {
     expect(targetParams("thinking", 0, 0, true).glow).not.toBe(targetParams("idle", 0, 0, true).glow);

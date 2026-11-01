@@ -47,6 +47,11 @@ function stateParams(state: OrbState, level: number, amplitude: number, out: Orb
         spin: 0.32, ringSpeed: 1.8, coreScale: 1, shellScale: 1,
         displacement: 0.05, agitation: 0.15, bloom: 1.0, glow: 1.05, pulse: 0.4,
       });
+    case "confirming":
+      return fill(out, {
+        spin: 0.06, ringSpeed: 0.2, coreScale: 1, shellScale: 1,
+        displacement: 0.02, agitation: 0.05, bloom: 1.1, glow: 1.2, pulse: 0.6,
+      });
     case "speaking": {
       const voice = Math.min(1, Math.max(0, amplitude));
       return fill(out, {
