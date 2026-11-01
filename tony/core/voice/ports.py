@@ -45,3 +45,17 @@ class Stt(Protocol):
 class Tts(Protocol):
     def synthesize(self, text: str, voice: str) -> Clip:
         """Synthesise `text` with a `voice.tts` value such as `kokoro/ef_dora,bf_emma`."""
+
+
+@dataclass(frozen=True)
+class Engines:
+    audio_input: AudioInput
+    audio_output: AudioOutput
+    vad: Vad
+    stt: Stt
+    tts: Tts
+
+
+@dataclass(frozen=True)
+class Unavailable:
+    reason: str
