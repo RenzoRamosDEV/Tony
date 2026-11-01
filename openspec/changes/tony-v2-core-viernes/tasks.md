@@ -35,7 +35,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 6. Test doubles
 
-- [ ] 6.1 Red: test that spawns `tests/fakes/fake_fs_server.py` over stdio with the `mcp` client and lists `list_directory`, `read_file`, `sleep`, `echo_env`; Green: implement the fake stdio MCP server with the `mcp` SDK rooted at argv dir (path-escape rejected); verify test passes
+- [x] 6.1 Red: test that spawns `tests/fakes/fake_fs_server.py` over stdio with the `mcp` client and lists `list_directory`, `read_file`, `sleep`, `echo_env`; Green: implement the fake stdio MCP server with the `mcp` SDK rooted at argv dir (path-escape rejected); verify test passes
 - [ ] 6.2 Red: tests for `FakeModelEngine` (executes scripted tool calls in order through given handlers, records replies, returns scripted final answer and usage; fails clearly when a scripted tool id is not offered); Green: implement `tests/fakes/fake_engine.py`, plus `RecordingGuard` and `ListEventSink`; verify tests pass
 
 ## 7. MCP manager (`tony/core/mcp`)
