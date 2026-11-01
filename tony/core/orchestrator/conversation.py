@@ -12,7 +12,8 @@ from tony.core.memory.preferences import PreferencesFile
 from tony.core.orchestrator.agents import AgentSlots
 from tony.core.orchestrator.front_tools import WAITING_AFTER_S, FrontTools
 from tony.core.orchestrator.ports import ChatEngine
-from tony.core.orchestrator.runner import RunDeps, agent_tools, run_task
+from tony.core.orchestrator.prompt_sections import agent_prompt
+from tony.core.orchestrator.runner import SKILLS_SOURCE, RunDeps, agent_tools, run_task
 
 PREFERENCES_HEADING = "## Preferencias del usuario"
 USER_LABEL = "usuario"
@@ -97,7 +98,9 @@ class Conversation:
 
     def _system_prompt(self) -> str:
         preferences = self._masker.mask(self.preferences.read()).strip()
-        body = self.front.spec.system_prompt
+        body, errors = agent_prompt(self._deps.root, self.front, self._config)
+        for error in errors:
+            self._publish(core_events.error(SKILLS_SOURCE, str(error)))
         return f"{body}\n\n{PREFERENCES_HEADING}\n{preferences}" if preferences else body
 
     def _prompt(self, message: str, earlier: list[StoredMessage]) -> str:

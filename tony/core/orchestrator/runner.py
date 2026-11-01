@@ -21,6 +21,7 @@ from tony.core.guard.policy import Policy, load_policy
 from tony.core.guard.port import Guard
 from tony.core.guard.wording import QuestionWording
 from tony.core.loader.agent import AgentDefinition, load_agent
+from tony.core.loader.agent_md import AgentSpec
 from tony.core.logging.task_log import Clock, JsonlTaskLog, new_task_id, utc_now
 from tony.core.mcp.manager import McpManager
 from tony.core.mcp.native import NativeFactory, NativeScope, NativeTool
@@ -32,9 +33,12 @@ from tony.core.orchestrator.ports import (
     ProxiedTool,
     Usage,
 )
+from tony.core.orchestrator.prompt_sections import agent_prompt
 from tony.core.orchestrator.proxy import ToolProxy
 from tony.core.orchestrator.results import to_task_result
 from tony.core.orchestrator.supervisor import USER_CANCELLED, TaskSupervisor
+
+SKILLS_SOURCE = "skills"
 
 WordingFactory = Callable[[str, str], QuestionWording]
 """Builds the guard's question wording from its system prompt and resolved model id."""
@@ -74,6 +78,7 @@ class _TaskRun:
     supervisor: TaskSupervisor
     publish: Publisher
     policy: Policy
+    config: TonyConfig
 
 
 def _prepare_run(agent: AgentDefinition, config: TonyConfig, deps: RunDeps) -> _TaskRun:
@@ -96,6 +101,7 @@ def _prepare_run(agent: AgentDefinition, config: TonyConfig, deps: RunDeps) -> _
         supervisor=TaskSupervisor(policy.limits, _AlertTee(log, publish, task_id, deps.clock)),
         publish=publish,
         policy=policy,
+        config=config,
     )
 
 
@@ -261,8 +267,17 @@ async def agent_tools(
 
 
 async def _run_engine(run: _TaskRun, request: TaskRequest, deps: RunDeps) -> EngineOutcome:
+    spec = _spec_with_sections(run, deps)
     async with _proxied_tools(run, deps) as tools:
-        return await deps.engine.run(run.agent.spec, request, tools, run.model_id)
+        return await deps.engine.run(spec, request, tools, run.model_id)
+
+
+def _spec_with_sections(run: _TaskRun, deps: RunDeps) -> AgentSpec:
+    prompt, errors = agent_prompt(deps.root, run.agent, run.config)
+    for error in errors:
+        run.log.emit(log_events.error(SKILLS_SOURCE, str(error)))
+        run.publish(core_events.error(SKILLS_SOURCE, str(error), clock=deps.clock))
+    return run.agent.spec.model_copy(update={"system_prompt": prompt})
 
 
 @asynccontextmanager
