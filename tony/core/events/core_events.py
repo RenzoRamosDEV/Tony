@@ -11,6 +11,7 @@ Event = dict[str, Any]
 Publisher = Callable[[Event], None]
 ReplyMode = Literal["auto", "voice", "text", "both"]
 Origin = Literal["text", "voice"]
+VoiceLevelSource = Literal["input", "output"]
 VoiceState = Literal["loading", "ready", "listening", "unavailable"]
 AuthState = Literal["locked", "unlocked"]
 AuthReason = Literal[
@@ -164,3 +165,7 @@ def transcript(text: str, *, clock: Clock = utc_now) -> Event:
 
 def voice_state(state: VoiceState, reason: str | None = None, *, clock: Clock = utc_now) -> Event:
     return _event("voice_state", clock, state=state, reason=reason)
+
+
+def voice_level(source: VoiceLevelSource, level: float, *, clock: Clock = utc_now) -> Event:
+    return _event("voice_level", clock, source=source, level=level)

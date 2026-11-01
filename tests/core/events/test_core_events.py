@@ -136,6 +136,14 @@ CASES = [
         ev.voice_state("ready"),
         {"type": "voice_state", "state": "ready", "reason": None},
     ),
+    (
+        ev.voice_level("input", 0.25),
+        {"type": "voice_level", "source": "input", "level": 0.25},
+    ),
+    (
+        ev.voice_level("output", 1.0),
+        {"type": "voice_level", "source": "output", "level": 1.0},
+    ),
 ]
 
 
@@ -214,3 +222,7 @@ def test_masking_publisher_masks_transcripts_and_voice_reasons():
     publish(ev.voice_state("unavailable", "fallo s3cr3t"))
 
     assert [published[0]["text"], published[1]["reason"]] == ["mi clave es ***", "fallo ***"]
+
+
+def test_voice_level_uses_the_injected_clock():
+    assert ev.voice_level("input", 0.0, clock=clock)["ts"] == TS
