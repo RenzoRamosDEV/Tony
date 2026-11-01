@@ -9,19 +9,22 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+from tony.apps.cli.chat import ChatPrinter, run_chat
 from tony.core.config.errors import DefinitionError
 from tony.core.config.secrets import resolve_home
 from tony.core.config.settings import load_config
 from tony.core.events.messages import TaskRequest
 from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
 from tony.core.guard.claude_wording import ClaudeWording
-from tony.core.guard.confirm import CliConfirmer, thread_line_reader
+from tony.core.guard.confirm import CliConfirmer, ConsoleLines, thread_line_reader
 from tony.core.guard.pin import LOCK_FILE, MIN_PIN_LENGTH, PinStore
+from tony.core.guard.policy import load_policy
 from tony.core.orchestrator.agents import AgentSlots, resolve_slots
 from tony.core.orchestrator.claude_engine import ClaudeEngine
-from tony.core.orchestrator.ports import ModelEngine
+from tony.core.orchestrator.ports import ChatEngine, ModelEngine
 from tony.core.orchestrator.runner import NotWorkerError, RunDeps, WordingFactory, run_task
 
+EDITH_PREFIX = "Edith: "
 USAGE_ERROR = 2
 TASK_FAILED = 1
 AGENT_COLUMNS = ("slot", "agent", "role", "model", "voice")
@@ -44,6 +47,8 @@ def create_app(
     readline_factory: Callable[[], Callable[[], str | None]] = stdin_readline,
     now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     getpass: Callable[[str], str] = getpass_module.getpass,
+    chat_engine_factory: Callable[[], ChatEngine] = ClaudeEngine,
+    console_factory: Callable[[], ConsoleLines] = lambda: ConsoleLines(sys.stdin),
 ) -> typer.Typer:
     app = typer.Typer(no_args_is_help=True)
     pin_app = typer.Typer(no_args_is_help=True, help="Manage Edith's PIN.")
@@ -108,6 +113,37 @@ def create_app(
             local_day_of=now() if today else None,
         )
         typer.echo(audit_table(selected))
+
+    @app.command()
+    def chat() -> None:
+        """Talk to the front agent; /pin asks Edith's PIN again, /salir ends the chat."""
+        root = resolve_home()
+        try:
+            config = load_config(root)
+            slots = resolve_slots(root, config)
+            policy = load_policy(root, config.guard)
+        except DefinitionError as error:
+            typer.echo(f"tony: {error}", err=True)
+            raise typer.Exit(USAGE_ERROR) from error
+        console = console_factory()
+        deps = RunDeps(
+            root=root,
+            engine=engine_factory(),
+            confirmer=CliConfirmer(console.next, prefix=EDITH_PREFIX),
+            wording=wording_factory,
+            publish=ChatPrinter(),
+        )
+        asyncio.run(
+            run_chat(
+                slots=slots,
+                config=config,
+                policy=policy,
+                deps=deps,
+                chat_engine=chat_engine_factory(),
+                console=console,
+                getpass=getpass,
+            )
+        )
 
     @app.command()
     def agents() -> None:

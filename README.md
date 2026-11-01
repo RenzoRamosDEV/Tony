@@ -195,6 +195,45 @@ Límites: 10 s de conexión por servidor MCP; el tiempo por llamada a tool y por
 `limits` en la política (20 s y 300 s por defecto). Cada tarea deja su registro en `logs/tasks/<task_id>.jsonl` y el stderr de cada servidor stdio en
 `logs/mcp/<servidor>.log`.
 
+### Conversación: `tony chat`
+
+```bash
+uv run tony chat --help
+uv run tony chat
+uv run tony agents       # slot, agente, rol, modelo y voz de front, worker y guard
+```
+
+`tony chat` lee un mensaje por línea y se lo envía al agente de conversación (`front` de
+`config/tony.yaml`, Jarvis por defecto); la respuesta aparece en stdout a medida que llega, con
+el prefijo `Jarvis: `. Las líneas vacías se ignoran y el chat termina con `/salir` o al acabar la
+entrada. Si el modelo falla se muestra `tony: <error>` en stderr y el chat continúa.
+
+Jarvis encarga las tareas a Viernes con la tool `delegate` y explica su resultado; si una tarea
+tarda más de 3 s se muestra una vez `Un momento, señor; estoy en ello.`. Las confirmaciones de
+Edith salen por stderr con el prefijo `Edith: ` y se responden en la misma entrada (una línea
+tardía tras agotarse la espera llega a Jarvis como mensaje, no se pierde).
+
+Comandos y prefijos:
+
+- `/pin`: vuelve a pedir el PIN de Edith (por ejemplo tras cancelarlo).
+- `/salir`: termina el chat.
+- `/v <mensaje>` y `/t <mensaje>`: responden a ese mensaje por voz o por texto sin cambiar el
+  modo guardado (el prefijo se quita antes de enviarlo).
+
+Modo de respuesta: `auto`, `voice`, `text` o `both`. Se cambia pidiéndoselo a Jarvis (tool
+`set_reply_mode`) o con el selector de la app, y se guarda como `reply_mode: <modo>` en
+`memory/preferences.md`; si no hay línea válida se usa `reply_mode` de `config/tony.yaml`. En esta
+versión el modo solo se guarda: aún no hay salida de voz.
+
+Memoria local (ignorada por git):
+
+- `memory/preferences.md`: preferencias que Jarvis guarda con la tool `remember` (líneas
+  `- <texto>`, con secretos enmascarados). Se añade a su prompt en cada mensaje, así que las
+  ediciones a mano se aplican al siguiente mensaje.
+- `memory/conversations.sqlite`: historial (tabla `messages`). Cada arranque de `tony chat` o de
+  la app abre una conversación nueva; a cada mensaje se le envían los 20 mensajes anteriores de
+  la conversación actual. Los resultados de Viernes no se guardan como mensajes.
+
 ## Desarrollo
 
 ```bash

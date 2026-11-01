@@ -118,10 +118,15 @@ class SessionGate:
         self._on_change = on_change
 
     async def ensure_unlocked(self) -> bool:
-        if self.session.unlocked:
-            return True
+        """Before a delegated task: conversation-only mode refuses without asking."""
         if self.session.conversation_only:
             return False
+        return await self.request_unlock()
+
+    async def request_unlock(self) -> bool:
+        """On the user's request (or a locked session): ask for the PIN until it is accepted."""
+        if self.session.unlocked:
+            return True
         try:
             async with asyncio.timeout(self._timeout_s):
                 return await self._ask_until_unlocked()
@@ -134,6 +139,10 @@ class SessionGate:
             if pin is None:
                 self._on_change(self.session.cancel())
                 return False
-            if self.session.attempt(pin).state == "unlocked":
-                self._on_change(self.session.status)
+            status = self.session.attempt(pin)
+            if status.state == "unlocked":
+                self._on_change(status)
                 return True
+            if status.reason == "no_lock_file":
+                self._on_change(status)
+                return False

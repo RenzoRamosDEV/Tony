@@ -79,3 +79,31 @@ async def test_timeout_covers_every_retry():
 
     assert await gate.ensure_unlocked() is False
     assert len(prompt.shown) == 3
+
+
+async def test_request_unlock_prompts_even_in_conversation_only_mode():
+    gate, prompt, session, _ = gate_for([PIN], state="cancelled")
+
+    assert await gate.request_unlock() is True
+    assert prompt.shown == [AuthStatus("locked", "cancelled", 0)]
+    assert session.unlocked
+
+
+async def test_request_unlock_when_unlocked_does_not_prompt():
+    gate, prompt, *_ = gate_for([], state="unlocked")
+
+    assert await gate.request_unlock() is True
+    assert prompt.shown == []
+
+
+async def test_request_unlock_without_a_lock_file_stops_after_one_prompt():
+    gate, prompt, *_ = gate_for([PIN, PIN], valid_lock=False)
+
+    assert await gate.request_unlock() is False
+    assert len(prompt.shown) == 1
+
+
+async def test_request_unlock_times_out():
+    gate, *_ = gate_for([HANG], state="cancelled", timeout=0.05)
+
+    assert await gate.request_unlock() is False
