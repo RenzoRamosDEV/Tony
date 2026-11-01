@@ -4,7 +4,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 1. Dependency
 
-- [ ] 1.1 Add the runtime dependency `watchfiles` with `uv add watchfiles` (commit `pyproject.toml` and `uv.lock`); verify `uv run python -c "import watchfiles"` succeeds and `uv run pytest` still passes
+- [x] 1.1 Add the runtime dependency `watchfiles` with `uv add watchfiles` (commit `pyproject.toml` and `uv.lock`); verify `uv run python -c "import watchfiles"` succeeds and `uv run pytest` still passes
 
 ## 2. Definitions: server names, description, agent keys, skills, subagents (`tony/core/loader`)
 
