@@ -10,7 +10,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 2. Shared models and test doubles
 
-- [ ] 2.1 Red: tests for `Ruling` (`verdict`, `rule`, `user_decision` in `allow|deny|timeout|None`) JSON round-trip and invalid `user_decision` rejected; Green: add pydantic `Ruling` to `tony/core/events/messages.py`; verify tests pass
+- [x] 2.1 Red: tests for `Ruling` (`verdict`, `rule`, `user_decision` in `allow|deny|timeout|None`) JSON round-trip and invalid `user_decision` rejected; Green: add pydantic `Ruling` to `tony/core/events/messages.py`; verify tests pass
 - [ ] 2.2 Red: tests for new event builders `token_alert(total_tokens, limit)` and `task_finished` with outcome `cancelled` (JSON-serializable); Green: implement in `log_events`; verify tests pass
 - [ ] 2.3 Red: tests for fakes: `FakeConfirmer` (scripted answers `True`/`False`/`None`/hang, records questions), `FakeWording` (scripted text, raise, or delay; records inputs); fake fs server gains `write_file` and `delete_file` (rooted, path escape rejected); Green: implement in `tests/fakes/`; verify tests pass
 

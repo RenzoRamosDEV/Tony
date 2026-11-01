@@ -4,7 +4,7 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from tony.core.events.messages import Decision, TaskRequest, TaskResult, ToolCall
+from tony.core.events.messages import Decision, Ruling, TaskRequest, TaskResult, ToolCall
 
 
 class TestTaskRequest:
@@ -86,3 +86,29 @@ class TestToolCall:
 
 def test_decision_literal_values():
     assert set(get_args(Decision)) == {"allow", "confirm", "deny"}
+
+
+class TestRuling:
+    @pytest.mark.parametrize("user_decision", ["allow", "deny", "timeout", None])
+    def test_json_round_trip(self, user_decision):
+        ruling = Ruling(verdict="confirm", rule="r/confirm", user_decision=user_decision)
+
+        assert Ruling.model_validate_json(ruling.model_dump_json()) == ruling
+
+    def test_user_decision_defaults_to_none(self):
+        ruling = Ruling(verdict="allow", rule="a/allow")
+
+        assert ruling.model_dump(mode="json") == {
+            "verdict": "allow",
+            "rule": "a/allow",
+            "user_decision": None,
+        }
+
+    @pytest.mark.parametrize("user_decision", ["confirm", "yes", ""])
+    def test_invalid_user_decision_rejected(self, user_decision):
+        with pytest.raises(ValidationError, match="user_decision"):
+            Ruling(verdict="confirm", rule="r", user_decision=user_decision)
+
+    def test_invalid_verdict_rejected(self):
+        with pytest.raises(ValidationError, match="verdict"):
+            Ruling(verdict="maybe", rule="r")

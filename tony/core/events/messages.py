@@ -30,3 +30,9 @@ class ToolCall(BaseModel):
     agent: str
     tool: str
     args: dict[str, Any]
+
+
+class Ruling(BaseModel):
+    verdict: Decision
+    rule: str
+    user_decision: Literal["allow", "deny", "timeout"] | None = None
