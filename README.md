@@ -308,17 +308,23 @@ notificaciones; sin él la app funciona igual y lo indica en el chat cuando har�
   distinguir mayúsculas: `Ctrl+Alt+Space`, `Super+F2`. Un atajo inválido se muestra como error
   nombrando `desktop.hotkey` y la app sigue funcionando. Solo se registra con
   `XDG_SESSION_TYPE=x11`.
-- **Wayland**: no hay atajos globales para aplicaciones; cree un atajo personalizado del
-  escritorio que ejecute `tony --focus` (o `flatpak run io.github.renzoramosdev.Tony --focus`):
-  - KDE Plasma: Preferencias del sistema → Teclado → Accesos rápidos → Añadir nuevo → Orden o
-    script, con la orden `tony --focus` y el atajo que prefiera (p. ej. Meta+J).
-  - GNOME: Configuración → Teclado → Ver y personalizar atajos → Atajos personalizados → «+»,
-    con la orden `tony --focus` y el atajo que prefiera.
+- **Wayland**: no hay atajos globales para aplicaciones (ver [Atajos en
+  Wayland](#atajos-en-wayland)).
 - **Notificaciones**: si Edith espera una confirmación con la ventana oculta o minimizada, se
   muestra una notificación nativa `Tony — Edith` con la pregunta (con los secretos ya
   enmascarados; puede verse en la pantalla de bloqueo). Al pulsarla se abre la ventana en el
   aviso de Edith con el foco en «Denegar». Sin servicio de notificaciones se muestra un error
   `notifications` una vez y el aviso de la ventana sigue funcionando.
+
+#### Atajos en Wayland
+
+Cree un atajo personalizado del escritorio que ejecute `tony --focus` (con el Flatpak,
+`flatpak run io.github.renzoramosdev.Tony --focus`):
+
+- KDE Plasma: Preferencias del sistema → Teclado → Accesos rápidos → Añadir nuevo → Orden o
+  script, con esa orden y el atajo que prefiera (p. ej. Meta+J).
+- GNOME: Configuración → Teclado → Ver y personalizar atajos → Atajos personalizados → «+», con
+  esa orden y el atajo que prefiera.
 
 ### Voz
 
@@ -470,6 +476,34 @@ ficheros al empezar.
   `tony: warning: <fichero>: <error>`. El siguiente guardado válido se aplica con normalidad.
 
 Las skills y los subagentes no necesitan vigilancia: se leen del disco en cada tarea o turno.
+
+## Flatpak
+
+`packaging/` contiene el manifiesto `io.github.renzoramosdev.Tony` (runtime KDE 6.8 con Python
+3.12, PortAudio compilado como módulo y Tony con los extras `voice` y `desktop`), el fichero
+`.desktop` (con la acción «Escuchar», `tony --focus`) y el icono. Es para compilar en local: las
+dependencias de Python se descargan durante la compilación y se verifican con los hashes de
+`packaging/requirements.txt`. Tras cambiar dependencias, regenérelo:
+
+```bash
+uv export --frozen --no-dev --extra voice --extra desktop --no-emit-project -o packaging/requirements.txt
+flatpak-builder --user --install --force-clean build-dir packaging/io.github.renzoramosdev.Tony.yml
+flatpak run io.github.renzoramosdev.Tony            # abre la app
+flatpak run io.github.renzoramosdev.Tony --focus    # la levanta y escucha
+```
+
+Permisos del sandbox: Wayland (con X11 de reserva), PulseAudio (micrófono y altavoces), red, el
+directorio personal y el servicio de notificaciones. Para usar otro `TONY_HOME`:
+
+```bash
+flatpak override --user --env=TONY_HOME=$HOME/Tony io.github.renzoramosdev.Tony
+```
+
+Servidores MCP dentro del sandbox: los que se lanzan con `npx` necesitan Node.js dentro del
+Flatpak, que no viene incluido; use preferiblemente servidores que se lancen con `uvx` (Python:
+el binario estático de `uv` instalado en `~/.local/bin` es accesible gracias a
+`--filesystem=home`; indique su ruta completa como orden), o instale Node en el sandbox. Para el atajo de teclado en Wayland, vea [Atajos en
+Wayland](#atajos-en-wayland).
 
 ## Desarrollo
 
