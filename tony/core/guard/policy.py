@@ -1,8 +1,18 @@
+from pathlib import Path
 from re import Pattern
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+import yaml
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from tony.core.config.errors import DefinitionError
 from tony.core.events.messages import Decision
 
 
@@ -58,3 +68,24 @@ class Policy(_Strict):
     rules: list[Rule] = []
     limits: Limits = Field(default_factory=Limits)
     auth: Auth = Field(default_factory=Auth)
+
+
+def policy_file(guard: str) -> str:
+    return f"agents/{guard}/policy.yaml"
+
+
+def load_policy(root: Path, guard: str) -> Policy:
+    file = policy_file(guard)
+    path = root / file
+    if not path.is_file():
+        raise DefinitionError(file, None, f"missing file {file}")
+    try:
+        data = yaml.safe_load(path.read_text())
+    except yaml.YAMLError as error:
+        raise DefinitionError(file, None, f"invalid YAML: {error}") from error
+    if not isinstance(data, dict):
+        raise DefinitionError(file, None, "must be a YAML mapping")
+    try:
+        return Policy.model_validate(data)
+    except ValidationError as error:
+        raise DefinitionError.from_validation(file, error) from error

@@ -18,7 +18,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 - [x] 3.1 Red: tests for `Policy` schema: `default` required and in `allow|confirm|deny`; `rules` default `[]`; `limits` and `auth` defaults; unknown keys rejected at every level with dotted field (`limits.max_cost`, `rules.1.verdict`); Green: implement pydantic models with `extra="forbid"`; verify tests pass
 - [x] 3.2 Red: tests for `Rule`: `match` string or non-empty list (empty list rejected), derived id `<first pattern>/<verdict>`, explicit `id`, `when` with `path_outside` list, `args_regex` compiled at load (invalid regex -> error at `rules.<n>.when.args_regex`), `numeric_above {arg, value}`; Green: implement; verify tests pass
-- [ ] 3.3 Red: tests for `load_policy(root, guard)` reading `agents/<guard>/policy.yaml`: missing file, invalid YAML, non-mapping, schema error -> `DefinitionError` naming the file and field; Green: implement; verify tests pass
+- [x] 3.3 Red: tests for `load_policy(root, guard)` reading `agents/<guard>/policy.yaml`: missing file, invalid YAML, non-mapping, schema error -> `DefinitionError` naming the file and field; Green: implement; verify tests pass
 
 ## 4. Deterministic evaluation (`tony/core/guard/evaluate.py`)
 
