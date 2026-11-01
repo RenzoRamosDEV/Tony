@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tony.core.config.placeholders import SecretMasker
-from tony.core.config.secrets import load_secrets
+from tony.core.config.secrets import load_variables
 from tony.core.config.settings import load_config
 from tony.core.events import log_events
 from tony.core.events.messages import TaskRequest, TaskResult
@@ -79,7 +79,7 @@ async def _run_engine(
 ) -> EngineOutcome:
     async with McpManager(
         agent.tools,
-        variables=load_secrets(deps.root, deps.environ),
+        variables=load_variables(deps.root, deps.environ).values,
         masker=masker,
         sink=log,
         log_dir=deps.root / "logs" / "mcp",
