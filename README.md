@@ -14,6 +14,12 @@ uv sync
 uv run tony --help
 ```
 
+La voz y la integración con el escritorio son extras opcionales (ver [Voz](#voz)):
+
+```bash
+uv sync --extra voice --extra desktop
+```
+
 Tony usa como raíz el directorio indicado en `TONY_HOME` o, si no existe, el directorio actual.
 
 ## Configuración
@@ -247,8 +253,8 @@ caído, servidor MCP roto, excepción) se muestra como error en el chat y la ven
 - **Chat**: burbujas por agente, Jarvis `#2F6FED`, Viernes `#2E9E5B`, Edith `#E0A100` y el resto
   (incluido el usuario) en gris. Las respuestas crecen a medida que llegan y se muestran como
   Markdown (CommonMark con tablas; el HTML en bruto se escapa). Intro envía el mensaje; el
-  selector `auto/voice/text/both` cambia el modo de respuesta; el botón de micrófono está
-  desactivado porque la voz llegará más adelante.
+  selector `auto/voice/text/both` cambia el modo de respuesta y el botón de micrófono escucha
+  una frase (ver [Voz](#voz)).
 - **Actividad** (plegable): cada tarea delegada con su agente y objetivo, sus llamadas a tools
   con veredicto (y decisión del usuario), las de subagentes agrupadas bajo su nodo, los tokens y
   el tiempo al terminar, y cada servidor MCP con su estado (en rojo si está caído). Al arrancar
@@ -280,6 +286,61 @@ muestra cómo crear el PIN con `tony pin set`. Mientras Edith esté bloqueada, e
 «Desbloquear Edith» vuelve a abrirlo. Cerrar la ventana cancela la tarea en curso, cierra los
 servidores MCP y detiene el núcleo.
 
+### Voz
+
+La voz es local: micrófono a 16 kHz mono, detección de voz con Silero VAD, transcripción en
+español con faster-whisper (`voice.stt`, `faster-whisper/small` en `int8` sobre CPU) y síntesis
+con Kokoro a 24 kHz. Se instala con el extra `voice` (torch solo CPU) y necesita la biblioteca
+del sistema PortAudio (`portaudio` en Fedora, `libportaudio2` en Debian/Ubuntu):
+
+```bash
+uv sync --extra voice --extra desktop
+```
+
+Al abrir la app se cargan en segundo plano el VAD, el modelo de transcripción y las voces de
+los tres agentes; la ventana responde mientras tanto. El estado se publica como evento
+`voice_state`: `loading`, `ready`, `listening` o `unavailable` con el motivo (extra no
+instalado, `voice.stt` distinto de `faster-whisper/<modelo>`, `voice.vad` distinto de `silero`
+o un fallo al cargar). Sin voz todo sigue funcionando por texto y el tooltip del micrófono dice
+por qué.
+
+Micrófono: con la voz `ready`, un clic escucha **una** frase: se cierra tras 700 ms de silencio
+(o a los 30 s), se transcribe y se envía a Jarvis como un mensaje escrito, con origen `voice` (en
+el chat aparece como «Tú (voz)»). Mientras escucha el botón muestra «Escuchando…» y otro clic
+lo para; sin hablar en 10 s se cierra solo. Empezar a escuchar corta lo que Tony esté diciendo,
+así que nunca se graba a sí mismo. `cancel` detiene también la voz y la escucha.
+
+Modo de respuesta y voz:
+
+| Modo | Habla | Escribe |
+|------|-------|---------|
+| `voice` | sí | no |
+| `text` | no | sí |
+| `both` | sí | sí |
+| `auto` | si el mensaje llegó por voz | si llegó escrito |
+
+Si la voz no está `ready` el turno siempre se escribe. En un turno que solo habla, el chat
+muestra la respuesta completa al terminar el turno.
+
+Qué se dice: la respuesta se parte en frases mientras llega y cada frase suena en cuanto está
+completa. Los bloques de código y las tablas Markdown se sustituyen por «Te lo dejo en
+pantalla.»; las respuestas de más de 600 caracteres se dicen como sus dos primeras frases
+seguidas de esa misma frase; las marcas Markdown (negritas, títulos, viñetas, comillas
+invertidas, destinos de enlaces) no se leen.
+
+Voces por agente (`voice.tts` de cada `agent.md`): Jarvis `kokoro/em_alex`, Viernes
+`kokoro/ef_dora` y Edith `kokoro/ef_dora,bf_emma`. Una lista separada por comas es una mezcla:
+la media de esas voces de Kokoro.
+
+Edith por voz: si una confirmación queda pendiente durante un turno que habla, Edith la
+pregunta con su voz (sin la parte `Regla: …`) y, cuando termina de sonar, el micrófono escucha
+la respuesta. Solo «Sí, Edith» (sin importar mayúsculas, tildes ni puntuación: `si edith`)
+permite; cualquier otra frase deniega; el silencio hasta `confirm_timeout_s` es `timeout`. El
+aviso de la ventana sigue disponible y responder ahí cierra la escucha.
+
+Privacidad: el audio nunca sale del proceso, no se guarda en disco ni se publica como evento;
+solo el texto transcrito llega al chat y al historial.
+
 ### Conversación: `tony chat`
 
 ```bash
@@ -307,8 +368,9 @@ Comandos y prefijos:
 
 Modo de respuesta: `auto`, `voice`, `text` o `both`. Se cambia pidiéndoselo a Jarvis (tool
 `set_reply_mode`) o con el selector de la app, y se guarda como `reply_mode: <modo>` en
-`memory/preferences.md`; si no hay línea válida se usa `reply_mode` de `config/tony.yaml`. En esta
-versión el modo solo se guarda: aún no hay salida de voz.
+`memory/preferences.md`; si no hay línea válida se usa `reply_mode` de `config/tony.yaml`. En
+`tony chat` las respuestas siempre se escriben; la voz solo existe en la app de escritorio (ver
+[Voz](#voz)).
 
 Memoria local (ignorada por git):
 
