@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Protocol
 
 from tony.core.config.placeholders import SecretMasker
@@ -24,7 +25,9 @@ class ToolProxy:
         caller: ToolCaller,
         sink: EventSink,
         masker: SecretMasker,
+        timeout: float = 20.0,
     ) -> None:
+        self.timeout = timeout
         self._task_id = task_id
         self._agent = agent
         self._guard = guard
@@ -46,6 +49,7 @@ class ToolProxy:
     async def call(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
         self._sink.emit(log_events.tool_call(tool_id, args))
         reply = await self._execute(tool_id, args)
+        reply = ToolReply(text=self._masker.mask(reply.text), is_error=reply.is_error)
         self._sink.emit(log_events.tool_result(tool_id, ok=not reply.is_error, content=reply.text))
         return reply
 
@@ -57,7 +61,14 @@ class ToolProxy:
                 text=f"tool {tool_id} was not executed: guard decision '{decision}'",
                 is_error=True,
             )
-        return await self._caller.call(tool_id, args)
+        try:
+            return await asyncio.wait_for(self._caller.call(tool_id, args), self.timeout)
+        except TimeoutError:
+            return ToolReply(
+                text=f"tool {tool_id} timed out after {self.timeout:g} s", is_error=True
+            )
+        except Exception as error:
+            return ToolReply(text=f"tool {tool_id} failed: {error}", is_error=True)
 
     def _handler_for(self, tool_id: str):
         async def handler(args: dict[str, Any]) -> ToolReply:

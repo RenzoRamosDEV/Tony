@@ -50,7 +50,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 - [x] 8.1 Red: test `AllowAllGuard.decide` returns `allow` for any envelope; Green: implement `Guard` protocol and `AllowAllGuard`; verify test passes
 - [x] 8.2 Red: tests for `ToolProxy` with `RecordingGuard`: `allow` executes, `deny` and `confirm` do not execute and return error naming the tool, guard receives exact envelope, `tool_call`/`tool_result` events logged in order; Green: implement; verify tests pass
-- [ ] 8.3 Red: tests for proxy timeout (fake server `sleep` beyond an injected short timeout -> error reply mentioning timeout, task continues), exception -> error reply, secret masking of `echo_env` result in reply and log; Green: implement `wait_for` (default 20 s) and masking; verify tests pass
+- [x] 8.3 Red: tests for proxy timeout (fake server `sleep` beyond an injected short timeout -> error reply mentioning timeout, task continues), exception -> error reply, secret masking of `echo_env` result in reply and log; Green: implement `wait_for` (default 20 s) and masking; verify tests pass
 
 ## 9. Claude Agent SDK engine adapter (`tony/core/orchestrator`)
 
