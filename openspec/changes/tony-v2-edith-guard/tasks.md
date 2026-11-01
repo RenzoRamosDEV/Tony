@@ -22,7 +22,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 4. Deterministic evaluation (`tony/core/guard/evaluate.py`)
 
-- [ ] 4.1 Red: tests for first-match ordering, list patterns, case-sensitive `fnmatchcase` (`Filesystem.read_file` -> default), default verdict with rule id `default`, rule whose pattern matches but `when` fails falls through; Green: implement `evaluate(policy, tool, args) -> Verdict(verdict, rule)`; verify tests pass
+- [x] 4.1 Red: tests for first-match ordering, list patterns, case-sensitive `fnmatchcase` (`Filesystem.read_file` -> default), default verdict with rule id `default`, rule whose pattern matches but `when` fails falls through; Green: implement `evaluate(policy, tool, args) -> Verdict(verdict, rule)`; verify tests pass
 - [ ] 4.2 Red: tests for `path_outside` with `HOME` monkeypatched: inside, equal to dir, `~` expansion, `..` escape, sibling prefix `~/notasx`, `source`/`destination`/`paths` keys, non-string values ignored, no path arg -> does not hold; Green: implement; verify tests pass
 - [ ] 4.3 Red: tests for `args_regex` (hit at top level, nested dict/list hit, keys ignored, miss) and `numeric_above` (equal -> no, above int/float -> yes, bool/string/missing -> no); Green: implement; verify tests pass
 - [ ] 4.4 Red: latency test: mean of 1000 evaluations against the shipped policy < 5 ms; verify it passes (no implementation change expected; refactor only if it fails)
