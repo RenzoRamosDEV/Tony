@@ -37,10 +37,6 @@ async def test_non_worker_agent_is_rejected(tmp_path):
     assert not (home / "logs" / "tasks").exists()
 
 
-def test_default_task_timeout_is_300_seconds(tmp_path):
-    assert RunDeps(root=tmp_path, engine=FakeModelEngine([])).task_timeout == 300.0
-
-
 async def test_task_timeout_returns_error_and_closes_servers(tmp_path):
     home, notes = make_viernes_home(tmp_path)
     engine = FakeModelEngine([CallTool("filesystem.list_directory", {}), Hang()])

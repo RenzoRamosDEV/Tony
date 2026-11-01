@@ -2,6 +2,7 @@ import json
 
 from tests.core.orchestrator.viernes_home import make_viernes_home
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final
+from tests.fakes.guards import RecordingGuard
 from tests.fakes.servers import fake_fs_entry
 from tony.core.events.messages import TaskRequest
 from tony.core.orchestrator.runner import RunDeps, run_task
@@ -18,7 +19,13 @@ def write_env(home, text):
 
 async def run(home, steps, environ):
     engine = FakeModelEngine([*steps, Final(structured=OK)])
-    deps = RunDeps(root=home, engine=engine, environ=environ, task_id_factory=lambda: TASK_ID)
+    deps = RunDeps(
+        root=home,
+        engine=engine,
+        environ=environ,
+        guard=RecordingGuard(),
+        task_id_factory=lambda: TASK_ID,
+    )
     await run_task("viernes", REQUEST, deps)
     log = (home / "logs" / "tasks" / f"{TASK_ID}.jsonl").read_text()
     return engine.replies, log, [json.loads(line) for line in log.splitlines()]
