@@ -1,9 +1,11 @@
+import warnings
 from collections.abc import Callable, Collection
 from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
     CanUseTool,
+    CanUseToolShadowedWarning,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     PermissionResult,
@@ -19,6 +21,10 @@ from claude_agent_sdk import (
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.loader.agent_md import AgentSpec
 from tony.core.orchestrator.ports import EngineOutcome, ProxiedTool, Usage
+
+# allowed_tools auto-approves the proxy servers before can_use_tool runs. That is intended:
+# the ToolProxy is the execution barrier; can_use_tool only has to deny non-proxied names.
+warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
 
 MCP_PREFIX = "mcp__"
 SEPARATOR = "__"
