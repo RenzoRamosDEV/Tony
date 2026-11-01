@@ -14,6 +14,7 @@ from mcp.types import CallToolResult, TextContent
 from tony.core.config.placeholders import SecretMasker, resolve_placeholders
 from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
+from tony.core.mcp.native import NATIVE_SERVER, NATIVE_TOOLS, NativeTool
 from tony.core.orchestrator.ports import EventSink, ToolReply
 
 
@@ -42,6 +43,7 @@ class McpManager:
         sink: EventSink,
         log_dir: Path,
         connect_timeout: float = 10.0,
+        native: Mapping[str, NativeTool] = NATIVE_TOOLS,
     ) -> None:
         self.spec = spec
         self.connect_timeout = connect_timeout
@@ -53,10 +55,21 @@ class McpManager:
         self._log_dir = log_dir
         self._stack = AsyncExitStack()
         self._sessions: dict[str, ClientSession] = {}
+        self._native = {name: native[name] for name in spec.native}
 
     async def __aenter__(self) -> Self:
         for name, server in self.spec.mcp_servers.items():
             await self._start(name, server)
+        self.tools += [
+            CatalogTool(
+                id=f"{NATIVE_SERVER}.{name}",
+                server=NATIVE_SERVER,
+                name=name,
+                description=tool.description,
+                input_schema=tool.input_schema,
+            )
+            for name, tool in self._native.items()
+        ]
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
@@ -66,6 +79,8 @@ class McpManager:
         tool = next((tool for tool in self.tools if tool.id == tool_id), None)
         if tool is None:
             return ToolReply(text=f"tool {tool_id} is not available", is_error=True)
+        if tool.server == NATIVE_SERVER:
+            return ToolReply(text=await self._native[tool.name].run(args))
         result = await self._sessions[tool.server].call_tool(tool.name, args)
         return _to_reply(result)
 
