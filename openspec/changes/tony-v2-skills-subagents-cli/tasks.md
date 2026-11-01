@@ -47,7 +47,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 8. Acceptance
 
-- [ ] 8.1 Red: offline acceptance test in one running `CoreRuntime` session (fake chat and model engines, injected change stream fed with the touched paths): `tony mcp add` (CLI runner) adds a second fake server to Viernes, a skill folder is created for Viernes and a rule allowing the new server's tool is added to `policy.yaml`; the next delegated task's prompt lists the skill, offers the new server's tools, and the new tool call is audited with the new rule; no Python file edited, no restart; Green: wiring fixes only; verify the test passes
+- [x] 8.1 Red: offline acceptance test in one running `CoreRuntime` session (fake chat and model engines, injected change stream fed with the touched paths): `tony mcp add` (CLI runner) adds a second fake server to Viernes, a skill folder is created for Viernes and a rule allowing the new server's tool is added to `policy.yaml`; the next delegated task's prompt lists the skill, offers the new server's tools, and the new tool call is audited with the new rule; no Python file edited, no restart; Green: wiring fixes only; verify the test passes
 
 ## 9. Final verification
 
