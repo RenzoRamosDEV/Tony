@@ -1,0 +1,101 @@
+import asyncio
+
+import pytest
+
+from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final, Hang, ScriptError
+from tests.fakes.guards import RecordingGuard
+from tests.fakes.sinks import ListEventSink
+from tony.core.events.messages import TaskRequest, ToolCall
+from tony.core.orchestrator.ports import EngineOutcome, ProxiedTool, ToolReply, Usage
+
+REQUEST = TaskRequest(objetivo="o")
+
+
+def tool(tool_id, log):
+    async def handler(args):
+        log.append((tool_id, args))
+        return ToolReply(text=f"{tool_id}:{args}")
+
+    return ProxiedTool(id=tool_id, description="d", input_schema={}, handler=handler)
+
+
+async def run(engine, tools):
+    return await engine.run(None, REQUEST, tools, "model-x")
+
+
+async def test_executes_scripted_calls_in_order_and_records_replies():
+    log = []
+    engine = FakeModelEngine([
+        CallTool("fs.list", {"path": "."}),
+        CallTool("fs.read", {"path": "a.md"}),
+        Final(structured={"resumen": "r"}, usage=Usage(5, 2)),
+    ])
+
+    outcome = await run(engine, [tool("fs.list", log), tool("fs.read", log)])
+
+    assert log == [("fs.list", {"path": "."}), ("fs.read", {"path": "a.md"})]
+    assert [reply.text for reply in engine.replies] == [
+        "fs.list:{'path': '.'}", "fs.read:{'path': 'a.md'}",
+    ]
+    assert outcome == EngineOutcome(
+        text="", structured={"resumen": "r"}, usage=[Usage(5, 2)]
+    )
+
+
+async def test_records_what_it_was_given():
+    engine = FakeModelEngine([Final(text="hola")])
+
+    await run(engine, [tool("fs.list", [])])
+
+    assert engine.offered == ["fs.list"]
+    assert (engine.request, engine.model_id) == (REQUEST, "model-x")
+
+
+async def test_structured_answer_may_be_built_from_replies():
+    engine = FakeModelEngine([
+        CallTool("fs.read", {}),
+        Final(structured=lambda replies: {"datos": replies[0].text}),
+    ])
+
+    outcome = await run(engine, [tool("fs.read", [])])
+
+    assert outcome.structured == {"datos": "fs.read:{}"}
+
+
+async def test_fails_clearly_when_scripted_tool_not_offered():
+    engine = FakeModelEngine([CallTool("fs.write", {}), Final(text="x")])
+
+    with pytest.raises(ScriptError, match="fs.write"):
+        await run(engine, [tool("fs.read", [])])
+
+
+async def test_fails_clearly_without_final_step():
+    engine = FakeModelEngine([])
+
+    with pytest.raises(ScriptError, match="Final"):
+        await run(engine, [])
+
+
+async def test_hang_never_returns():
+    engine = FakeModelEngine([Hang()])
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(run(engine, []), 0.05)
+
+
+async def test_recording_guard_returns_decision_and_records_envelope():
+    guard = RecordingGuard("deny")
+    call = ToolCall(task_id="t", agent="a", tool="x.y", args={})
+
+    assert await guard.decide(call) == "deny"
+    assert guard.calls == [call]
+
+
+def test_list_event_sink_keeps_events_in_order():
+    sink = ListEventSink()
+
+    sink.emit({"type": "a"})
+    sink.emit({"type": "b", "v": 1})
+
+    assert sink.events == [{"type": "a"}, {"type": "b", "v": 1}]
+    assert sink.types() == ["a", "b"]
