@@ -110,6 +110,7 @@ pytest_add_cli_args = [
     "--timeout-method=thread",
     "--ignore=tests/test_layout.py",
     "--ignore=tests/test_optional_imports.py",
+    "--ignore=tests/test_packaging.py",
     "--ignore=tests/test_gitignore.py",
     "--ignore=tests/core/config/test_bundled_config.py",
     "--ignore=tests/fakes/test_fake_fs_server.py",

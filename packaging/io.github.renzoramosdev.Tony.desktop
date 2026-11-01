@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Tony
+Comment=Asistente personal local con Jarvis, Viernes y Edith
+Exec=tony
+Icon=io.github.renzoramosdev.Tony
+Terminal=false
+Categories=Utility;
+StartupNotify=true
+Actions=focus;
+
+[Desktop Action focus]
+Name=Escuchar
+Exec=tony --focus
