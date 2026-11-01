@@ -1,6 +1,9 @@
 import asyncio
 import sys
 from collections.abc import Callable
+from datetime import datetime
+from enum import StrEnum
+from typing import Annotated
 
 import typer
 from pydantic import ValidationError
@@ -8,6 +11,7 @@ from pydantic import ValidationError
 from tony.core.config.errors import DefinitionError
 from tony.core.config.secrets import resolve_home
 from tony.core.events.messages import TaskRequest
+from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
 from tony.core.guard.claude_wording import ClaudeWording
 from tony.core.guard.confirm import CliConfirmer
 from tony.core.orchestrator.claude_engine import ClaudeEngine
@@ -16,6 +20,13 @@ from tony.core.orchestrator.runner import NotWorkerError, RunDeps, WordingFactor
 
 USAGE_ERROR = 2
 TASK_FAILED = 1
+AUDIT_COLUMNS = ("ts", "agent", "tool", "verdict", "rule", "user_decision")
+
+
+class VerdictFilter(StrEnum):
+    allow = "allow"
+    confirm = "confirm"
+    deny = "deny"
 
 
 def stdin_readline() -> Callable[[], str]:
@@ -26,6 +37,7 @@ def create_app(
     engine_factory: Callable[[], ModelEngine] = ClaudeEngine,
     wording_factory: WordingFactory | None = ClaudeWording,
     readline_factory: Callable[[], Callable[[], str | None]] = stdin_readline,
+    now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
 ) -> typer.Typer:
     app = typer.Typer(no_args_is_help=True)
 
@@ -55,7 +67,44 @@ def create_app(
         if result.errores:
             raise typer.Exit(TASK_FAILED)
 
+    @app.command()
+    def audit(
+        today: Annotated[
+            bool, typer.Option("--today", help="Only lines of the current local date.")
+        ] = False,
+        verdict: Annotated[
+            VerdictFilter | None, typer.Option(help="Only lines with this verdict.")
+        ] = None,
+    ) -> None:
+        """Print Edith's audit trail (logs/audit.jsonl) as a table, oldest first."""
+        lines, malformed = read_audit(resolve_home())
+        if malformed:
+            typer.echo(f"tony: skipped {malformed} malformed lines in {AUDIT_FILE}", err=True)
+        selected = select_lines(
+            lines,
+            verdict=verdict.value if verdict else None,
+            local_day_of=now() if today else None,
+        )
+        typer.echo(audit_table(selected))
+
     return app
+
+
+def audit_table(lines: list[AuditLine]) -> str:
+    rows = [
+        AUDIT_COLUMNS,
+        *(tuple(_cell(line, column) for column in AUDIT_COLUMNS) for line in lines),
+    ]
+    widths = [max(len(row[index]) for row in rows) for index in range(len(AUDIT_COLUMNS))]
+    return "\n".join(
+        "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
+        for row in rows
+    )
+
+
+def _cell(line: AuditLine, column: str) -> str:
+    value = line.get(column)
+    return "-" if value is None else str(value)
 
 
 app = create_app()

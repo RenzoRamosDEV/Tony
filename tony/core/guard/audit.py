@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import UTC
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,3 +63,42 @@ class AuditLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+AuditLine = dict[str, Any]
+
+
+def read_audit(root: Path) -> tuple[list[AuditLine], int]:
+    """Audit lines in file order, plus how many lines were skipped as malformed."""
+    path = root / AUDIT_FILE
+    if not path.is_file():
+        return [], 0
+    lines: list[AuditLine] = []
+    malformed = 0
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            lines.append(parsed)
+        else:
+            malformed += 1
+    return lines, malformed
+
+
+def select_lines(
+    lines: list[AuditLine], *, verdict: str | None = None, local_day_of: datetime | None = None
+) -> list[AuditLine]:
+    """Filter by verdict and, with `local_day_of`, by its local calendar date."""
+    selected = [line for line in lines if verdict is None or line.get("verdict") == verdict]
+    if local_day_of is None:
+        return selected
+    return [line for line in selected if _local_date(line, local_day_of) == local_day_of.date()]
+
+
+def _local_date(line: AuditLine, now: datetime) -> date | None:
+    try:
+        return datetime.fromisoformat(line["ts"]).astimezone(now.tzinfo).date()
+    except (KeyError, TypeError, ValueError):
+        return None
