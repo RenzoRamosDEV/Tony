@@ -167,7 +167,7 @@ async def test_engine_run_sends_task_and_returns_outcome():
         role="worker",
         model="claude-sonnet",
         persona={"language": "es", "tone": "t"},
-        voice={"tts": "kokoro/x"},
+        voice={"tts": "kokoro/em_alex"},
         system_prompt="P",
     )
     request = TaskRequest(objetivo="Lista mis notas")

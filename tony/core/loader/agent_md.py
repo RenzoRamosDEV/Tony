@@ -19,7 +19,7 @@ class Persona(_Strict):
 
 
 class Voice(_Strict):
-    tts: str = Field(pattern=r"^kokoro/\S+$")
+    tts: str = Field(pattern=r"^kokoro/[a-z]{2}_[a-z0-9]+(,[a-z]{2}_[a-z0-9]+)*$")
 
 
 class AgentFrontmatter(_Strict):

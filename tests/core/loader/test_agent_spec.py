@@ -90,12 +90,37 @@ def test_unknown_nested_field():
     assert field_error(data) == "persona.address"
 
 
-@pytest.mark.parametrize("tts", ["kokoro/x", "kokoro/em_alex"])
+@pytest.mark.parametrize(
+    "tts",
+    ["kokoro/em_alex", "kokoro/ef_dora,bf_emma", "kokoro/ab_1", "kokoro/ef_dora,bf_emma,am_x"],
+)
 def test_valid_voice(tts):
     assert parse(frontmatter(voice={"tts": tts})).voice.tts == tts
 
 
-@pytest.mark.parametrize("tts", ["em_alex", "kokoro/", "kokoro", "piper/em_alex", "kokoro/ x", ""])
+@pytest.mark.parametrize(
+    "tts",
+    [
+        "em_alex",
+        "kokoro/",
+        "kokoro",
+        "piper/em_alex",
+        "kokoro/ x",
+        "",
+        "kokoro/x",
+        "kokoro/ef_dora,",
+        "kokoro/ef dora",
+        "kokoro/EF_dora",
+        "kokoro/e_dora",
+        "kokoro/efd_dora",
+        "kokoro/ef_",
+        "kokoro/ef_Dora",
+        "kokoro/ef_dora,,bf_emma",
+        "kokoro/,ef_dora",
+        "kokoro/ef_dora, bf_emma",
+        "kokoro/ef_dora\n",
+    ],
+)
 def test_malformed_voice(tts):
     assert field_error(frontmatter(voice={"tts": tts})) == "voice.tts"
 
