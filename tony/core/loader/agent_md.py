@@ -56,7 +56,7 @@ def split_frontmatter(text: str, file: str) -> tuple[dict[str, Any], str]:
     frontmatter = _parse_yaml("\n".join(lines[1:closing]), file)
     body = "\n".join(lines[closing + 1 :]).strip()
     if not body:
-        raise DefinitionError(file, None, "system prompt body must not be empty")
+        raise DefinitionError(file, None, "body must not be empty")
     return frontmatter, body
 
 
