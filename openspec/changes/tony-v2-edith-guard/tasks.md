@@ -47,7 +47,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 ## 8. Edith guard (`tony/core/guard/edith.py`)
 
 - [x] 8.1 Red: tests for `EdithGuard.decide` with fakes: `allow` and `deny` rulings with `user_decision=None`, no confirmer call; one audit line each with exact fields and `duration_ms` from an injected monotonic clock; Green: implement; verify tests pass
-- [ ] 8.2 Red: tests for `confirm`: question asked with worded text; yes -> `user_decision="allow"`; no / other -> `deny`; confirmer hanging past injected `confirm_timeout_s` -> `timeout`; audit line written after the answer with `duration_ms` including the wait; Green: implement; verify tests pass
+- [x] 8.2 Red: tests for `confirm`: question asked with worded text; yes -> `user_decision="allow"`; no / other -> `deny`; confirmer hanging past injected `confirm_timeout_s` -> `timeout`; audit line written after the answer with `duration_ms` including the wait; Green: implement; verify tests pass
 
 ## 9. Supervision and proxy (`tony/core/orchestrator`)
 

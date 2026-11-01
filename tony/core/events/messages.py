@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, JsonValue, field_validator
 
 Decision = Literal["allow", "confirm", "deny"]
+UserDecision = Literal["allow", "deny", "timeout"]
 
 
 class TaskRequest(BaseModel):
@@ -35,4 +36,4 @@ class ToolCall(BaseModel):
 class Ruling(BaseModel):
     verdict: Decision
     rule: str
-    user_decision: Literal["allow", "deny", "timeout"] | None = None
+    user_decision: UserDecision | None = None
