@@ -71,3 +71,11 @@ def test_blocking_output_waits_until_stopped():
     output.stop()
     worker.join(5)
     assert not worker.is_alive() and output.stops == 1
+
+
+def test_scripted_input_sessions_deliver_one_list_per_open():
+    audio = ScriptedAudioInput(sessions=[[window(True)], [window(False), window(False)]])
+    got = []
+    for _ in range(3):
+        audio.open(got.append)
+    assert len(got) == 3 and audio.opened == 3

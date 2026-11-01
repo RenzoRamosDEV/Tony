@@ -20,11 +20,19 @@ def frames(pattern: str) -> list[bytes]:
 
 
 class ScriptedAudioInput:
-    """Delivers its frames synchronously on `open`; optionally fails to open."""
+    """Delivers its frames synchronously on `open`; optionally fails to open. With `sessions`,
+    each open delivers the next list of frames (none once they run out)."""
 
-    def __init__(self, frames: Iterable[bytes] = (), *, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        frames: Iterable[bytes] = (),
+        *,
+        error: Exception | None = None,
+        sessions: Iterable[Iterable[bytes]] | None = None,
+    ) -> None:
         self._frames = list(frames)
         self._error = error
+        self._sessions = None if sessions is None else [list(s) for s in sessions]
         self.opened = 0
         self.closed = 0
 
@@ -32,6 +40,8 @@ class ScriptedAudioInput:
         self.opened += 1
         if self._error is not None:
             raise self._error
+        if self._sessions is not None:
+            self._frames = self._sessions.pop(0) if self._sessions else []
         for frame in self._frames:
             on_frame(frame)
 

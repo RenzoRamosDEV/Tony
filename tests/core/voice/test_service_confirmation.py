@@ -163,3 +163,12 @@ async def test_turn_end_does_not_disarm_a_pending_confirmation(harness):
     h.loader.output.release()
     await h.until(lambda: h.commands)
     assert h.commands[0]["type"] == "confirm"
+
+
+async def test_the_reply_after_a_spoken_answer_is_still_spoken(harness):
+    h = await started(harness())
+    h.speaking_turn()
+    h.observe(pending())
+    await h.until(lambda: h.commands)
+    h.observe(ev.token("jarvis", "Hecho, señor."), ev.turn_result("jarvis", "x", "voice"))
+    await h.until(lambda: h.loader.output.played[-1:] == ["Hecho, señor."])

@@ -177,7 +177,8 @@ class VoiceService:
 
     def _open_session(self, *, for_confirmation: bool = False) -> None:
         assert self._listener is not None
-        self.stop_speaking()
+        if not for_confirmation:
+            self.stop_speaking()
         self._set_state("listening")
         self._listener.listen(
             lambda text: self._post(lambda: self._on_transcript(text)),
