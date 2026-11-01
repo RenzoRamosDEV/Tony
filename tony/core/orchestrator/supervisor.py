@@ -15,7 +15,7 @@ class TaskSupervisor:
     def __init__(self, limits: Limits, sink: EventSink) -> None:
         self.cancelled = asyncio.Event()
         self.reason: str | None = None
-        self._limits = limits
+        self.limits = limits
         self._sink = sink
         self._steps: Counter[str] = Counter()
         self._denials: Counter[str] = Counter()
@@ -26,7 +26,7 @@ class TaskSupervisor:
         if self.cancelled.is_set():
             return False
         self._steps[agent] += 1
-        limit = self._limits.max_steps_per_agent
+        limit = self.limits.max_steps_per_agent
         if self._steps[agent] > limit:
             self.cancel(f"{CANCELLED}: {agent} superó el límite de {limit} pasos")
             return False
@@ -35,14 +35,14 @@ class TaskSupervisor:
     def denied(self, tool: str, rule: str) -> None:
         self._denials[tool] += 1
         count = self._denials[tool]
-        if count >= self._limits.max_denied_retries:
+        if count >= self.limits.max_denied_retries:
             self.cancel(
                 f"{CANCELLED}: {tool} bloqueada {count} veces por la política (regla {rule})"
             )
 
     def unconfirmed(self, tool: str, rule: str, user_decision: UserDecision | None) -> None:
         if user_decision == "timeout":
-            wait = f"{self._limits.confirm_timeout_s:g}"
+            wait = f"{self.limits.confirm_timeout_s:g}"
             self.cancel(
                 f"{CANCELLED}: sin respuesta a la confirmación de {tool} en {wait} s (regla {rule})"
             )
@@ -56,7 +56,7 @@ class TaskSupervisor:
 
     def record_usage(self, *, input_tokens: int, output_tokens: int) -> None:
         self._total_tokens += input_tokens + output_tokens
-        limit = self._limits.token_alert
+        limit = self.limits.token_alert
         if self._total_tokens > limit and not self._alerted:
             self._alerted = True
             self._sink.emit(log_events.token_alert(total_tokens=self._total_tokens, limit=limit))

@@ -1,19 +1,27 @@
+import asyncio
+import json
+
 import pytest
 
 from tests.fakes.callers import FakeToolCaller
-from tests.fakes.guards import RecordingGuard
+from tests.fakes.guards import ALLOW, RecordingGuard
 from tests.fakes.sinks import ListEventSink
 from tony.core.config.placeholders import SecretMasker
-from tony.core.events.messages import ToolCall
+from tony.core.events.messages import Ruling, ToolCall
+from tony.core.guard.policy import Limits
 from tony.core.mcp.manager import CatalogTool
 from tony.core.orchestrator.ports import ToolReply
 from tony.core.orchestrator.proxy import ToolProxy
+from tony.core.orchestrator.supervisor import TaskSupervisor
 
 CONTENT = ToolReply(text="contenido")
+DENY = Ruling(verdict="deny", rule="shell.run/deny")
 
 
-def make_proxy(decision="allow", reply=CONTENT):
-    guard, caller, sink = RecordingGuard(decision), FakeToolCaller(reply), ListEventSink()
+def make_proxy(ruling=ALLOW, reply=CONTENT, caller=None, **limits):
+    guard, sink = RecordingGuard(ruling), ListEventSink()
+    caller = caller or FakeToolCaller(reply)
+    supervisor = TaskSupervisor(Limits(**limits), sink)
     proxy = ToolProxy(
         task_id="abc",
         agent="viernes",
@@ -21,12 +29,13 @@ def make_proxy(decision="allow", reply=CONTENT):
         caller=caller,
         sink=sink,
         masker=SecretMasker(),
+        supervisor=supervisor,
     )
-    return proxy, guard, caller, sink
+    return proxy, guard, caller, sink, supervisor
 
 
 async def test_guard_receives_exact_envelope():
-    proxy, guard, _, _ = make_proxy()
+    proxy, guard, *_ = make_proxy()
 
     await proxy.call("filesystem.read_file", {"path": "a.md"})
 
@@ -36,7 +45,7 @@ async def test_guard_receives_exact_envelope():
 
 
 async def test_allow_executes_and_returns_reply():
-    proxy, _, caller, _ = make_proxy("allow")
+    proxy, _, caller, *_ = make_proxy(ALLOW)
 
     reply = await proxy.call("filesystem.read_file", {"path": "a.md"})
 
@@ -44,19 +53,109 @@ async def test_allow_executes_and_returns_reply():
     assert reply == ToolReply(text="contenido")
 
 
-@pytest.mark.parametrize("decision", ["deny", "confirm"])
-async def test_non_allow_does_not_execute_and_names_tool(decision):
-    proxy, _, caller, _ = make_proxy(decision)
+async def test_deny_returns_blocked_by_policy_without_executing():
+    proxy, _, caller, _, supervisor = make_proxy(DENY)
 
-    reply = await proxy.call("filesystem.write_file", {"path": "a.md"})
+    reply = await proxy.call("shell.run", {"command": "sudo x"})
 
     assert caller.calls == []
-    assert reply.is_error is True
-    assert "filesystem.write_file" in reply.text and decision in reply.text
+    assert reply == ToolReply(
+        text='{"error": "blocked_by_policy", "rule": "shell.run/deny"}', is_error=True
+    )
+    assert json.loads(reply.text) == {"error": "blocked_by_policy", "rule": "shell.run/deny"}
+    assert not supervisor.cancelled.is_set()
+
+
+async def test_repeated_denials_reach_the_supervisor():
+    proxy, _, _, _, supervisor = make_proxy(DENY)
+
+    for _ in range(3):
+        await proxy.call("shell.run", {})
+
+    assert supervisor.reason == (
+        "tarea cancelada: shell.run bloqueada 3 veces por la política (regla shell.run/deny)"
+    )
+
+
+async def test_confirmed_call_executes():
+    confirmed = Ruling(verdict="confirm", rule="fs.delete*/confirm", user_decision="allow")
+    proxy, _, caller, _, supervisor = make_proxy(confirmed)
+
+    reply = await proxy.call("fs.delete_file", {"path": "a.md"})
+
+    assert reply == CONTENT
+    assert caller.calls == [("fs.delete_file", {"path": "a.md"})]
+    assert not supervisor.cancelled.is_set()
+
+
+@pytest.mark.parametrize(
+    ("user_decision", "reason_part"),
+    [("deny", "no autorizó"), ("timeout", "sin respuesta"), (None, "no autorizó")],
+)
+async def test_unconfirmed_call_is_not_executed_and_cancels(user_decision, reason_part):
+    ruling = Ruling(verdict="confirm", rule="fs.delete*/confirm", user_decision=user_decision)
+    proxy, _, caller, _, supervisor = make_proxy(ruling)
+
+    reply = await proxy.call("fs.delete_file", {"path": "a.md"})
+
+    assert caller.calls == []
+    assert reply.is_error is True and "fs.delete_file" in reply.text
+    assert supervisor.cancelled.is_set() and reason_part in supervisor.reason
+
+
+async def test_step_overflow_skips_the_guard_and_cancels():
+    proxy, guard, caller, sink, supervisor = make_proxy(max_steps_per_agent=1)
+
+    await proxy.call("fs.read_file", {})
+    reply = await proxy.call("fs.read_file", {})
+
+    assert len(guard.calls) == 1 and len(caller.calls) == 1
+    assert reply.is_error is True and "fs.read_file" in reply.text
+    assert supervisor.reason == "tarea cancelada: viernes superó el límite de 1 pasos"
+    assert sink.types() == ["tool_call", "tool_result", "tool_call", "tool_result"]
+
+
+class SlowCaller:
+    def __init__(self, seconds):
+        self.seconds = seconds
+        self.calls = []
+
+    async def call(self, tool_id, args):
+        self.calls.append(tool_id)
+        await asyncio.sleep(self.seconds)
+        return CONTENT
+
+
+async def test_tool_timeout_from_policy_limits():
+    proxy, *_ = make_proxy(caller=SlowCaller(1), tool_timeout_s=0.05)
+
+    reply = await proxy.call("fs.sleep", {})
+
+    assert reply == ToolReply(text="tool fs.sleep timed out after 0.05 s", is_error=True)
+
+
+async def test_tool_timeout_counted_after_confirmation():
+    class SlowConfirmGuard:
+        async def decide(self, call):
+            await asyncio.sleep(0.2)
+            return Ruling(verdict="confirm", rule="r", user_decision="allow")
+
+    sink = ListEventSink()
+    proxy = ToolProxy(
+        task_id="abc",
+        agent="viernes",
+        guard=SlowConfirmGuard(),
+        caller=SlowCaller(0.05),
+        sink=sink,
+        masker=SecretMasker(),
+        supervisor=TaskSupervisor(Limits(tool_timeout_s=0.15), sink),
+    )
+
+    assert await proxy.call("fs.delete_file", {}) == CONTENT
 
 
 async def test_logs_call_then_result_in_order():
-    proxy, _, _, sink = make_proxy()
+    proxy, _, _, sink, _ = make_proxy()
 
     await proxy.call("fs.read_file", {"path": "a.md"})
 
@@ -67,7 +166,7 @@ async def test_logs_call_then_result_in_order():
 
 
 async def test_error_reply_is_logged_as_not_ok():
-    proxy, _, _, sink = make_proxy(reply=ToolReply(text="no such file", is_error=True))
+    proxy, _, _, sink, _ = make_proxy(reply=ToolReply(text="no such file", is_error=True))
 
     reply = await proxy.call("fs.read_file", {})
 
@@ -76,21 +175,21 @@ async def test_error_reply_is_logged_as_not_ok():
 
 
 async def test_denied_call_is_logged_with_error_result():
-    proxy, _, _, sink = make_proxy("deny")
+    proxy, _, _, sink, _ = make_proxy(DENY)
 
-    reply = await proxy.call("fs.write_file", {})
+    reply = await proxy.call("shell.run", {})
 
     assert sink.types() == ["tool_call", "tool_result"]
     assert sink.events[-1] == {
         "type": "tool_result",
-        "tool": "fs.write_file",
+        "tool": "shell.run",
         "ok": False,
         "content": reply.text,
     }
 
 
 async def test_wraps_catalog_tools_as_proxied_tools():
-    proxy, guard, caller, _ = make_proxy()
+    proxy, guard, caller, *_ = make_proxy()
     catalog = [CatalogTool("fs.read_file", "fs", "read_file", "Read.", {"type": "object"})]
 
     [proxied] = proxy.wrap(catalog)

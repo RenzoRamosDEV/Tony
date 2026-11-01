@@ -1,6 +1,6 @@
 import pytest
 
-from tony.core.events.messages import ToolCall
+from tony.core.events.messages import Ruling, ToolCall
 from tony.core.guard.allow_all import AllowAllGuard
 from tony.core.guard.port import Guard
 
@@ -14,7 +14,7 @@ from tony.core.guard.port import Guard
     ],
 )
 async def test_allows_any_call(call):
-    assert await AllowAllGuard().decide(call) == "allow"
+    assert await AllowAllGuard().decide(call) == Ruling(verdict="allow", rule="allow_all")
 
 
 def test_satisfies_guard_protocol():

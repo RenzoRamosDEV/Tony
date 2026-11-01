@@ -10,6 +10,7 @@ from tony.core.config.settings import load_config
 from tony.core.events import log_events
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.guard.allow_all import AllowAllGuard
+from tony.core.guard.policy import Limits
 from tony.core.guard.port import Guard
 from tony.core.loader.agent import AgentDefinition, load_agent
 from tony.core.logging.task_log import Clock, JsonlTaskLog, new_task_id, utc_now
@@ -18,6 +19,7 @@ from tony.core.mcp.native import NATIVE_TOOLS, NativeTool
 from tony.core.orchestrator.ports import EngineOutcome, ModelEngine
 from tony.core.orchestrator.proxy import ToolProxy
 from tony.core.orchestrator.results import to_task_result
+from tony.core.orchestrator.supervisor import TaskSupervisor
 
 
 @dataclass
@@ -95,6 +97,7 @@ async def _run_engine(
             caller=manager,
             sink=log,
             masker=masker,
+            supervisor=TaskSupervisor(Limits(), log),
         )
         return await deps.engine.run(agent.spec, request, proxy.wrap(manager.tools), model_id)
 

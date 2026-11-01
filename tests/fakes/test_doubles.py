@@ -6,7 +6,7 @@ from tests.fakes.confirm import HANG, FakeConfirmer, FakeWording
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final, Hang, ScriptError
 from tests.fakes.guards import RecordingGuard
 from tests.fakes.sinks import ListEventSink
-from tony.core.events.messages import TaskRequest, ToolCall
+from tony.core.events.messages import Ruling, TaskRequest, ToolCall
 from tony.core.orchestrator.ports import EngineOutcome, ProxiedTool, ToolReply, Usage
 
 REQUEST = TaskRequest(objetivo="o")
@@ -87,12 +87,19 @@ async def test_hang_never_returns():
         await asyncio.wait_for(run(engine, []), 0.05)
 
 
-async def test_recording_guard_returns_decision_and_records_envelope():
-    guard = RecordingGuard("deny")
+async def test_recording_guard_returns_ruling_and_records_envelope():
+    denied = Ruling(verdict="deny", rule="x.y/deny")
+    guard = RecordingGuard(denied)
     call = ToolCall(task_id="t", agent="a", tool="x.y", args={})
 
-    assert await guard.decide(call) == "deny"
+    assert await guard.decide(call) == denied
     assert guard.calls == [call]
+
+
+async def test_recording_guard_allows_by_default():
+    ruling = await RecordingGuard().decide(ToolCall(task_id="t", agent="a", tool="x", args={}))
+
+    assert ruling.verdict == "allow"
 
 
 def test_list_event_sink_keeps_events_in_order():

@@ -8,11 +8,13 @@ from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
 from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
+from tony.core.guard.policy import Limits
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.logging.task_log import JsonlTaskLog
 from tony.core.mcp.manager import McpManager
 from tony.core.orchestrator.ports import ToolReply
 from tony.core.orchestrator.proxy import ToolProxy
+from tony.core.orchestrator.supervisor import TaskSupervisor
 
 
 class RaisingCaller:
@@ -24,11 +26,11 @@ def proxy_for(caller, sink, masker, timeout=20.0):
     return ToolProxy(
         task_id="t1",
         agent="viernes",
-        guard=RecordingGuard("allow"),
+        guard=RecordingGuard(),
         caller=caller,
         sink=sink,
         masker=masker,
-        timeout=timeout,
+        supervisor=TaskSupervisor(Limits(tool_timeout_s=timeout), sink),
     )
 
 
@@ -95,13 +97,4 @@ async def test_secret_is_masked_even_with_list_sink():
 
 
 def test_default_tool_timeout_is_twenty_seconds():
-    proxy = ToolProxy(
-        task_id="t",
-        agent="a",
-        guard=RecordingGuard(),
-        caller=RaisingCaller(),
-        sink=ListEventSink(),
-        masker=SecretMasker(),
-    )
-
-    assert proxy.timeout == pytest.approx(20.0)
+    assert Limits().tool_timeout_s == pytest.approx(20.0)
