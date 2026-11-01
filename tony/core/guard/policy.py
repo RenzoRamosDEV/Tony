@@ -1,4 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field
+from re import Pattern
+from typing import Annotated, Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tony.core.events.messages import Decision
 
@@ -7,9 +10,33 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class NumericAbove(_Strict):
+    arg: str
+    value: float = Field(strict=True)
+
+
+class When(_Strict):
+    path_outside: list[str] | None = None
+    args_regex: Pattern[str] | None = None
+    numeric_above: NumericAbove | None = None
+
+
 class Rule(_Strict):
-    match: str
+    match: list[Annotated[str, Field(min_length=1)]] = Field(min_length=1)
     verdict: Decision
+    id: str | None = None
+    when: When = Field(default_factory=When)
+
+    @field_validator("match", mode="before")
+    @classmethod
+    def _single_pattern_as_list(cls, value: Any) -> Any:
+        return [value] if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _derive_id(self) -> "Rule":
+        if self.id is None:
+            self.id = f"{self.match[0]}/{self.verdict}"
+        return self
 
 
 class Limits(_Strict):
