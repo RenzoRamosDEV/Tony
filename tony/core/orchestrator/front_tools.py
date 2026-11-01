@@ -88,7 +88,9 @@ class FrontTools:
                 self._publish(core_events.progress(self._front_agent, WAITING_PHRASE))
             result = await task
         finally:
-            task.cancel()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
         return ToolReply(text=result.model_dump_json())
 
     async def remember(self, args: dict[str, Any]) -> ToolReply:

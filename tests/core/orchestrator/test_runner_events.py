@@ -168,3 +168,21 @@ async def test_publishing_masks_env_file_secrets(tmp_path):
     await run_task("viernes", REQUEST, deps_for(home, engine, published))
 
     assert "s3cr3t" not in json.dumps(published)
+
+
+async def test_external_cancellation_closes_servers_and_records_a_user_cancel(tmp_path):
+    home, notes = make_viernes_home(tmp_path)
+    published = []
+    engine = FakeModelEngine([CallTool("filesystem.list_directory", {"path": "."}), Hang()])
+
+    task = asyncio.create_task(run_task("viernes", REQUEST, deps_for(home, engine, published)))
+    while not engine.replies:
+        await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert processes_mentioning(str(notes)) == []
+    assert log_events(home)[-1]["outcome"] == "cancelled"
+    assert published[-1]["outcome"] == "cancelled"
+    assert published[-1]["result"]["errores"] == ["tarea cancelada por el usuario"]

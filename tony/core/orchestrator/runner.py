@@ -104,18 +104,32 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
     if agent.spec.role != "worker":
         raise NotWorkerError(agent_name, agent.spec.role)
     run = _prepare_run(agent, config, deps)
-    log, publish, task_id = run.log, run.publish, run.id
-    policy = run.policy
-    timeout = policy.limits.task_timeout_s if deps.task_timeout is None else deps.task_timeout
+    limits = run.policy.limits
+    timeout = limits.task_timeout_s if deps.task_timeout is None else deps.task_timeout
     started = deps.monotonic()
-    log.emit(log_events.task_started(agent_name, request))
-    publish(core_events.task_started(task_id, agent_name, request.objetivo, clock=deps.clock))
-    outcome, result, usage = await _execute(run, request, deps, timeout)
-    log.emit(log_events.task_finished(outcome, result))
-    publish(
+    run.log.emit(log_events.task_started(agent_name, request))
+    run.publish(core_events.task_started(run.id, agent_name, request.objetivo, clock=deps.clock))
+    try:
+        outcome, result, usage = await _execute(run, request, deps, timeout)
+    except asyncio.CancelledError:
+        _finish(run, "cancelled", _failed(USER_CANCELLED), [], started, deps)
+        raise
+    return _finish(run, outcome, result, usage, started, deps)
+
+
+def _finish(
+    run: _TaskRun,
+    outcome: Outcome,
+    result: TaskResult,
+    usage: list[Usage],
+    started: float,
+    deps: RunDeps,
+) -> TaskResult:
+    run.log.emit(log_events.task_finished(outcome, result))
+    run.publish(
         core_events.task_result(
-            task_id,
-            agent_name,
+            run.id,
+            run.agent.name,
             outcome,
             result,
             input_tokens=sum(item.input_tokens for item in usage),
@@ -193,6 +207,10 @@ async def _race(
         waiters.append(asyncio.create_task(user_cancel.wait()))
     try:
         await asyncio.wait({engine, *waiters}, timeout=timeout, return_when=FIRST_COMPLETED)
+    except asyncio.CancelledError:
+        engine.cancel()
+        await asyncio.gather(engine, return_exceptions=True)
+        raise
     finally:
         for waiter in waiters:
             waiter.cancel()
