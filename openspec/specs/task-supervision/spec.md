@@ -44,3 +44,10 @@ When the task's total tokens (input plus output across all usage reports) exceed
 #### Scenario: At the threshold
 - **WHEN** a task's usages total exactly 50000 tokens
 - **THEN** no `token_alert` event is logged
+
+### Requirement: User cancellation
+A running task SHALL be cancellable by the user from the interface; it SHALL then be cancelled as any other cancelled task, with the reason `tarea cancelada por el usuario`, and a pending confirmation of that task SHALL be answered as not confirmed.
+
+#### Scenario: Cancelled while waiting for confirmation
+- **WHEN** a task is waiting for the confirmation of `filesystem.delete_file` and the user cancels
+- **THEN** the tool is not executed, the task log ends with `task_finished` outcome `cancelled` and `errores` contains `tarea cancelada por el usuario`

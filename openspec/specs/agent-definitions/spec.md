@@ -82,11 +82,15 @@ The keys `allow` and `confirm` MUST be rejected at any depth of `tool.json`, wit
 - **THEN** loading fails with an error naming the file, the key `mcpServers.<server>.allow`, and `agents/edith/policy.yaml`
 
 ### Requirement: Bundled Viernes agent
-The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-sonnet`, Spanish persona, a `kokoro/<voice>` voice, a system prompt instructing it to solve the structured task with its tools and to answer with the structured result, and a `tool.json` declaring the filesystem MCP server.
+The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-sonnet`, Spanish persona with tone `cercano, ágil y pragmático; humor sutil solo en el resumen`, a `kokoro/<voice>` voice, a system prompt instructing it to solve the structured task with its tools, to answer with the structured result and never to address the user outside `resumen`, and a `tool.json` declaring the filesystem MCP server.
 
 #### Scenario: Bundled agent validates
 - **WHEN** the bundled `agents/viernes/` is loaded with the default configuration
 - **THEN** loading succeeds and the agent's role is `worker` and its model alias is `claude-sonnet`
+
+#### Scenario: Viernes persona
+- **WHEN** the bundled `agents/viernes/agent.md` is loaded
+- **THEN** its persona tone is `cercano, ágil y pragmático; humor sutil solo en el resumen`
 
 ### Requirement: Guard agent has no tools
 An agent with role `guard` MUST NOT have a `tool/` folder; loading one that has it SHALL fail with an error naming `agents/<name>/tool/` and stating that a guard agent has no tools. A valid guard agent SHALL load with no MCP servers and no native tools.
@@ -98,3 +102,14 @@ An agent with role `guard` MUST NOT have a `tool/` folder; loading one that has 
 #### Scenario: Guard without tool folder loads
 - **WHEN** `agents/edith/agent.md` declares `role: guard` and there is no `agents/edith/tool/`
 - **THEN** loading succeeds with no MCP servers and no native tools
+
+### Requirement: Bundled Jarvis agent
+The repository SHALL ship `agents/jarvis/` with `role: front`, `model: claude-haiku`, persona `language: es` and tone `formal, irónico, mayordomo británico; se dirige al usuario como «señor»`, voice `kokoro/em_alex`, a system prompt for conversing and delegating tasks, and a `tool.json` with no MCP servers and no native tools.
+
+#### Scenario: Bundled Jarvis validates
+- **WHEN** `agents/jarvis/` is loaded with the default configuration
+- **THEN** loading succeeds with role `front`, model alias `claude-haiku`, voice `kokoro/em_alex`, no MCP servers and no native tools
+
+#### Scenario: Jarvis prompt covers delegation
+- **WHEN** the bundled Jarvis system prompt is read
+- **THEN** it names the tools `delegate`, `remember` and `set_reply_mode` and instructs to address the user as «señor»
