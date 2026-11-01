@@ -113,16 +113,43 @@ CASES = [
         ev.reply_mode("voice"),
         {"type": "reply_mode", "mode": "voice"},
     ),
+    (
+        ev.turn_started("jarvis", "voice", "auto", speaks=True, writes=False),
+        {
+            "type": "turn_started",
+            "agent": "jarvis",
+            "origin": "voice",
+            "reply_mode": "auto",
+            "speaks": True,
+            "writes": False,
+        },
+    ),
+    (
+        ev.transcript("¿Qué hora es?"),
+        {"type": "transcript", "text": "¿Qué hora es?"},
+    ),
+    (
+        ev.voice_state("unavailable", "voice extra not installed"),
+        {"type": "voice_state", "state": "unavailable", "reason": "voice extra not installed"},
+    ),
+    (
+        ev.voice_state("ready"),
+        {"type": "voice_state", "state": "ready", "reason": None},
+    ),
 ]
 
 
-@pytest.mark.parametrize(("event", "fields"), CASES, ids=[c[1]["type"] for c in CASES])
+@pytest.mark.parametrize(
+    ("event", "fields"), CASES, ids=[f"{c[1]['type']}-{i}" for i, c in enumerate(CASES)]
+)
 def test_builders_have_exact_fields_and_a_ts(event, fields):
     assert {key: value for key, value in event.items() if key != "ts"} == fields
     datetime.fromisoformat(event["ts"])
 
 
-@pytest.mark.parametrize(("event", "fields"), CASES, ids=[c[1]["type"] for c in CASES])
+@pytest.mark.parametrize(
+    ("event", "fields"), CASES, ids=[f"{c[1]['type']}-{i}" for i, c in enumerate(CASES)]
+)
 def test_events_round_trip_through_json(event, fields):
     assert json.loads(json.dumps(event)) == event
 
@@ -169,3 +196,21 @@ def test_masking_publisher_masks_env_values_at_any_depth_and_keeps_home():
 
 def test_no_op_publisher_accepts_events():
     assert ev.no_op(ev.reply_mode("auto")) is None
+
+
+def test_new_conversation_events_use_the_injected_clock():
+    assert (
+        ev.turn_started("jarvis", "text", "both", speaks=True, writes=True, clock=clock)["ts"] == TS
+    )
+    assert ev.transcript("x", clock=clock)["ts"] == TS
+    assert ev.voice_state("loading", clock=clock)["ts"] == TS
+
+
+def test_masking_publisher_masks_transcripts_and_voice_reasons():
+    published = []
+    publish = ev.MaskingPublisher(SecretMasker({"s3cr3t"}), published.append)
+
+    publish(ev.transcript("mi clave es s3cr3t"))
+    publish(ev.voice_state("unavailable", "fallo s3cr3t"))
+
+    assert [published[0]["text"], published[1]["reason"]] == ["mi clave es ***", "fallo ***"]

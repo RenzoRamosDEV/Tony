@@ -4,9 +4,11 @@ from tony.core.orchestrator.commands import (
     Cancel,
     Confirm,
     InvalidCommand,
+    Listen,
     SendMessage,
     SetMode,
     Stop,
+    StopListening,
     Unlock,
     parse_command,
 )
@@ -25,6 +27,16 @@ from tony.core.orchestrator.commands import (
         ({"type": "unlock", "pin": "4821"}, Unlock(pin="4821")),
         ({"type": "unlock", "pin": None}, Unlock(pin=None)),
         ({"type": "stop"}, Stop()),
+        (
+            {"type": "send_message", "text": "Hola", "origin": "voice"},
+            SendMessage(text="Hola", origin="voice"),
+        ),
+        (
+            {"type": "send_message", "text": "Hola", "origin": "text"},
+            SendMessage(text="Hola"),
+        ),
+        ({"type": "listen"}, Listen()),
+        ({"type": "stop_listening"}, StopListening()),
     ],
 )
 def test_valid_commands(raw, command):
@@ -41,6 +53,8 @@ def test_valid_commands(raw, command):
         ({"type": "set_mode", "mode": "loud"}, "set_mode"),
         ({"type": "unlock"}, "unlock"),
         ("not a dict", "None"),
+        ({"type": "listen", "purpose": "message"}, "listen"),
+        ({"type": "stop_listening", "now": True}, "stop_listening"),
     ],
 )
 def test_invalid_commands_name_the_type(raw, named):
@@ -71,3 +85,15 @@ def test_unlock_repr_hides_the_pin():
     command = Unlock(pin="4821")
 
     assert "4821" not in repr(command) and "4821" not in str(command)
+
+
+def test_send_message_origin_defaults_to_text():
+    assert parse_command({"type": "send_message", "text": "Hola"}).origin == "text"
+
+
+def test_invalid_origin_names_send_message_and_origin():
+    with pytest.raises(InvalidCommand) as raised:
+        parse_command({"type": "send_message", "text": "Hola", "origin": "telepathy"})
+
+    assert raised.value.command_type == "send_message"
+    assert "origin" in str(raised.value)

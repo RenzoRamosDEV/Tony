@@ -2,7 +2,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from tony.core.events.core_events import ReplyMode
+from tony.core.events.core_events import Origin, ReplyMode
 from tony.core.guard.broker import ConfirmDecision
 
 
@@ -13,6 +13,7 @@ class _Command(BaseModel):
 class SendMessage(_Command):
     type: Literal["send_message"] = "send_message"
     text: str
+    origin: Origin = "text"
 
 
 class Confirm(_Command):
@@ -35,12 +36,21 @@ class Unlock(_Command):
     pin: str | None = Field(repr=False)
 
 
+class Listen(_Command):
+    type: Literal["listen"] = "listen"
+
+
+class StopListening(_Command):
+    type: Literal["stop_listening"] = "stop_listening"
+
+
 class Stop(_Command):
     type: Literal["stop"] = "stop"
 
 
 Command = Annotated[
-    SendMessage | Confirm | Cancel | SetMode | Unlock | Stop, Field(discriminator="type")
+    SendMessage | Confirm | Cancel | SetMode | Unlock | Listen | StopListening | Stop,
+    Field(discriminator="type"),
 ]
 _COMMAND = TypeAdapter(Command)
 

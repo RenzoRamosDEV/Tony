@@ -10,6 +10,8 @@ from tony.core.logging.task_log import Clock, utc_now
 Event = dict[str, Any]
 Publisher = Callable[[Event], None]
 ReplyMode = Literal["auto", "voice", "text", "both"]
+Origin = Literal["text", "voice"]
+VoiceState = Literal["loading", "ready", "listening", "unavailable"]
 AuthState = Literal["locked", "unlocked"]
 AuthReason = Literal[
     "start", "no_lock_file", "wrong_pin", "backoff", "idle", "cancelled", "unlocked", "not_required"
@@ -134,3 +136,31 @@ def auth(state: AuthState, reason: AuthReason, retry_in_s: int, *, clock: Clock 
 
 def reply_mode(mode: ReplyMode, *, clock: Clock = utc_now) -> Event:
     return _event("reply_mode", clock, mode=mode)
+
+
+def turn_started(
+    agent: str,
+    origin: Origin,
+    reply_mode: ReplyMode,
+    *,
+    speaks: bool,
+    writes: bool,
+    clock: Clock = utc_now,
+) -> Event:
+    return _event(
+        "turn_started",
+        clock,
+        agent=agent,
+        origin=origin,
+        reply_mode=reply_mode,
+        speaks=speaks,
+        writes=writes,
+    )
+
+
+def transcript(text: str, *, clock: Clock = utc_now) -> Event:
+    return _event("transcript", clock, text=text)
+
+
+def voice_state(state: VoiceState, reason: str | None = None, *, clock: Clock = utc_now) -> Event:
+    return _event("voice_state", clock, state=state, reason=reason)
