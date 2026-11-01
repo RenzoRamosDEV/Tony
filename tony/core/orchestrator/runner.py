@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from tony.core.config.placeholders import SecretMasker
-from tony.core.config.secrets import load_variables
+from tony.core.config.secrets import Variables, load_variables
 from tony.core.config.settings import load_config
 from tony.core.events import log_events
 from tony.core.events.messages import TaskRequest, TaskResult
@@ -44,12 +44,14 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
         raise NotWorkerError(agent_name, agent.spec.role)
     model_id = config.resolve_model(agent.spec.model)
     task_id = deps.task_id_factory()
-    masker = SecretMasker()
+    variables = load_variables(deps.root, deps.environ)
+    masker = SecretMasker(variables.env_file_values.values())
     log = JsonlTaskLog(deps.root, task_id, masker=masker, clock=deps.clock)
     log.emit(log_events.task_started(agent_name, request))
     try:
         outcome = await asyncio.wait_for(
-            _run_engine(agent, request, model_id, task_id, deps, masker, log), deps.task_timeout
+            _run_engine(agent, request, model_id, task_id, deps, variables, masker, log),
+            deps.task_timeout,
         )
     except TimeoutError:
         return _finish(log, "timeout", _failed(f"task timed out after {deps.task_timeout:g} s"))
@@ -74,12 +76,13 @@ async def _run_engine(
     model_id: str,
     task_id: str,
     deps: RunDeps,
+    variables: Variables,
     masker: SecretMasker,
     log: JsonlTaskLog,
 ) -> EngineOutcome:
     async with McpManager(
         agent.tools,
-        variables=load_variables(deps.root, deps.environ).values,
+        variables=variables,
         masker=masker,
         sink=log,
         log_dir=deps.root / "logs" / "mcp",

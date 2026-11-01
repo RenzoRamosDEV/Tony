@@ -1,5 +1,6 @@
 from tests.fakes.http_server import running_http_mcp_server
 from tests.fakes.sinks import ListEventSink
+from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.mcp.manager import McpManager
@@ -20,7 +21,11 @@ async def test_lists_http_tools_with_resolved_headers(tmp_path):
         )
         variables = {"REMOTE_URL": remote.url, "REMOTE_TOKEN": "tok3n"}
         async with McpManager(
-            spec, variables=variables, masker=masker, sink=ListEventSink(), log_dir=tmp_path
+            spec,
+            variables=secret_variables(variables),
+            masker=masker,
+            sink=ListEventSink(),
+            log_dir=tmp_path,
         ) as manager:
             ids = [tool.id for tool in manager.tools]
             descriptions = {tool.id: tool.description for tool in manager.tools}

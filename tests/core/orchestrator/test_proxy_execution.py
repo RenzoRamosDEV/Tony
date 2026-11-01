@@ -6,6 +6,7 @@ from tests.fakes.callers import FakeToolCaller
 from tests.fakes.guards import RecordingGuard
 from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
+from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.logging.task_log import JsonlTaskLog
@@ -37,7 +38,7 @@ def fs_manager(tmp_path, masker, sink):
     )
     return McpManager(
         spec,
-        variables={"GITHUB_TOKEN": "s3cr3t"},
+        variables=secret_variables({"GITHUB_TOKEN": "s3cr3t"}),
         masker=masker,
         sink=sink,
         log_dir=tmp_path / "logs" / "mcp",

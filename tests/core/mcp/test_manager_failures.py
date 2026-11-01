@@ -4,6 +4,7 @@ import pytest
 
 from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
+from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.mcp.manager import McpManager, _describe
@@ -17,7 +18,7 @@ def manager_for(tmp_path, broken, sink, variables=None, timeout=10.0):
     )
     return McpManager(
         spec,
-        variables=variables or {},
+        variables=secret_variables(variables or {}),
         masker=SecretMasker(),
         sink=sink,
         log_dir=tmp_path / "logs" / "mcp",
@@ -64,7 +65,11 @@ async def test_working_servers_emit_no_error(tmp_path):
     spec = ToolSpec.model_validate({"mcpServers": {"filesystem": fake_fs_entry(str(tmp_path))}})
 
     async with McpManager(
-        spec, variables={}, masker=SecretMasker(), sink=sink, log_dir=tmp_path / "logs"
+        spec,
+        variables=secret_variables({}),
+        masker=SecretMasker(),
+        sink=sink,
+        log_dir=tmp_path / "logs",
     ):
         pass
 
@@ -74,7 +79,7 @@ async def test_working_servers_emit_no_error(tmp_path):
 def test_default_connect_timeout_is_ten_seconds(tmp_path):
     manager = McpManager(
         ToolSpec(mcp_servers={}),
-        variables={},
+        variables=secret_variables({}),
         masker=SecretMasker(),
         sink=ListEventSink(),
         log_dir=tmp_path,

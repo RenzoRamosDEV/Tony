@@ -1,4 +1,5 @@
 from tests.fakes.sinks import ListEventSink
+from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.mcp.manager import McpManager
@@ -17,7 +18,7 @@ def manager_for(tmp_path, native_names, registry):
     spec = ToolSpec.model_validate({"mcpServers": {}, "native": native_names})
     return McpManager(
         spec,
-        variables={},
+        variables=secret_variables({}),
         masker=SecretMasker(),
         sink=ListEventSink(),
         log_dir=tmp_path,
@@ -50,7 +51,11 @@ def test_production_registry_is_empty():
 async def test_manager_defaults_to_production_registry(tmp_path):
     spec = ToolSpec.model_validate({"mcpServers": {}})
     manager = McpManager(
-        spec, variables={}, masker=SecretMasker(), sink=ListEventSink(), log_dir=tmp_path
+        spec,
+        variables=secret_variables({}),
+        masker=SecretMasker(),
+        sink=ListEventSink(),
+        log_dir=tmp_path,
     )
 
     async with manager:

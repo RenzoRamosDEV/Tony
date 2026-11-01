@@ -12,6 +12,7 @@ from mcp.client.streamable_http import create_mcp_http_client, streamable_http_c
 from mcp.types import CallToolResult, TextContent
 
 from tony.core.config.placeholders import SecretMasker, resolve_placeholders
+from tony.core.config.secrets import Variables
 from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
 from tony.core.mcp.native import NATIVE_SERVER, NATIVE_TOOLS, NativeTool
@@ -38,7 +39,7 @@ class McpManager:
         self,
         spec: ToolSpec,
         *,
-        variables: Mapping[str, str],
+        variables: Variables,
         masker: SecretMasker,
         sink: EventSink,
         log_dir: Path,
@@ -112,9 +113,10 @@ class McpManager:
         self, name: str, declared: McpServer, stack: AsyncExitStack
     ) -> ClientSession:
         resolved, used = resolve_placeholders(
-            declared.model_dump(exclude_unset=True), self._variables
+            declared.model_dump(exclude_unset=True), self._variables.values
         )
-        self._masker.register(self._variables[variable] for variable in used)
+        secrets = used & self._variables.secret_names
+        self._masker.register(self._variables.values[variable] for variable in secrets)
         server = McpServer.model_validate(resolved)
         transport = await self._transport(name, server, stack)
         read, write = await stack.enter_async_context(transport)

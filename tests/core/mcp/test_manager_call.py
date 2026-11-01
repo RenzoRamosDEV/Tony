@@ -4,6 +4,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from tests.fakes.processes import processes_mentioning
 from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
+from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.mcp.manager import McpManager, _to_reply
@@ -23,7 +24,7 @@ def manager_for(notes, env=None):
     spec = ToolSpec.model_validate({"mcpServers": {"fs": entry}})
     return McpManager(
         spec,
-        variables={"TOKEN_VALUE": "s3cr3t"},
+        variables=secret_variables({"TOKEN_VALUE": "s3cr3t"}),
         masker=SecretMasker(),
         sink=ListEventSink(),
         log_dir=notes.parent / "logs",

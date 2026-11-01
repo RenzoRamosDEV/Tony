@@ -1,6 +1,8 @@
 from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
+from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
+from tony.core.config.secrets import Variables
 from tony.core.loader.tool_json import ToolSpec
 from tony.core.mcp.manager import McpManager
 
@@ -9,7 +11,7 @@ def manager_for(tmp_path, servers, variables=None, masker=None):
     spec = ToolSpec.model_validate({"mcpServers": servers})
     return McpManager(
         spec,
-        variables=variables or {},
+        variables=secret_variables(variables or {}),
         masker=masker or SecretMasker(),
         sink=ListEventSink(),
         log_dir=tmp_path / "logs" / "mcp",
@@ -69,3 +71,23 @@ async def test_tools_of_every_working_server_are_listed(tmp_path):
 
     assert {"a.read_file", "b.read_file"} <= ids
     assert len(ids) == 8
+
+
+async def test_only_values_of_secret_names_are_registered(tmp_path):
+    masker = SecretMasker()
+    variables = Variables(
+        values={"HOME": str(tmp_path), "GITHUB_TOKEN": "s3cr3t"},
+        env_file_values={},
+        secret_names=frozenset({"GITHUB_TOKEN"}),
+    )
+    entry = fake_fs_entry("${HOME}", env={"NOTES": "${HOME}/notas", "TOKEN": "${GITHUB_TOKEN}"})
+    spec = ToolSpec.model_validate({"mcpServers": {"fs": entry}})
+    manager = McpManager(
+        spec, variables=variables, masker=masker, sink=ListEventSink(), log_dir=tmp_path / "l"
+    )
+
+    async with manager:
+        notes = await manager.call("fs.echo_env", {"name": "NOTES"})
+
+    assert notes.text == f"{tmp_path}/notas"
+    assert masker.mask(f"{tmp_path} s3cr3t") == f"{tmp_path} ***"
