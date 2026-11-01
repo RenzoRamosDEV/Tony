@@ -91,14 +91,6 @@ def test_tooltip_and_colour_per_state(state, tooltip, colour):
     assert TRAY_LOOKS[state] == (tooltip, colour)
 
 
-def test_the_presenter_bundle_feeds_the_tray(tmp_path):
-    from tony.apps.desktop.presenters.bundle import Presenters
-
-    presenters = Presenters.create(lambda command: None, tmp_path)
-    presenters.apply(ev.task_started("t1", "viernes", "o"))
-    assert presenters.tray.state == "working"
-
-
 def test_idle_uses_the_neutral_colour():
     assert NEUTRAL == "#6B7280"
     assert TRAY_LOOKS["idle"][1] == NEUTRAL

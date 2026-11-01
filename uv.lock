@@ -2036,7 +2036,6 @@ source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
     { name = "claude-agent-sdk" },
-    { name = "markdown-it-py" },
     { name = "mcp" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -2078,7 +2077,6 @@ requires-dist = [
     { name = "desktop-notifier", marker = "extra == 'desktop'", specifier = ">=6.2.0" },
     { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.2.1" },
     { name = "kokoro", marker = "extra == 'voice'", specifier = ">=0.9.4" },
-    { name = "markdown-it-py", specifier = ">=4.2.0" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "numpy", marker = "extra == 'voice'", specifier = ">=2.5.4" },
     { name = "pydantic", specifier = ">=2.14.2" },
