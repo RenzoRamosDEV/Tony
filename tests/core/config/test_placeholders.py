@@ -11,13 +11,13 @@ VARS = {"HOME": "/home/u", "TOKEN": "s3cr3t", "EMPTY": ""}
 
 class TestResolvePlaceholders:
     def test_resolves_string(self):
-        assert resolve_placeholders("${HOME}/notas", VARS) == ("/home/u/notas", {"/home/u"})
+        assert resolve_placeholders("${HOME}/notas", VARS) == ("/home/u/notas", {"HOME"})
 
     def test_resolves_multiple_variables_in_one_string(self):
         value, used = resolve_placeholders("${HOME}:${TOKEN}:${HOME}", VARS)
 
         assert value == "/home/u:s3cr3t:/home/u"
-        assert used == {"/home/u", "s3cr3t"}
+        assert used == {"HOME", "TOKEN"}
 
     def test_resolves_list_items(self):
         value, _ = resolve_placeholders(["-y", "${HOME}/notas"], VARS)
@@ -28,12 +28,13 @@ class TestResolvePlaceholders:
         value, used = resolve_placeholders({"${TOKEN}": "Bearer ${TOKEN}"}, VARS)
 
         assert value == {"${TOKEN}": "Bearer s3cr3t"}
-        assert used == {"s3cr3t"}
+        assert used == {"TOKEN"}
 
     def test_resolves_nested_structures(self):
-        value, _ = resolve_placeholders({"a": ["${TOKEN}", {"b": "${HOME}"}]}, VARS)
+        value, used = resolve_placeholders({"a": ["${TOKEN}", {"b": "${HOME}"}]}, VARS)
 
         assert value == {"a": ["s3cr3t", {"b": "/home/u"}]}
+        assert used == {"TOKEN", "HOME"}
 
     @pytest.mark.parametrize(
         "literal", ["plain", "$HOME", "${}", "${1BAD}", "$ {HOME}", "{HOME}", "", None, 7, True]
@@ -42,7 +43,7 @@ class TestResolvePlaceholders:
         assert resolve_placeholders(literal, VARS) == (literal, set())
 
     def test_empty_variable_resolves_to_empty_string(self):
-        assert resolve_placeholders("x${EMPTY}y", VARS) == ("xy", {""})
+        assert resolve_placeholders("x${EMPTY}y", VARS) == ("xy", {"EMPTY"})
 
     def test_undefined_variable_names_variable_without_leaking_values(self):
         with pytest.raises(UndefinedVariableError) as info:

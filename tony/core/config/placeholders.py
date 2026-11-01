@@ -19,7 +19,7 @@ def resolve_placeholders(value: Any, variables: Mapping[str, str]) -> tuple[Any,
         name = match.group(1)
         if name not in variables:
             raise UndefinedVariableError(name)
-        used.add(variables[name])
+        used.add(name)
         return variables[name]
 
     def walk(node: Any) -> Any:

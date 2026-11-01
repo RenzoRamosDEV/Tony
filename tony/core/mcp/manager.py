@@ -114,7 +114,7 @@ class McpManager:
         resolved, used = resolve_placeholders(
             declared.model_dump(exclude_unset=True), self._variables
         )
-        self._masker.register(used)
+        self._masker.register(self._variables[variable] for variable in used)
         server = McpServer.model_validate(resolved)
         transport = await self._transport(name, server, stack)
         read, write = await stack.enter_async_context(transport)
