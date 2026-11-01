@@ -23,6 +23,8 @@ REQUIRED = [
     "memory/settings.json",
     "evals/runs/",
     "samples/",
+    "tony/apps/desktop/web/dist/",
+    "node_modules/",
 ]
 
 

@@ -24,3 +24,6 @@ evals/runs/
 samples/
 # Lock file of tony mcp add
 tool.json.lock
+# Desktop web front build output and npm packages
+tony/apps/desktop/web/dist/
+node_modules/
