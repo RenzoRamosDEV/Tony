@@ -1,15 +1,24 @@
+from collections.abc import Callable, Collection
 from typing import Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     CanUseTool,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
+    PermissionResult,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    ResultMessage,
     SdkMcpTool,
+    TextBlock,
+    ToolPermissionContext,
     create_sdk_mcp_server,
 )
 
-from tony.core.events.messages import TaskResult
+from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.loader.agent_md import AgentSpec
-from tony.core.orchestrator.ports import ProxiedTool
+from tony.core.orchestrator.ports import EngineOutcome, ProxiedTool, Usage
 
 MCP_PREFIX = "mcp__"
 SEPARATOR = "__"
@@ -82,3 +91,58 @@ def build_options(
         can_use_tool=can_use_tool,
         output_format={"type": "json_schema", "schema": TaskResult.model_json_schema()},
     )
+
+
+class EngineError(Exception):
+    pass
+
+
+def make_can_use_tool(catalog: Collection[str]) -> CanUseTool:
+    async def can_use_tool(
+        tool_name: str, tool_input: dict[str, Any], context: ToolPermissionContext
+    ) -> PermissionResult:
+        if from_sdk_name(tool_name) in catalog:
+            return PermissionResultAllow()
+        return PermissionResultDeny(message=f"tool {tool_name} is not a proxied tool of this agent")
+
+    return can_use_tool
+
+
+def outcome_from_messages(messages: list[Any]) -> EngineOutcome:
+    last_text = ""
+    final: ResultMessage | None = None
+    for message in messages:
+        if isinstance(message, AssistantMessage):
+            texts = [block.text for block in message.content if isinstance(block, TextBlock)]
+            last_text = "".join(texts) or last_text
+        elif isinstance(message, ResultMessage):
+            final = message
+    if final is None:
+        return EngineOutcome(text=last_text)
+    if final.is_error:
+        raise EngineError(f"{final.subtype}: {final.result}" if final.result else final.subtype)
+    usage = final.usage or {}
+    return EngineOutcome(
+        text=final.result or last_text,
+        structured=final.structured_output,
+        usage=[Usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))],
+    )
+
+
+class ClaudeEngine:
+    """ModelEngine adapter over the Claude Agent SDK."""
+
+    def __init__(
+        self, client_factory: Callable[[ClaudeAgentOptions], Any] = ClaudeSDKClient
+    ) -> None:
+        self._client_factory = client_factory
+
+    async def run(
+        self, spec: AgentSpec, request: TaskRequest, tools: list[ProxiedTool], model_id: str
+    ) -> EngineOutcome:
+        can_use_tool = make_can_use_tool({tool.id for tool in tools})
+        options = build_options(spec, tools, model_id, can_use_tool)
+        async with self._client_factory(options) as client:
+            await client.query(request.model_dump_json())
+            messages = [message async for message in client.receive_response()]
+        return outcome_from_messages(messages)

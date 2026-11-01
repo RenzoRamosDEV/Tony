@@ -1,4 +1,7 @@
 import pytest
+
+from tony.core.events.messages import TaskResult
+from tony.core.loader.agent_md import AgentSpec
 from tony.core.orchestrator.claude_engine import (
     BUILTIN_TOOLS,
     build_options,
@@ -6,9 +9,6 @@ from tony.core.orchestrator.claude_engine import (
     sdk_tool,
     to_sdk_name,
 )
-
-from tony.core.events.messages import TaskResult
-from tony.core.loader.agent_md import AgentSpec
 from tony.core.orchestrator.ports import ProxiedTool, ToolReply
 
 SPEC = AgentSpec(
