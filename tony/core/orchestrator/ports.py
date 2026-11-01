@@ -46,5 +46,26 @@ class ModelEngine(Protocol):
     ) -> EngineOutcome: ...
 
 
+@dataclass(frozen=True)
+class ChatOutcome:
+    text: str
+    usage: list[Usage] = field(default_factory=list)
+
+
+TextCallback = Callable[[str], None]
+
+
+class ChatEngine(Protocol):
+    async def converse(
+        self,
+        spec: AgentSpec,
+        system_prompt: str,
+        prompt: str,
+        tools: list[ProxiedTool],
+        model_id: str,
+        on_text: TextCallback,
+    ) -> ChatOutcome: ...
+
+
 class EventSink(Protocol):
     def emit(self, event: dict[str, Any]) -> None: ...

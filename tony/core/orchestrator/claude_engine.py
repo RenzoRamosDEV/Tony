@@ -1,3 +1,4 @@
+import dataclasses
 import warnings
 from collections.abc import Callable, Collection
 from typing import Any
@@ -13,6 +14,7 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ResultMessage,
     SdkMcpTool,
+    StreamEvent,
     TextBlock,
     ToolPermissionContext,
     create_sdk_mcp_server,
@@ -20,7 +22,13 @@ from claude_agent_sdk import (
 
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.loader.agent_md import AgentSpec
-from tony.core.orchestrator.ports import EngineOutcome, ProxiedTool, Usage
+from tony.core.orchestrator.ports import (
+    ChatOutcome,
+    EngineOutcome,
+    ProxiedTool,
+    TextCallback,
+    Usage,
+)
 
 # allowed_tools auto-approves the proxy servers before can_use_tool runs. That is intended:
 # the ToolProxy is the execution barrier; can_use_tool only has to deny non-proxied names.
@@ -99,6 +107,28 @@ def build_options(
     )
 
 
+def build_chat_options(
+    spec: AgentSpec,
+    system_prompt: str,
+    tools: list[ProxiedTool],
+    model_id: str,
+    can_use_tool: CanUseTool,
+) -> ClaudeAgentOptions:
+    return dataclasses.replace(
+        build_options(spec, tools, model_id, can_use_tool),
+        system_prompt=system_prompt,
+        output_format=None,
+        include_partial_messages=True,
+    )
+
+
+def text_delta(message: Any) -> str | None:
+    if not isinstance(message, StreamEvent) or message.event.get("type") != "content_block_delta":
+        return None
+    delta = message.event.get("delta") or {}
+    return delta.get("text") if delta.get("type") == "text_delta" else None
+
+
 class EngineError(Exception):
     pass
 
@@ -152,3 +182,25 @@ class ClaudeEngine:
             await client.query(request.model_dump_json())
             messages = [message async for message in client.receive_response()]
         return outcome_from_messages(messages)
+
+    async def converse(
+        self,
+        spec: AgentSpec,
+        system_prompt: str,
+        prompt: str,
+        tools: list[ProxiedTool],
+        model_id: str,
+        on_text: TextCallback,
+    ) -> ChatOutcome:
+        can_use_tool = make_can_use_tool({tool.id for tool in tools})
+        options = build_chat_options(spec, system_prompt, tools, model_id, can_use_tool)
+        messages = []
+        async with self._client_factory(options) as client:
+            await client.query(prompt)
+            async for message in client.receive_response():
+                chunk = text_delta(message)
+                if chunk:
+                    on_text(chunk)
+                messages.append(message)
+        outcome = outcome_from_messages(messages)
+        return ChatOutcome(text=outcome.text, usage=outcome.usage)
