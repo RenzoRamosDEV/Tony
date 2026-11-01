@@ -29,7 +29,7 @@ def make_agent(root, agent_md=AGENT_MD, tool_json='{"mcpServers": {}}'):
 
 
 def test_bundled_viernes_loads_with_default_config():
-    agent = load_agent(REPO, "viernes", TonyConfig(), native_tools=set())
+    agent = load_agent(REPO, "viernes", TonyConfig(), native_tools={"read_skill", "run_subagent"})
 
     assert (agent.spec.role, agent.spec.model) == ("worker", "claude-sonnet")
     assert agent.spec.persona.language == "es"
@@ -39,7 +39,7 @@ def test_bundled_viernes_loads_with_default_config():
     assert filesystem.command == "npx"
     assert "@modelcontextprotocol/server-filesystem" in filesystem.args
     assert "${HOME}/notas" in filesystem.args
-    assert agent.tools.native == []
+    assert agent.tools.native == ["read_skill", "run_subagent"]
 
 
 def test_loads_agent_from_root(tmp_path):

@@ -5,5 +5,5 @@
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/notas"]
     }
   },
-  "native": []
+  "native": ["read_skill", "run_subagent"]
 }

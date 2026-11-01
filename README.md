@@ -55,8 +55,8 @@ agents/edith/
 
 `agent.md` exige exactamente estos campos: `name` (igual a la carpeta), `role`
 (`front|worker|guard`), `model` (un alias de `config/tony.yaml`), `persona.language`,
-`persona.tone` y `voice.tts` (`kokoro/<voz>`). El cuerpo es el prompt de sistema y no puede
-estar vacío.
+`persona.tone` y `voice.tts` (`kokoro/<voz>`), más el campo opcional `description` (texto no
+vacío). El cuerpo es el prompt de sistema y no puede estar vacío.
 
 `tool/tool.json`:
 
@@ -66,14 +66,52 @@ estar vacío.
     "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/notas"]},
     "remote": {"url": "https://example.test/mcp", "headers": {"Authorization": "Bearer ${REMOTE_TOKEN}"}}
   },
-  "native": []
+  "native": ["read_skill", "run_subagent"]
 }
 ```
 
 Cada servidor define `command` (stdio, con `args` y `env` opcionales) o `url` (HTTP streamable,
 con `headers` opcionales), nunca ambos. Las tools se identifican como `<servidor>.<tool>`; el
 nombre de servidor `tony` está reservado para las tools nativas (`tony.<nombre>`). Las claves
-`allow` y `confirm` se rechazan: los permisos pertenecen a `agents/edith/policy.yaml`.
+`allow` y `confirm` se rechazan: los permisos pertenecen a `agents/edith/policy.yaml`. Los
+nombres de servidor solo admiten letras y dígitos separados por un único `-` o `_` (sin `.` ni
+`__`). Las tools nativas disponibles son `read_skill` y `run_subagent`.
+
+### Skills: `agents/<agente>/skills/<nombre>/SKILL.md`
+
+Una skill es una carpeta con un `SKILL.md`: frontmatter con exactamente `name` (igual a la
+carpeta) y `description` (no vacía), seguido de un cuerpo Markdown no vacío.
+
+```markdown
+---
+name: resumir
+description: Resume notas en tres viñetas
+---
+Paso 1...
+```
+
+Si el agente declara la nativa `read_skill`, su prompt de sistema termina con una sección
+`## Skills` con una línea `- <nombre>: <descripción>` por skill (nunca el cuerpo). El agente lee
+el cuerpo bajo demanda con `tony.read_skill` (`{"name": "resumir"}`); un nombre desconocido
+devuelve `skill '<nombre>' not found; available: ...`. Las skills se leen del disco al empezar
+cada tarea o turno, así que una carpeta nueva se usa en la siguiente tarea sin reiniciar. Una
+skill inválida se omite y genera un evento `error` (origen `skills`) que nombra el fichero.
+
+### Subagentes: `agents/<agente>/subagents/<nombre>/`
+
+Un subagente tiene la misma estructura que un agente (`agent.md`, `tool/tool.json`, `skills/`
+opcional) con `role: worker` y `description` obligatoria; su `tool.json` no puede declarar
+`run_subagent` (profundidad 1). Si el agente declara `run_subagent`, su prompt termina con una
+sección `## Subagentes` (`- <nombre>: <descripción>`) y puede llamar a `tony.run_subagent` con
+`{"name": "resumidor", "tarea": {"objetivo": "..."}}`; recibe el resultado estructurado
+`{resumen, datos, pasos, errores}` del subagente.
+
+El subagente se ejecuta dentro de la tarea padre: comparte su id, su log
+`logs/tasks/<task_id>.jsonl` (entre `subagent_started` y `subagent_finished`), sus límites y su
+cómputo de tokens. Cada llamada suya pasa por Edith y se audita con `agent: "<agente>/<nombre>"`,
+y la zona de actividad la muestra bajo un nodo hijo de la tarea. `tony.run_subagent` no está
+limitado por `limits.tool_timeout_s`: lo limita el `task_timeout_s` de la tarea padre, y cancelar
+la tarea padre detiene al subagente y cierra sus servidores MCP.
 
 ## Edith: política de permisos
 
