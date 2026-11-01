@@ -237,3 +237,19 @@ def test_unlock_action_available_while_locked(window):
 
     window.unlock_action.trigger()
     assert window.pin_dialog.isVisible()
+
+
+def test_reveal_restores_a_minimised_window(window, qtbot):
+    window.showMinimized()
+    window.reveal()
+    qtbot.waitUntil(lambda: not window.isMinimized(), timeout=2000)
+    assert window.isVisible()
+
+
+def test_reveal_on_edith_expands_the_zone_and_focuses_deny(window, qtbot):
+    window.dispatch(ev.needs_confirmation("t1", "fs.delete", "{}", "¿Autoriza?", True))
+    window.edith_zone.setChecked(False)
+    window.hide()
+    window.reveal(edith=True)
+    assert window.isVisible() and window.edith_zone.isChecked()
+    qtbot.waitUntil(lambda: window.focusWidget() is window.edith_panel.deny_button, timeout=2000)

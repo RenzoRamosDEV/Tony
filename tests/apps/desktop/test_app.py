@@ -39,6 +39,8 @@ def test_commands_from_the_window_reach_the_runtime(qtbot, tmp_path):
 
 
 def test_launch_runs_the_event_loop_and_stops_the_core(qtbot, tmp_path):
+    from tests.apps.desktop.test_launch import FakeChannel
+
     runtimes, seen = [], []
 
     def run_loop(app, window):
@@ -46,7 +48,8 @@ def test_launch_runs_the_event_loop_and_stops_the_core(qtbot, tmp_path):
         window.close()
         return 0
 
-    assert launch(tmp_path, fake_factory(runtimes), run_loop=run_loop) == 0
+    channel = FakeChannel(answers=False)
+    assert launch(tmp_path, fake_factory(runtimes), run_loop=run_loop, channel=channel) == 0
     assert seen == [True]
     assert runtimes[0].stopped
 

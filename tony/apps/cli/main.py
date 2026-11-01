@@ -60,7 +60,7 @@ def create_app(
     getpass: Callable[[str], str] = getpass_module.getpass,
     chat_engine_factory: Callable[[], ChatEngine] = ClaudeEngine,
     console_factory: Callable[[], ConsoleLines] = lambda: ConsoleLines(sys.stdin),
-    desktop_launcher: Callable[[], object] | None = None,
+    desktop_launcher: Callable[..., object] | None = None,
     change_stream_factory: ChangeStream = watch_config,
 ) -> typer.Typer:
     app = typer.Typer()
@@ -141,10 +141,20 @@ def create_app(
         typer.echo(f"PIN stored in {LOCK_FILE}")
 
     @app.callback(invoke_without_command=True)
-    def main(context: typer.Context) -> None:
+    def main(
+        context: typer.Context,
+        focus: Annotated[
+            bool,
+            typer.Option("--focus", help="Raise the running app (or open it) and start listening."),
+        ] = False,
+    ) -> None:
         """Tony: asistente personal local. Without a command, opens the desktop app."""
         if context.invoked_subcommand is None:
-            (desktop_launcher or launch_desktop)()
+            (desktop_launcher or launch_desktop)(focus=focus)
+        elif focus:
+            raise typer.BadParameter(
+                "--focus can not be combined with a command", param_hint="--focus"
+            )
 
     @app.command()
     def run(
@@ -309,10 +319,10 @@ async def server_rows(root: Path, specs: dict[str, ToolSpec]) -> list[tuple[str,
     return body
 
 
-def launch_desktop() -> None:
+def launch_desktop(*, focus: bool) -> None:
     from tony.apps.desktop.app import launch
 
-    raise typer.Exit(launch(resolve_home()))
+    raise typer.Exit(launch(resolve_home(), focus=focus))
 
 
 def agents_table(slots: AgentSlots) -> str:

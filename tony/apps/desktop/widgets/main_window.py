@@ -61,6 +61,17 @@ class MainWindow(QMainWindow):
         self._on_close()
         super().closeEvent(event)
 
+    def reveal(self, edith: bool = False) -> None:
+        """Show, restore and raise the window; on Edith, open her zone with focus on «Denegar»."""
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        if edith:
+            self.edith_zone.setChecked(True)
+            self.edith_panel.deny_button.setFocus()
+
     def dispatch(self, event: Event) -> None:
         self.presenters.apply(event)
 
