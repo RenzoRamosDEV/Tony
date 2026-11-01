@@ -43,7 +43,7 @@ When the session starts locked with a valid lock file, `tony chat` SHALL ask the
 
 #### Scenario: Default agents
 - **WHEN** the user runs `tony agents` with the bundled agents
-- **THEN** the output has a header and the rows `front jarvis front claude-haiku kokoro/em_alex`, `worker viernes worker claude-sonnet kokoro/em_alex` and `guard edith guard claude-haiku kokoro/ef_dora` (columns separated by spaces)
+- **THEN** the output has a header and the rows `front jarvis front claude-haiku kokoro/em_alex`, `worker viernes worker claude-sonnet kokoro/ef_dora` and `guard edith guard claude-haiku kokoro/ef_dora,bf_emma` (columns separated by spaces)
 
 #### Scenario: Invalid agent
 - **WHEN** `agents/jarvis/agent.md` declares `role: helper`

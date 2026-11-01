@@ -21,7 +21,7 @@ An agent SHALL be declared by `agents/<name>/agent.md`, consisting of a YAML fro
 - **THEN** loading fails with an error naming the file
 
 ### Requirement: Agent frontmatter schema
-The frontmatter SHALL contain these required fields: `name` (string equal to the agent folder name), `role` (`front`, `worker` or `guard`), `model` (a model alias), `persona` (`language`: string, `tone`: string) and `voice` (`tts`: string of the form `kokoro/<voice>`), plus the optional field `description` (non-empty string). Unknown fields at any level MUST be rejected.
+The frontmatter SHALL contain these required fields: `name` (string equal to the agent folder name), `role` (`front`, `worker` or `guard`), `model` (a model alias), `persona` (`language`: string, `tone`: string) and `voice` (`tts`: `kokoro/<voice>` or a comma-separated Kokoro voice blend `kokoro/<voice>,<voice>...`, each voice matching `[a-z]{2}_[a-z0-9]+`), plus the optional field `description` (non-empty string). Unknown fields at any level MUST be rejected.
 
 #### Scenario: Name differs from folder
 - **WHEN** `agents/viernes/agent.md` declares `name: friday`
@@ -40,8 +40,12 @@ The frontmatter SHALL contain these required fields: `name` (string equal to the
 - **THEN** loading fails with an error naming the file and the field `persona.tone`
 
 #### Scenario: Malformed voice
-- **WHEN** `voice.tts` is `em_alex` (no `kokoro/` prefix) or `kokoro/` (empty voice)
+- **WHEN** `voice.tts` is `em_alex` (no `kokoro/` prefix), `kokoro/` (empty voice), `kokoro/ef_dora,` (empty blend element) or `kokoro/ef dora` (space)
 - **THEN** loading fails with an error naming the file and the field `voice.tts`
+
+#### Scenario: Voice blend accepted
+- **WHEN** `voice.tts` is `kokoro/ef_dora,bf_emma`
+- **THEN** loading succeeds and the agent's voice is the blend of `ef_dora` and `bf_emma`
 
 #### Scenario: Model alias not configured
 - **WHEN** `model` is `claude-opus` and that alias is not present in the configured `models`
@@ -98,11 +102,11 @@ The keys `allow` and `confirm` MUST be rejected at any depth of `tool.json`, wit
 - **THEN** loading fails with an error naming the file, the key `mcpServers.<server>.allow`, and `agents/edith/policy.yaml`
 
 ### Requirement: Bundled Viernes agent
-The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-sonnet`, Spanish persona with tone `cercano, ágil y pragmático; humor sutil solo en el resumen`, a `kokoro/<voice>` voice, a system prompt instructing it to solve the structured task with its tools, to answer with the structured result and never to address the user outside `resumen`, and a `tool.json` declaring the filesystem MCP server and the natives `read_skill` and `run_subagent`.
+The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-sonnet`, Spanish persona with tone `cercano, ágil y pragmático; humor sutil solo en el resumen`, voice `kokoro/ef_dora`, a system prompt instructing it to solve the structured task with its tools, to answer with the structured result and never to address the user outside `resumen`, and a `tool.json` declaring the filesystem MCP server and the natives `read_skill` and `run_subagent`.
 
 #### Scenario: Bundled agent validates
 - **WHEN** the bundled `agents/viernes/` is loaded with the default configuration
-- **THEN** loading succeeds and the agent's role is `worker` and its model alias is `claude-sonnet`
+- **THEN** loading succeeds and the agent's role is `worker`, its model alias is `claude-sonnet` and its voice is `kokoro/ef_dora`
 
 #### Scenario: Viernes persona
 - **WHEN** the bundled `agents/viernes/agent.md` is loaded

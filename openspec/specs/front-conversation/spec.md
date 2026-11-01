@@ -87,7 +87,7 @@ If a delegated task has produced no result 3 seconds after it started, exactly o
 - **THEN** it receives an error result and the file is unchanged
 
 ### Requirement: Reply mode
-The reply mode SHALL be one of `auto`, `voice`, `text`, `both`. Its initial value SHALL be the last `reply_mode: <mode>` line of `memory/preferences.md` when present and valid, otherwise `reply_mode` from `config/tony.yaml`. Changing it from the UI or with `set_reply_mode({mode})` SHALL persist it and emit a `reply_mode` event. In this change the mode is stored only; no voice is produced.
+The reply mode SHALL be one of `auto`, `voice`, `text`, `both`. Its initial value SHALL be the last `reply_mode: <mode>` line of `memory/preferences.md` when present and valid, otherwise `reply_mode` from `config/tony.yaml`. Changing it from the UI or with `set_reply_mode({mode})` SHALL persist it and emit a `reply_mode` event. The mode applied to a message SHALL decide whether its reply is spoken and written (see voice-conversation).
 
 #### Scenario: Mode set by phrase
 - **WHEN** the user says `contéstame solo por texto` and Jarvis calls `set_reply_mode` with `{"mode": "text"}`
@@ -105,6 +105,10 @@ The reply mode SHALL be one of `auto`, `voice`, `text`, `both`. Its initial valu
 - **WHEN** `config/tony.yaml` has `reply_mode: auto` and `preferences.md` contains `reply_mode: voice`
 - **THEN** the initial reply mode is `voice`
 
+#### Scenario: Mode fixed for the turn
+- **WHEN** a turn starts in `voice` and Jarvis calls `set_reply_mode` with `{"mode": "text"}` during it
+- **THEN** that turn keeps speaking and the next message applies `text`
+
 ### Requirement: One-message mode prefix
 A user message starting with `/v` or `/t` followed by a space or the end of the text SHALL use `voice` or `text` respectively for that message only; the prefix and the following space SHALL be stripped before the message reaches the front agent and the history. The persisted mode MUST NOT change.
 
@@ -115,3 +119,14 @@ A user message starting with `/v` or `/t` followed by a space or the end of the 
 #### Scenario: Not a prefix
 - **WHEN** the user writes `/verdad`
 - **THEN** the message is sent unchanged and the persisted mode applies
+
+### Requirement: Turn start announced
+Each front-agent turn SHALL publish, before its first `token`, one `turn_started` event with the front agent's name, the message origin (`text` or `voice`), the applied reply mode and the resulting `speaks` and `writes`. `token` events SHALL still be published for every turn.
+
+#### Scenario: Typed message
+- **WHEN** the user types `Hola` with persisted mode `both` and voice ready
+- **THEN** `turn_started` has `origin: "text"`, `reply_mode: "both"`, `speaks: true`, `writes: true`, followed by the turn's `token` events
+
+#### Scenario: Terminal chat
+- **WHEN** `tony chat` answers a message with persisted mode `voice`
+- **THEN** the turn has `speaks: false` and `writes: true` and the reply is printed
