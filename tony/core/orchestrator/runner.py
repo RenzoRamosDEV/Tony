@@ -2,7 +2,8 @@ import asyncio
 import os
 import time
 from asyncio import FIRST_COMPLETED
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,7 +24,13 @@ from tony.core.loader.agent import AgentDefinition, load_agent
 from tony.core.logging.task_log import Clock, JsonlTaskLog, new_task_id, utc_now
 from tony.core.mcp.manager import McpManager
 from tony.core.mcp.native import NATIVE_TOOLS, NativeTool
-from tony.core.orchestrator.ports import EngineOutcome, EventSink, ModelEngine, Usage
+from tony.core.orchestrator.ports import (
+    EngineOutcome,
+    EventSink,
+    ModelEngine,
+    ProxiedTool,
+    Usage,
+)
 from tony.core.orchestrator.proxy import ToolProxy
 from tony.core.orchestrator.results import to_task_result
 from tony.core.orchestrator.supervisor import USER_CANCELLED, TaskSupervisor
@@ -65,13 +72,10 @@ class _TaskRun:
     guard: Guard
     supervisor: TaskSupervisor
     publish: Publisher
+    policy: Policy
 
 
-async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> TaskResult:
-    config = load_config(deps.root)
-    agent = load_agent(deps.root, agent_name, config, native_tools=deps.native.keys())
-    if agent.spec.role != "worker":
-        raise NotWorkerError(agent_name, agent.spec.role)
+def _prepare_run(agent: AgentDefinition, config: TonyConfig, deps: RunDeps) -> _TaskRun:
     model_id = config.resolve_model(agent.spec.model)
     guard_agent = load_agent(deps.root, config.guard, config, native_tools=deps.native.keys())
     policy = load_policy(deps.root, config.guard)
@@ -80,7 +84,7 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
     masker = SecretMasker(variables.env_file_values.values())
     log = JsonlTaskLog(deps.root, task_id, masker=masker, clock=deps.clock)
     publish = MaskingPublisher(masker, deps.publish)
-    run = _TaskRun(
+    return _TaskRun(
         id=task_id,
         agent=agent,
         model_id=model_id,
@@ -90,7 +94,18 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
         guard=deps.guard or _edith(deps, config, guard_agent, policy, masker),
         supervisor=TaskSupervisor(policy.limits, _AlertTee(log, publish, task_id, deps.clock)),
         publish=publish,
+        policy=policy,
     )
+
+
+async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> TaskResult:
+    config = load_config(deps.root)
+    agent = load_agent(deps.root, agent_name, config, native_tools=deps.native.keys())
+    if agent.spec.role != "worker":
+        raise NotWorkerError(agent_name, agent.spec.role)
+    run = _prepare_run(agent, config, deps)
+    log, publish, task_id = run.log, run.publish, run.id
+    policy = run.policy
     timeout = policy.limits.task_timeout_s if deps.task_timeout is None else deps.task_timeout
     started = deps.monotonic()
     log.emit(log_events.task_started(agent_name, request))
@@ -211,7 +226,28 @@ def _edith(
     )
 
 
+@asynccontextmanager
+async def agent_tools(
+    agent: AgentDefinition, config: TonyConfig, deps: RunDeps
+) -> AsyncIterator[list[ProxiedTool]]:
+    """The agent's own MCP and native tools, proxied through the guard like a worker's.
+
+    An agent declaring none gets an empty list without a task log or any connection.
+    """
+    if not agent.tools.mcp_servers and not agent.tools.native:
+        yield []
+        return
+    async with _proxied_tools(_prepare_run(agent, config, deps), deps) as tools:
+        yield tools
+
+
 async def _run_engine(run: _TaskRun, request: TaskRequest, deps: RunDeps) -> EngineOutcome:
+    async with _proxied_tools(run, deps) as tools:
+        return await deps.engine.run(run.agent.spec, request, tools, run.model_id)
+
+
+@asynccontextmanager
+async def _proxied_tools(run: _TaskRun, deps: RunDeps) -> AsyncIterator[list[ProxiedTool]]:
     async with McpManager(
         run.agent.tools,
         variables=run.variables,
@@ -236,8 +272,7 @@ async def _run_engine(run: _TaskRun, request: TaskRequest, deps: RunDeps) -> Eng
             publish=run.publish,
             clock=deps.clock,
         )
-        tools = proxy.wrap(manager.tools)
-        return await deps.engine.run(run.agent.spec, request, tools, run.model_id)
+        yield proxy.wrap(manager.tools)
 
 
 def _failed(message: str) -> TaskResult:
