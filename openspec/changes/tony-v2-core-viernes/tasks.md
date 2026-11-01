@@ -54,7 +54,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 9. Claude Agent SDK engine adapter (`tony/core/orchestrator`)
 
-- [ ] 9.1 Red: unit tests for `build_options` (no built-in tools, `allowed_tools` only for the agent's proxy servers, resolved model id, system prompt = agent body, `setting_sources=[]`, structured output schema of `TaskResult`) and name mapping `mcp__<srv>__<tool>` <-> `<srv>.<tool>`; Green: implement; verify tests pass
+- [x] 9.1 Red: unit tests for `build_options` (no built-in tools, `allowed_tools` only for the agent's proxy servers, resolved model id, system prompt = agent body, `setting_sources=[]`, structured output schema of `TaskResult`) and name mapping `mcp__<srv>__<tool>` <-> `<srv>.<tool>`; Green: implement; verify tests pass
 - [ ] 9.2 Red: unit tests for `can_use_tool` (built-in `Bash` denied, malformed names denied, proxied name outside catalog denied, catalog name allowed) and result parsing (structured output -> `TaskResult`, invalid/missing -> unstructured error result with raw text in `resumen`), usage extraction to `token_usage`; Green: implement `ClaudeEngine`; verify tests pass
 
 ## 10. Task runner and CLI
