@@ -48,7 +48,7 @@ The frontmatter SHALL contain exactly these fields, all required: `name` (string
 - **THEN** loading fails with an error naming the file and the field `model`
 
 ### Requirement: Tool declaration schema
-Each agent SHALL have `agents/<name>/tool/tool.json` with `mcpServers` (map of server name to a stdio entry `{command, args?, env?}` or an HTTP entry `{url, headers?}`) and `native` (list of native tool names, default `[]`). Each server entry MUST define exactly one of `command` or `url`; unknown keys MUST be rejected.
+Each agent whose role is not `guard` SHALL have `agents/<name>/tool/tool.json` with `mcpServers` (map of server name to a stdio entry `{command, args?, env?}` or an HTTP entry `{url, headers?}`) and `native` (list of native tool names, default `[]`). Each server entry MUST define exactly one of `command` or `url`; unknown keys MUST be rejected.
 
 #### Scenario: Stdio and HTTP servers accepted
 - **WHEN** `tool.json` declares `{"mcpServers": {"filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/notas"]}, "remote": {"url": "https://example.test/mcp", "headers": {"Authorization": "Bearer ${REMOTE_TOKEN}"}}}}`
@@ -67,7 +67,7 @@ Each agent SHALL have `agents/<name>/tool/tool.json` with `mcpServers` (map of s
 - **THEN** loading fails with an error naming the file
 
 #### Scenario: Missing tool.json
-- **WHEN** the agent folder has no `tool/tool.json`
+- **WHEN** a `worker` or `front` agent folder has no `tool/tool.json`
 - **THEN** loading fails with an error naming the expected file path
 
 ### Requirement: Permissions are not declared in tool.json
@@ -87,3 +87,14 @@ The repository SHALL ship `agents/viernes/` with `role: worker`, `model: claude-
 #### Scenario: Bundled agent validates
 - **WHEN** the bundled `agents/viernes/` is loaded with the default configuration
 - **THEN** loading succeeds and the agent's role is `worker` and its model alias is `claude-sonnet`
+
+### Requirement: Guard agent has no tools
+An agent with role `guard` MUST NOT have a `tool/` folder; loading one that has it SHALL fail with an error naming `agents/<name>/tool/` and stating that a guard agent has no tools. A valid guard agent SHALL load with no MCP servers and no native tools.
+
+#### Scenario: Guard with tool folder rejected
+- **WHEN** `agents/edith/agent.md` declares `role: guard` and `agents/edith/tool/` exists
+- **THEN** loading fails with an error naming `agents/edith/tool/`
+
+#### Scenario: Guard without tool folder loads
+- **WHEN** `agents/edith/agent.md` declares `role: guard` and there is no `agents/edith/tool/`
+- **THEN** loading succeeds with no MCP servers and no native tools
