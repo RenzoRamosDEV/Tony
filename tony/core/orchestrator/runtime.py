@@ -101,7 +101,7 @@ class CoreRuntime:
         self._monotonic = monotonic
         self._waiting_after_s = waiting_after_s
         self._changes = changes
-        self._voice = voice
+        self.voice = voice
         self._stop_watching = asyncio.Event()
         self._commands: asyncio.Queue[Any] = asyncio.Queue()
         self._turns: asyncio.Queue[tuple[str, Origin]] = asyncio.Queue()
@@ -145,7 +145,7 @@ class CoreRuntime:
         variables = load_variables(self._root, self._environ)
         masker = SecretMasker(variables.env_file_values.values())
         ui_publish = MaskingPublisher(masker, self._publish)
-        self._publish = ui_publish if self._voice is None else _fan_out(ui_publish, self._voice)
+        self._publish = ui_publish if self.voice is None else _fan_out(ui_publish, self.voice)
         self.broker = ConfirmationBroker(self._root, config.guard, self._publish)
         self.session = EdithSession(policy.auth, PinStore(self._root), monotonic=self._monotonic)
         live = live_config(
@@ -198,10 +198,10 @@ class CoreRuntime:
         ]
 
     def _voice_ready(self) -> bool:
-        return self._voice is not None and self._voice.ready
+        return self.voice is not None and self.voice.ready
 
     def _start_voice(self, settings: VoiceSettings, slots: AgentSlots, publish: Publisher) -> None:
-        if self._voice is None:
+        if self.voice is None:
             return
         cast = VoiceCast(
             front=slots.front.name,
@@ -209,7 +209,7 @@ class CoreRuntime:
             worker_voice=slots.worker.spec.voice.tts,
             guard_voice=slots.guard.spec.voice.tts,
         )
-        self._voice.start(
+        self.voice.start(
             settings,
             cast,
             publish=publish,
@@ -233,13 +233,13 @@ class CoreRuntime:
             self._unlock(command.pin)
         elif isinstance(command, Listen):
             self._require_voice().listen()
-        elif isinstance(command, StopListening) and self._voice is not None:
-            self._voice.stop_listening()
+        elif isinstance(command, StopListening) and self.voice is not None:
+            self.voice.stop_listening()
 
     def _require_voice(self) -> VoiceService:
-        if self._voice is None:
+        if self.voice is None:
             raise RuntimeError(VOICE_NOT_CONFIGURED)
-        return self._voice
+        return self.voice
 
     def _unlock(self, pin: str | None) -> None:
         if self.pin_prompt.answer(pin):
@@ -248,9 +248,9 @@ class CoreRuntime:
         self._publish(core_events.auth(*status))
 
     def _cancel_turn(self) -> None:
-        if self._voice is not None:
-            self._voice.stop_speaking()
-            self._voice.stop_listening()
+        if self.voice is not None:
+            self.voice.stop_speaking()
+            self.voice.stop_listening()
         self.broker.cancel()
         if self._turn is not None:
             self._turn.cancel()
@@ -300,8 +300,8 @@ class CoreRuntime:
             await asyncio.gather(*self._background, return_exceptions=True)
         if self.history is not None:
             self.history.close()
-        if self._voice is not None:
-            self._voice.close()
+        if self.voice is not None:
+            self.voice.close()
 
 
 def _fan_out(ui_publish: Publisher, voice: VoiceService) -> Publisher:

@@ -49,3 +49,13 @@ def test_launch_runs_the_event_loop_and_stops_the_core(qtbot, tmp_path):
     assert launch(tmp_path, fake_factory(runtimes), run_loop=run_loop) == 0
     assert seen == [True]
     assert runtimes[0].stopped
+
+
+def test_the_default_runtime_preloads_voice_with_the_real_engine_loader(tmp_path):
+    from tony.apps.desktop.app import default_runtime_factory
+    from tony.core.voice.engines.loader import load_engines
+
+    runtime = default_runtime_factory(tmp_path)(lambda event: None)
+
+    assert runtime.voice is not None
+    assert runtime.voice.loader is load_engines

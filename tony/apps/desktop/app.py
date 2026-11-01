@@ -17,10 +17,17 @@ def default_runtime_factory(root: Path) -> RuntimeFactory:
     from tony.core.guard.claude_wording import ClaudeWording
     from tony.core.orchestrator.claude_engine import ClaudeEngine
     from tony.core.orchestrator.runtime import CoreRuntime
+    from tony.core.voice.engines.loader import load_engines
+    from tony.core.voice.service import VoiceService
 
     def factory(publish: Publisher) -> Runtime:
         return CoreRuntime(
-            root, publish, chat_engine=ClaudeEngine(), engine=ClaudeEngine(), wording=ClaudeWording
+            root,
+            publish,
+            chat_engine=ClaudeEngine(),
+            engine=ClaudeEngine(),
+            wording=ClaudeWording,
+            voice=VoiceService(load_engines),
         )
 
     return factory

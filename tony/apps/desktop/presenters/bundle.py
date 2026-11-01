@@ -8,6 +8,7 @@ from tony.apps.desktop.presenters.activity import ActivityPresenter
 from tony.apps.desktop.presenters.chat import ChatPresenter, Submit
 from tony.apps.desktop.presenters.edith import EdithPresenter
 from tony.apps.desktop.presenters.pin import PinPresenter
+from tony.apps.desktop.presenters.voice import VoicePresenter
 from tony.core.events.core_events import Event
 
 
@@ -17,6 +18,7 @@ class Presenters:
     activity: ActivityPresenter
     edith: EdithPresenter
     pin: PinPresenter
+    voice: VoicePresenter
 
     @classmethod
     def create(
@@ -32,8 +34,9 @@ class Presenters:
             activity=ActivityPresenter(),
             edith=EdithPresenter(submit, root, now=now),
             pin=PinPresenter(submit, monotonic=monotonic),
+            voice=VoicePresenter(submit),
         )
 
     def apply(self, event: Event) -> None:
-        for presenter in (self.chat, self.activity, self.edith, self.pin):
+        for presenter in (self.chat, self.activity, self.edith, self.pin, self.voice):
             presenter.apply(event)

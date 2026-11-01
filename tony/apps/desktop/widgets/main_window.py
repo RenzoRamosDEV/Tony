@@ -38,9 +38,7 @@ class MainWindow(QMainWindow):
         self.input.setPlaceholderText("Escriba un mensaje y pulse Intro")
         self.mode_selector = QComboBox()
         self.mode_selector.addItems(REPLY_MODES)
-        self.microphone = QPushButton("Micrófono")
-        self.microphone.setEnabled(False)
-        self.microphone.setToolTip("La entrada por voz aún no está disponible.")
+        self.microphone = QPushButton()
         self.activity_panel = ActivityPanel(presenters.activity)
         self.edith_panel = EdithPanel(presenters.edith)
         self.activity_zone = _collapsible("Actividad", self.activity_panel)
@@ -55,6 +53,9 @@ class MainWindow(QMainWindow):
         self.unlock_action.triggered.connect(presenters.pin.request_unlock)
         presenters.chat.subscribe(self._render_mode)
         presenters.pin.subscribe(self._render_unlock)
+        self.microphone.clicked.connect(presenters.voice.toggle)
+        presenters.voice.subscribe(self._render_microphone)
+        self._render_microphone()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
         self._on_close()
@@ -71,6 +72,12 @@ class MainWindow(QMainWindow):
         self.mode_selector.blockSignals(True)
         self.mode_selector.setCurrentText(self.presenters.chat.mode)
         self.mode_selector.blockSignals(False)
+
+    def _render_microphone(self) -> None:
+        voice = self.presenters.voice
+        self.microphone.setText(voice.label)
+        self.microphone.setEnabled(voice.enabled)
+        self.microphone.setToolTip(voice.tooltip)
 
     def _render_unlock(self) -> None:
         self.unlock_action.setEnabled(self.presenters.pin.can_unlock)

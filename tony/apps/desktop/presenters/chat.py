@@ -11,6 +11,7 @@ Submit = Callable[[dict[str, Any]], None]
 AGENT_COLOURS = {"jarvis": "#2F6FED", "viernes": "#2E9E5B", "edith": "#E0A100"}
 NEUTRAL = "#6B7280"
 USER = "user"
+VOICE_LABEL = "Tú (voz)"
 SYSTEM = "system"
 
 
@@ -33,6 +34,7 @@ class ChatPresenter(Observable):
         self._renderer = renderer or MarkdownRenderer()
         self.bubbles: list[Bubble] = []
         self.mode: ReplyMode = "auto"
+        self._writes = True
 
     def send(self, text: str) -> None:
         if not text.strip():
@@ -46,13 +48,19 @@ class ChatPresenter(Observable):
 
     def apply(self, event: Event) -> None:
         kind = event["type"]
-        if kind == "token":
+        if kind == "turn_started":
+            self._writes = event["writes"]
+        elif kind == "token" and self._writes:
             self._grow(event["agent"], event["text"])
         elif kind == "result" and event["scope"] == "turn":
+            self._writes = True
             self._finish_turn(event["agent"], event["text"])
+        elif kind == "transcript":
+            self._add(USER, VOICE_LABEL, event["text"])
         elif kind == "progress":
             self._add(event["agent"], event["agent"].title(), event["text"])
         elif kind == "error":
+            self._writes = self._writes or event["source"] == "front"
             self._add(SYSTEM, "Tony", f"Error ({event['source']}): {event['message']}")
         elif kind == "reply_mode":
             self.mode = event["mode"]

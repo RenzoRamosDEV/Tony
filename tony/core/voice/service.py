@@ -60,7 +60,7 @@ class VoiceService:
         idle_timeout_s: float = IDLE_TIMEOUT_S,
         flush_after_s: float = FLUSH_AFTER_S,
     ) -> None:
-        self._loader = loader
+        self.loader = loader
         self._idle_timeout_s = idle_timeout_s
         self._flush_after_s = flush_after_s
         self._state: VoiceState = "loading"
@@ -155,7 +155,7 @@ class VoiceService:
 
     def _load(self, settings: VoiceSettings) -> None:
         try:
-            outcome = self._loader(settings, self._cast.voices)
+            outcome = self.loader(settings, self._cast.voices)
         except Exception as error:
             outcome = Unavailable(str(error) or type(error).__name__)
         self._post(lambda: self._loaded(outcome))

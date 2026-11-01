@@ -163,3 +163,56 @@ def test_unrelated_events_change_nothing():
     presenter.apply(ev.mcp_status("viernes", "fs", up=True, reason=None))
 
     assert (presenter.bubbles, changes) == ([], [])
+
+
+def test_silent_turn_shows_the_whole_reply_only_at_the_result():
+    presenter, _, _ = make()
+
+    presenter.apply(ev.turn_started("jarvis", "voice", "auto", speaks=True, writes=False))
+    presenter.apply(ev.token("jarvis", "Buenas"))
+    presenter.apply(ev.token("jarvis", " tardes, señor."))
+    assert presenter.bubbles == []
+    presenter.apply(ev.turn_result("jarvis", "Buenas tardes, señor.", "auto"))
+
+    assert summary(presenter) == [("jarvis", "Jarvis", "#2F6FED", "Buenas tardes, señor.", False)]
+
+
+def test_silent_turn_keeps_progress_and_errors():
+    presenter, _, _ = make()
+
+    presenter.apply(ev.turn_started("jarvis", "voice", "voice", speaks=True, writes=False))
+    presenter.apply(ev.progress("jarvis", "Un momento."))
+    presenter.apply(ev.token("jarvis", "x"))
+    presenter.apply(ev.error("front", "model down"))
+
+    assert [b.markdown for b in presenter.bubbles] == ["Un momento.", "Error (front): model down"]
+
+
+def test_the_next_writing_turn_grows_token_by_token_again():
+    presenter, _, _ = make()
+
+    presenter.apply(ev.turn_started("jarvis", "voice", "voice", speaks=True, writes=False))
+    presenter.apply(ev.turn_result("jarvis", "Hola.", "voice"))
+    presenter.apply(ev.turn_started("jarvis", "text", "both", speaks=True, writes=True))
+    presenter.apply(ev.token("jarvis", "Adiós"))
+
+    assert [(b.markdown, b.open) for b in presenter.bubbles] == [("Hola.", False), ("Adiós", True)]
+
+
+def test_a_failed_silent_turn_does_not_silence_the_next_one():
+    presenter, _, _ = make()
+
+    presenter.apply(ev.turn_started("jarvis", "voice", "voice", speaks=True, writes=False))
+    presenter.apply(ev.error("front", "model down"))
+    presenter.apply(ev.token("jarvis", "Hola"))
+
+    assert presenter.bubbles[-1].markdown == "Hola"
+
+
+def test_transcript_adds_a_voice_user_bubble():
+    presenter, sent, _ = make()
+
+    presenter.apply(ev.transcript("¿Qué hora es?"))
+
+    assert summary(presenter) == [("user", "Tú (voz)", NEUTRAL, "¿Qué hora es?", False)]
+    assert sent == []

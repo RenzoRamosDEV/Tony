@@ -74,10 +74,25 @@ def test_mode_selector_follows_reply_mode_events_without_sending(window):
     assert window.sent == []
 
 
-def test_microphone_placeholder(window):
+def test_microphone_disabled_while_loading(window):
     assert window.microphone.isVisible()
     assert not window.microphone.isEnabled()
     assert "voz" in window.microphone.toolTip().lower()
+
+
+def test_microphone_follows_voice_state_and_sends_listen_commands(window, qtbot):
+    window.dispatch(ev.voice_state("unavailable", "voice extra not installed"))
+    assert not window.microphone.isEnabled()
+    assert "voice extra not installed" in window.microphone.toolTip()
+
+    window.dispatch(ev.voice_state("ready"))
+    assert window.microphone.isEnabled()
+    qtbot.mouseClick(window.microphone, Qt.MouseButton.LeftButton)
+    window.dispatch(ev.voice_state("listening"))
+    assert window.microphone.text() == "Escuchando…"
+    qtbot.mouseClick(window.microphone, Qt.MouseButton.LeftButton)
+
+    assert window.sent == [{"type": "listen"}, {"type": "stop_listening"}]
 
 
 def test_streamed_tokens_render_one_bubble(window):
