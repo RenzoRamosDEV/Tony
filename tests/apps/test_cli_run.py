@@ -95,3 +95,10 @@ def test_help_lists_run_command(home):
 
     assert result.exit_code == 0
     assert "run" in result.stdout
+
+
+def test_no_arguments_shows_help(home):
+    result, _ = invoke(home)
+
+    assert "Usage" in result.output and "run" in result.output
+    assert "Tony: asistente personal local." in result.output

@@ -16,7 +16,7 @@ TASK_FAILED = 1
 
 
 def create_app(engine_factory: Callable[[], ModelEngine] = ClaudeEngine) -> typer.Typer:
-    app = typer.Typer(help="Tony: asistente personal local.", no_args_is_help=True)
+    app = typer.Typer(no_args_is_help=True)
 
     @app.callback()
     def main() -> None:

@@ -64,7 +64,7 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
             )
         )
     result = to_task_result(outcome)
-    masked = TaskResult.model_validate(masker.mask_json(result.model_dump(mode="json")))
+    masked = TaskResult.model_validate(masker.mask_json(result.model_dump()))
     return _finish(log, "error" if masked.errores else "ok", masked)
 
 

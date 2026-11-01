@@ -23,9 +23,11 @@ async def test_lists_http_tools_with_resolved_headers(tmp_path):
             spec, variables=variables, masker=masker, sink=ListEventSink(), log_dir=tmp_path
         ) as manager:
             ids = [tool.id for tool in manager.tools]
+            descriptions = {tool.id: tool.description for tool in manager.tools}
             status = manager.status["remote"]
 
-    assert ids == ["remote.ping"]
+    assert ids == ["remote.ping", "remote.bare"]
+    assert descriptions == {"remote.ping": "Answer pong.", "remote.bare": ""}
     assert status.up is True
     assert remote.authorizations and set(remote.authorizations) == {"Bearer tok3n"}
     assert masker.mask("tok3n") == "***"

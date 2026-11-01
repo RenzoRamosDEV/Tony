@@ -57,4 +57,15 @@ async def test_server_stderr_goes_to_per_server_log_file(tmp_path):
     async with manager_for(tmp_path, {"fs": fake_fs_entry(str(tmp_path))}):
         pass
 
-    assert (tmp_path / "logs" / "mcp" / "fs.log").is_file()
+    log = tmp_path / "logs" / "mcp" / "fs.log"
+    assert "fake filesystem server serving" in log.read_text()
+
+
+async def test_tools_of_every_working_server_are_listed(tmp_path):
+    servers = {"a": fake_fs_entry(str(tmp_path)), "b": fake_fs_entry(str(tmp_path))}
+
+    async with manager_for(tmp_path, servers) as manager:
+        ids = {tool.id for tool in manager.tools}
+
+    assert {"a.read_file", "b.read_file"} <= ids
+    assert len(ids) == 8

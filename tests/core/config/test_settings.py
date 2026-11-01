@@ -70,6 +70,16 @@ def test_invalid_content_names_file_and_field(tmp_path, text, field):
 
     assert (info.value.file, info.value.field) == ("config/tony.yaml", field)
     assert "config/tony.yaml" in str(info.value) and field in str(info.value)
+    assert info.value.message and info.value.message in str(info.value)
+
+
+def test_validation_message_comes_from_pydantic(tmp_path):
+    write_config(tmp_path, "reply_mode: loud\n")
+
+    with pytest.raises(DefinitionError) as info:
+        load_config(tmp_path)
+
+    assert "auto" in info.value.message and "both" in info.value.message
 
 
 @pytest.mark.parametrize("text", ["reply_mode: [unclosed\n", "- just\n- a list\n"])

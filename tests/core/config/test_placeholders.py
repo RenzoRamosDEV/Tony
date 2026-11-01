@@ -86,6 +86,11 @@ class TestSecretMasker:
 
         assert masker.mask("abcdef abc") == "*** ***"
 
+    def test_longer_secret_wins_even_when_it_sorts_first(self):
+        masker = SecretMasker({"zz", "azz"})
+
+        assert masker.mask("azz") == "***"
+
     def test_masks_nested_json(self):
         masker = SecretMasker({"s3cr3t"})
         data = {"s3cr3t-key": ["a s3cr3t", {"n": 1, "t": "s3cr3t"}], "flag": None}

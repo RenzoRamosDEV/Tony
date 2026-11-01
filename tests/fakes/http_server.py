@@ -19,6 +19,10 @@ def _build_mcp_server() -> MCPServer:
     def ping() -> str:
         return "pong"
 
+    @server.tool()
+    def bare() -> str:
+        return "no description"
+
     return server
 
 

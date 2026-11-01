@@ -1,4 +1,5 @@
 import pytest
+from mcp.client.client import Client
 
 from tony.core.events.messages import TaskResult
 from tony.core.loader.agent_md import AgentSpec
@@ -52,6 +53,7 @@ class TestNameMapping:
             ("filesystem.read_file", "mcp__filesystem__read_file"),
             ("tony.now", "mcp__tony__now"),
             ("remote.get.item", "mcp__remote__get.item"),
+            ("fs.read__raw", "mcp__fs__read__raw"),
         ],
     )
     def test_round_trip(self, tool_id, sdk_name):
@@ -131,3 +133,16 @@ class TestSdkTool:
         await tool.handler({"a": 1})
 
         assert seen == [{"a": 1}]
+
+
+async def test_proxy_servers_expose_their_tools_under_short_names():
+    tools = [proxied("remote.get.item"), proxied("remote.ping"), proxied("tony.now")]
+
+    options = build_options(SPEC, tools, "m", allow_all)
+
+    listed = {}
+    for server, config in options.mcp_servers.items():
+        async with Client(config["instance"]) as client:
+            listed[server] = sorted(tool.name for tool in (await client.list_tools()).tools)
+        assert config["name"] == server
+    assert listed == {"remote": ["get.item", "ping"], "tony": ["now"]}

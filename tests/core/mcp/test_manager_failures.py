@@ -6,7 +6,7 @@ from tests.fakes.servers import fake_fs_entry
 from tests.fakes.sinks import ListEventSink
 from tony.core.config.placeholders import SecretMasker
 from tony.core.loader.tool_json import ToolSpec
-from tony.core.mcp.manager import McpManager
+from tony.core.mcp.manager import McpManager, _describe
 
 HANGING = {"command": sys.executable, "args": ["-c", "import time; time.sleep(30)"]}
 
@@ -81,3 +81,16 @@ def test_default_connect_timeout_is_ten_seconds(tmp_path):
     )
 
     assert manager.connect_timeout == 10.0
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (ExceptionGroup("g", [FileNotFoundError("no cmd"), ValueError("other")]), "no cmd"),
+        (ExceptionGroup("g", [ExceptionGroup("inner", [OSError("deep")])]), "deep"),
+        (RuntimeError(), "RuntimeError"),
+        (TimeoutError(), "connect timeout after 2.5 s"),
+    ],
+)
+def test_describe_reports_the_root_cause(error, expected):
+    assert _describe(error, 2.5) == expected

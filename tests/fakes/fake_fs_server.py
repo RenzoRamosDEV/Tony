@@ -47,4 +47,5 @@ def echo_env(name: str) -> str:
 
 
 if __name__ == "__main__":
+    print(f"fake filesystem server serving {ROOT}", file=sys.stderr, flush=True)
     server.run("stdio")

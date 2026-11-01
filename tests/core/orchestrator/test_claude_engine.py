@@ -85,6 +85,14 @@ class TestOutcomeFromMessages:
 
         assert outcome_from_messages(messages).text == "dos"
 
+    def test_no_messages_yields_empty_outcome(self):
+        assert outcome_from_messages([]) == EngineOutcome(text="")
+
+    def test_joins_text_blocks_of_one_message(self):
+        message = AssistantMessage(content=[TextBlock(text="a"), TextBlock(text="b")], model="m")
+
+        assert outcome_from_messages([message]).text == "ab"
+
     def test_missing_result_message(self):
         outcome = outcome_from_messages([assistant("solo texto")])
 
