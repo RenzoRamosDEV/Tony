@@ -1,4 +1,5 @@
 import configparser
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -83,3 +84,10 @@ def test_desktop_file():
 def test_scalable_icon_exists():
     icon = PACKAGING / f"{APP_ID}.svg"
     assert icon.read_text(encoding="utf-8").lstrip().startswith("<svg")
+
+
+def test_the_built_web_front_ships_in_the_wheel():
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    wheel = data["tool"]["hatch"]["build"]["targets"]["wheel"]
+    assert "tony/apps/desktop/web/dist/**" in wheel["artifacts"]
+    assert "tony/apps/desktop/web/node_modules" in wheel["exclude"]

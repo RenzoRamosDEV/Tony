@@ -39,6 +39,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tony"]
+# dist/ is gitignored, so hatch would drop the built web front without this.
+artifacts = ["tony/apps/desktop/web/dist/**"]
+exclude = ["tony/apps/desktop/web/node_modules"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -49,8 +52,9 @@ testpaths = ["tests"]
 markers = [
     "evals: pruebas con modelo real (solo con TONY_EVALS=1)",
     "voice: pruebas con los motores de voz reales (uv run pytest -m voice)",
+    "web: carga la interfaz web compilada sin pantalla (uv run pytest -m web)",
 ]
-addopts = "-m 'not voice'"
+addopts = "-m 'not voice and not web'"
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu" }]
