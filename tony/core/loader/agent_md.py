@@ -1,10 +1,50 @@
-from typing import Any
+from collections.abc import Collection
+from typing import Any, Literal
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tony.core.config.errors import DefinitionError
 
 DELIMITER = "---"
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class Persona(_Strict):
+    language: str
+    tone: str
+
+
+class Voice(_Strict):
+    tts: str = Field(pattern=r"^kokoro/\S+$")
+
+
+class AgentFrontmatter(_Strict):
+    name: str
+    role: Literal["front", "worker", "guard"]
+    model: str
+    persona: Persona
+    voice: Voice
+
+
+class AgentSpec(AgentFrontmatter):
+    system_prompt: str
+
+
+def parse_agent(text: str, *, folder: str, file: str, models: Collection[str]) -> AgentSpec:
+    raw, body = split_frontmatter(text, file)
+    try:
+        frontmatter = AgentFrontmatter.model_validate(raw)
+    except ValidationError as error:
+        raise DefinitionError.from_validation(file, error) from error
+    if frontmatter.name != folder:
+        raise DefinitionError(file, "name", f"must equal the agent folder name '{folder}'")
+    if frontmatter.model not in models:
+        raise DefinitionError(file, "model", f"model alias '{frontmatter.model}' is not configured")
+    return AgentSpec(**frontmatter.model_dump(), system_prompt=body)
 
 
 def split_frontmatter(text: str, file: str) -> tuple[dict[str, Any], str]:
