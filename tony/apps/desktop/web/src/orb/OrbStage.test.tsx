@@ -203,6 +203,19 @@ describe("OrbStage", () => {
     expect(scene.last.coreScale).toBeGreaterThan(1.3);
   });
 
+  it("reads the listening level from getLevel on every frame without re-rendering", () => {
+    let level = 0;
+    const { scene } = stage({ state: "listening", level: 0, getLevel: () => level });
+    step(30);
+    const quiet = scene.last.coreScale;
+
+    level = 1;
+    step(60);
+
+    expect(quiet).toBeCloseTo(1, 3);
+    expect(scene.last.coreScale).toBeGreaterThan(1.3);
+  });
+
   it("with reduced motion the orb stops moving and does not auto-rotate", () => {
     reducedMotion = true;
     const { scene } = stage({ state: "speaking", getAmplitude: () => 1 });

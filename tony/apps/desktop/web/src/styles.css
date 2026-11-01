@@ -443,6 +443,159 @@ pre {
   font-variant-numeric: tabular-nums;
 }
 
+/* Desktop additions: Markdown replies, side panels, unlock control and PIN overlay. */
+
+.chat-text.markdown {
+  display: inline;
+}
+
+.chat-text.markdown > :first-child {
+  display: inline;
+}
+
+.chat-text.markdown :is(p, ul, ol, pre, table) {
+  margin: 0.25rem 0;
+}
+
+.chat-text.markdown table {
+  margin-left: auto;
+  border-collapse: collapse;
+}
+
+.chat-text.markdown :is(th, td) {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--hairline);
+}
+
+.chat-text.markdown a {
+  color: var(--accent);
+}
+
+.side-panels {
+  position: fixed;
+  z-index: 2;
+  top: 4.5rem;
+  bottom: 4.5rem;
+  left: 1rem;
+  width: min(22rem, calc(100vw - 25rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  pointer-events: none;
+}
+
+.side-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.4rem 0.6rem;
+}
+
+.side-panel:has(.side-panel-body:not([hidden])) {
+  flex: 1 1 0;
+}
+
+.side-panel-toggle {
+  align-self: flex-start;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.side-panel-body {
+  overflow: auto;
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  scrollbar-width: thin;
+}
+
+.side-panel-body ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.task-label {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.task-summary,
+.subagent-label,
+.panel-empty {
+  color: var(--muted);
+}
+
+.edith-filter select {
+  font: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--hairline);
+}
+
+.audit-table {
+  width: 100%;
+  margin-top: 0.4rem;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-table :is(th, td) {
+  padding: 0.15rem 0.3rem;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.audit-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.audit-table tr[data-verdict="deny"] td {
+  color: var(--warn);
+}
+
+.unlock-control {
+  position: fixed;
+  z-index: 2;
+  bottom: 1.2rem;
+  left: 9rem;
+  padding: 0.5rem 0.8rem;
+}
+
+.pin-overlay {
+  position: fixed;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(5 7 10 / 0.6);
+}
+
+.pin-card {
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 1rem 1.2rem;
+}
+
+.pin-card h2 {
+  margin: 0 0 0.5rem;
+  color: var(--agent-edith);
+  font-size: 1rem;
+}
+
+.pin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pin-form input {
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--accent);
+  padding: 0.3rem 0.5rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

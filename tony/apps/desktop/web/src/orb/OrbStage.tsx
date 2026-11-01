@@ -14,6 +14,8 @@ export interface OrbStageProps {
   state: OrbState;
   level: number;
   getAmplitude: () => number;
+  /** Per-frame microphone level; when given it replaces `level` without re-rendering. */
+  getLevel?: () => number;
   createScene?: SceneFactory;
   webglAvailable?: () => boolean;
 }
@@ -22,6 +24,7 @@ interface OrbInputs {
   state: OrbState;
   level: number;
   getAmplitude: () => number;
+  getLevel?: () => number;
 }
 
 const TRANSITION_MS = 300;
@@ -50,7 +53,8 @@ function runOrb(
   const render = (now: number) => {
     const dtMs = lastTime === null ? FIRST_FRAME_MS : now - lastTime;
     lastTime = now;
-    const { state, level, getAmplitude } = inputs.current;
+    const { state, getAmplitude, getLevel } = inputs.current;
+    const level = getLevel ? getLevel() : inputs.current.level;
     const amplitude = smoother.update(getAmplitude(), dtMs);
     targetParams(state, level, amplitude, reducedMotion, target);
     approachParams(current, target, dtMs, TRANSITION_MS);
@@ -114,13 +118,14 @@ export function OrbStage({
   state,
   level,
   getAmplitude,
+  getLevel,
   createScene,
   webglAvailable = browserWebGL,
 }: OrbStageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(() => !webglAvailable());
-  const inputs = useRef<OrbInputs>({ state, level, getAmplitude });
-  inputs.current = { state, level, getAmplitude };
+  const inputs = useRef<OrbInputs>({ state, level, getAmplitude, getLevel });
+  inputs.current = { state, level, getAmplitude, getLevel };
 
   useEffect(() => {
     const canvas = canvasRef.current;
