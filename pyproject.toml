@@ -91,11 +91,15 @@ timeout_multiplier = 3.0
 # Desktop widgets and app.py are pure Qt layout and glue: behaviour lives in the mutated
 # presenters, and widget mutants are equivalent or crash-only under offscreen Qt.
 # config/watcher.py is thin watchfiles glue covered by one real-filesystem test.
+# Voice engines and desktop system adapters are thin engine/OS glue exercised only by
+# voice-marked or offscreen tests: their logic lives in the mutated pure modules.
 do_not_mutate = [
     "tony/core/guard/claude_wording.py",
     "tony/core/config/watcher.py",
     "tony/apps/desktop/widgets/*",
     "tony/apps/desktop/app.py",
+    "tony/core/voice/engines/*",
+    "tony/apps/desktop/system/*",
 ]
 # Repository layout checks read files outside the copied tree and cover no mutated code.
 # A mutant that deadlocks an MCP or asyncio test idles without using CPU, which mutmut's
@@ -105,6 +109,7 @@ pytest_add_cli_args = [
     "--timeout=20",
     "--timeout-method=thread",
     "--ignore=tests/test_layout.py",
+    "--ignore=tests/test_optional_imports.py",
     "--ignore=tests/test_gitignore.py",
     "--ignore=tests/core/config/test_bundled_config.py",
     "--ignore=tests/fakes/test_fake_fs_server.py",
