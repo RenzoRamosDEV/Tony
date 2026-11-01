@@ -35,7 +35,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 6. Audit trail (`tony/core/guard/audit.py`)
 
-- [ ] 6.1 Red: tests for `canonical_json` and `args_hash` (key order irrelevant, SHA-256 hex of `{"a": 2, "b": 1}`, non-ASCII kept); Green: implement; verify tests pass
+- [x] 6.1 Red: tests for `canonical_json` and `args_hash` (key order irrelevant, SHA-256 hex of `{"a": 2, "b": 1}`, non-ASCII kept); Green: implement; verify tests pass
 - [ ] 6.2 Red: tests for `args_preview`: secret-looking keys masked (nested too), `.env` values masked via `SecretMasker`, `HOME` path unmasked, truncation at exactly 200 (unchanged) vs 201 (200 chars + `…`); golden-file test for the confirmed-delete audit line (`tests/golden/audit_confirm.jsonl`) with injected clock; Green: implement `args_preview` and `AuditLog.append` (creates `logs/`, one line per call, fields `ts, task_id, agent, tool, args_hash, args_preview, verdict, rule, user_decision, duration_ms`); verify tests pass
 
 ## 7. Confirmation and wording (`tony/core/guard/confirm.py`, `wording.py`)
