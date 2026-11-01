@@ -73,8 +73,12 @@ do_not_mutate = [
     "tony/apps/desktop/app.py",
 ]
 # Repository layout checks read files outside the copied tree and cover no mutated code.
+# A mutant that deadlocks an MCP or asyncio test idles without using CPU, which mutmut's
+# CPU-time limit never catches: the thread method ends that mutant's process instead.
 pytest_add_cli_args = [
     "-p", "no:cacheprovider",
+    "--timeout=20",
+    "--timeout-method=thread",
     "--ignore=tests/test_layout.py",
     "--ignore=tests/test_gitignore.py",
     "--ignore=tests/core/config/test_bundled_config.py",
