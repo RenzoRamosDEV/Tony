@@ -195,6 +195,52 @@ Límites: 10 s de conexión por servidor MCP; el tiempo por llamada a tool y por
 `limits` en la política (20 s y 300 s por defecto). Cada tarea deja su registro en `logs/tasks/<task_id>.jsonl` y el stderr de cada servidor stdio en
 `logs/mcp/<servidor>.log`.
 
+### App de escritorio
+
+```bash
+uv run tony              # sin subcomando abre la ventana (uv run tony --help sigue mostrando la ayuda)
+```
+
+Una sola ventana con tres zonas. El núcleo (Jarvis, Viernes, Edith) corre en su propio hilo; la
+ventana solo envía comandos JSON y recibe eventos, de modo que un fallo del núcleo (modelo
+caído, servidor MCP roto, excepción) se muestra como error en el chat y la ventana sigue abierta.
+
+- **Chat**: burbujas por agente, Jarvis `#2F6FED`, Viernes `#2E9E5B`, Edith `#E0A100` y el resto
+  (incluido el usuario) en gris. Las respuestas crecen a medida que llegan y se muestran como
+  Markdown (CommonMark con tablas; el HTML en bruto se escapa). Intro envía el mensaje; el
+  selector `auto/voice/text/both` cambia el modo de respuesta; el botón de micrófono está
+  desactivado porque la voz llegará más adelante.
+- **Actividad** (plegable): cada tarea delegada con su agente y objetivo, sus llamadas a tools
+  con veredicto (y decisión del usuario), las de subagentes agrupadas bajo su nodo, los tokens y
+  el tiempo al terminar, y cada servidor MCP con su estado (en rojo si está caído). Al arrancar
+  se comprueba en segundo plano cada servidor de Jarvis y Viernes.
+- **Edith** (plegable): aviso con la pregunta pendiente y los botones «Permitir», «Denegar» y,
+  cuando procede, «Permitir siempre»; debajo, la auditoría de hoy (fecha local) filtrable por
+  veredicto.
+
+«Permitir siempre» solo aparece si ninguna regla `deny` de la política tiene un patrón que
+encaje con la tool pendiente (sin mirar sus condiciones `when`); por eso nunca se ofrece, por
+ejemplo, para `shell.run`. Al pulsarlo se ejecuta la llamada y se añade como primera regla de
+`agents/<guard>/policy.yaml`:
+
+```yaml
+- match: filesystem.delete_file
+  verdict: allow
+  id: user-always/filesystem.delete_file
+```
+
+A partir de ahí esa tool se permite sin preguntar en la tarea actual y en las siguientes. La
+política se valida antes de sustituir el fichero de forma atómica; al reescribirla se pierden
+los comentarios del YAML (el orden y el contenido de las reglas se conservan). Para revocarlo,
+borre la regla `user-always/<tool>` del fichero. Si no se puede escribir la política, la llamada
+se permite una vez y se muestra un error.
+
+El diálogo del PIN aparece al arrancar (y en el rebloqueo por inactividad) con el campo oculto,
+la cuenta atrás de la espera tras fallos y un botón de cancelar; sin `config/edith.lock` solo
+muestra cómo crear el PIN con `tony pin set`. Mientras Edith esté bloqueada, el menú
+«Desbloquear Edith» vuelve a abrirlo. Cerrar la ventana cancela la tarea en curso, cierra los
+servidores MCP y detiene el núcleo.
+
 ### Conversación: `tony chat`
 
 ```bash
