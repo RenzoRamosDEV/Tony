@@ -249,3 +249,15 @@ async def test_real_probe_publishes_status_and_leaves_no_process(tmp_path):
         ("mcp_status", "viernes", "notas", True)
     ]
     assert processes_mentioning(str(tmp_path / "probe-notes")) == []
+
+
+async def test_default_stderr_is_resolved_when_warning(tmp_path, capsys):
+    harness = Harness(tmp_path, {})
+    reloader = ConfigReloader(
+        tmp_path, "edith", harness.policy, harness.tools, publish=list().append, probe=None
+    )
+    write(tmp_path, POLICY_FILE, "default: [roto\n")
+
+    await reloader.handle({tmp_path / POLICY_FILE})
+
+    assert capsys.readouterr().err.startswith(f"tony: warning: {POLICY_FILE}")

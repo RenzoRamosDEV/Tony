@@ -140,7 +140,7 @@ class ConfigReloader:
         *,
         publish: Publisher,
         probe: Probe,
-        stderr: TextIO = sys.stderr,
+        stderr: TextIO | None = None,
         clock: Clock = utc_now,
     ) -> None:
         self._root = root
@@ -197,7 +197,7 @@ class ConfigReloader:
         if error is None:
             return
         self._publish(core_events.error(RELOAD_SOURCE, str(error), clock=self._clock))
-        print(f"tony: warning: {error}", file=self._stderr)
+        print(f"tony: warning: {error}", file=self._stderr or sys.stderr)
 
     async def _cancel_probes(self) -> None:
         for task in self._probes:
