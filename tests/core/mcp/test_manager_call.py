@@ -46,7 +46,7 @@ async def test_mcp_error_result_becomes_error_reply(notes):
     assert "nada.md" in reply.text
 
 
-@pytest.mark.parametrize("tool_id", ["fs.write_file", "other.read_file", "read_file", ""])
+@pytest.mark.parametrize("tool_id", ["fs.move_file", "other.read_file", "read_file", ""])
 async def test_unknown_tool_id_is_not_available(notes, tool_id):
     async with manager_for(notes) as manager:
         reply = await manager.call(tool_id, {})

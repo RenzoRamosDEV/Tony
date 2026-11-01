@@ -35,6 +35,21 @@ def read_file(path: str) -> str:
     return target.read_text(encoding="utf-8")
 
 
+@server.tool(description="Write a file, replacing its content.")
+def write_file(path: str, content: str) -> str:
+    _resolve(path).write_text(content, encoding="utf-8")
+    return f"written {path}"
+
+
+@server.tool(description="Delete a file.")
+def delete_file(path: str) -> str:
+    target = _resolve(path)
+    if not target.is_file():
+        raise ToolError(f"no such file {path}")
+    target.unlink()
+    return f"deleted {path}"
+
+
 @server.tool(description="Wait the given seconds, then answer.")
 async def sleep(seconds: float) -> str:
     await asyncio.sleep(seconds)

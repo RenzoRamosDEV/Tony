@@ -26,10 +26,12 @@ async def test_lists_stdio_tools_as_server_dot_tool(tmp_path):
         status = manager.status["filesystem"]
 
     assert sorted(ids) == [
+        "filesystem.delete_file",
         "filesystem.echo_env",
         "filesystem.list_directory",
         "filesystem.read_file",
         "filesystem.sleep",
+        "filesystem.write_file",
     ]
     assert (status.up, status.reason) == (True, None)
 
@@ -70,7 +72,7 @@ async def test_tools_of_every_working_server_are_listed(tmp_path):
         ids = {tool.id for tool in manager.tools}
 
     assert {"a.read_file", "b.read_file"} <= ids
-    assert len(ids) == 8
+    assert len(ids) == 12
 
 
 async def test_only_values_of_secret_names_are_registered(tmp_path):
