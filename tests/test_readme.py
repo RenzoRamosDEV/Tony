@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 README = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
 
 
@@ -27,3 +29,26 @@ def test_wayland_shortcuts_run_tony_focus():
 def test_mcp_note_recommends_uvx_over_npx():
     text = section("Flatpak")
     assert "npx" in text and "uvx" in text
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "npm --prefix tony/apps/desktop/web ci",
+        "npm --prefix tony/apps/desktop/web run build",
+        "npm --prefix tony/apps/desktop/web test",
+        "uv run pytest -m web",
+    ],
+)
+def test_the_web_front_commands_are_documented(command):
+    assert command in README
+
+
+def test_flatpak_section_explains_the_sandbox_switches():
+    text = section("Flatpak")
+    assert "--device=dri" in text and "QTWEBENGINE_DISABLE_SANDBOX" in text
+    assert "npm" in text
+
+
+def test_the_native_unlock_menu_is_gone():
+    assert "Desbloquear Edith" not in README

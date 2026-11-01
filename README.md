@@ -5,13 +5,21 @@ Edith (`guard`). Permite ejecutar a Viernes desde la CLI bajo la política de pe
 
 ## Instalación
 
-Requisitos: Python 3.12, [uv](https://docs.astral.sh/uv/) y, para el servidor MCP de ficheros
-de Viernes, Node.js con `npx`. Para ejecutar con el modelo real hacen falta credenciales de
-Claude disponibles para el Claude Agent SDK.
+Requisitos: Python 3.12, [uv](https://docs.astral.sh/uv/) y Node.js >= 20 con `npm` y `npx`
+(para el servidor MCP de ficheros de Viernes y para compilar la interfaz de la app de
+escritorio). Para ejecutar con el modelo real hacen falta credenciales de Claude disponibles
+para el Claude Agent SDK.
 
 ```bash
 uv sync
 uv run tony --help
+```
+
+La app de escritorio muestra una interfaz web compilada una vez desde la raíz del repositorio
+(Node solo hace falta para compilarla; la app no abre ningún servidor):
+
+```bash
+npm --prefix tony/apps/desktop/web ci && npm --prefix tony/apps/desktop/web run build
 ```
 
 La voz y la integración con el escritorio son extras opcionales (ver [Voz](#voz)):
@@ -116,7 +124,7 @@ sección `## Subagentes` (`- <nombre>: <descripción>`) y puede llamar a `tony.r
 El subagente se ejecuta dentro de la tarea padre: comparte su id, su log
 `logs/tasks/<task_id>.jsonl` (entre `subagent_started` y `subagent_finished`), sus límites y su
 cómputo de tokens. Cada llamada suya pasa por Edith y se audita con `agent: "<agente>/<nombre>"`,
-y la zona de actividad la muestra bajo un nodo hijo de la tarea. `tony.run_subagent` no está
+y el panel Actividad la muestra bajo un nodo hijo de la tarea. `tony.run_subagent` no está
 limitado por `limits.tool_timeout_s`: lo limita el `task_timeout_s` de la tarea padre, y cancelar
 la tarea padre detiene al subagente y cierra sus servidores MCP.
 
@@ -198,7 +206,7 @@ eventos ni salida.
 - Modo solo conversación: si se cancela el PIN, o no existe `config/edith.lock` (o no es un hash
   válido), el agente de conversación sigue respondiendo pero `delegate` devuelve
   `{"error": "locked"}` sin pedir el PIN. Se puede desbloquear después con `/pin` en
-  `tony chat` o con la acción «Desbloquear» de la app.
+  `tony chat` o con el botón «Introducir PIN» de la app.
 - Rebloqueo por inactividad: si llega un mensaje `lock_after_min` minutos (30 por defecto) o más
   después del anterior, la sesión se bloquea y el PIN se pide en el siguiente `delegate`, que
   espera hasta `confirm_timeout_s`; cancelar o no responder devuelve `{"error": "locked"}`.
@@ -246,22 +254,31 @@ Límites: 10 s de conexión por servidor MCP; el tiempo por llamada a tool y por
 uv run tony              # sin subcomando abre la ventana (uv run tony --help sigue mostrando la ayuda)
 ```
 
-Una sola ventana con tres zonas. El núcleo (Jarvis, Viernes, Edith) corre en su propio hilo; la
-ventana solo envía comandos JSON y recibe eventos, de modo que un fallo del núcleo (modelo
-caído, servidor MCP roto, excepción) se muestra como error en el chat y la ventana sigue abierta.
+Una sola ventana nativa que muestra la interfaz web de Tony (el orbe y el panel HUD de la
+versión web v1), compilada en `tony/apps/desktop/web/dist/` y cargada desde un fichero local:
+no se abre ningún servidor ni puerto, ni un navegador aparte. El núcleo (Jarvis, Viernes,
+Edith) corre en su propio hilo; la página solo envía comandos JSON (validados antes de llegar al
+núcleo) y recibe eventos, de modo que un fallo del núcleo (modelo caído, servidor MCP roto,
+excepción) se muestra como error en el chat y la ventana sigue abierta. El audio no pasa por la
+página: el núcleo solo le envía niveles (`voice_level`) para animar el orbe.
 
-- **Chat**: burbujas por agente, Jarvis `#2F6FED`, Viernes `#2E9E5B`, Edith `#E0A100` y el resto
+- **Orbe**: en el centro, detrás del chat. Su estado sale de los eventos: escuchando, pensando
+  (turno o tarea en curso), hablando (mientras llegan niveles de la voz) y confirmando (halo
+  ámbar de Edith mientras hay una confirmación pendiente); su tamaño sigue el nivel del
+  micrófono o de la voz. Sin WebGL se muestra un orbe estático y el resto funciona igual.
+- **Chat**: mensajes por agente, Jarvis `#2F6FED`, Viernes `#2E9E5B`, Edith `#E0A100` y el resto
   (incluido el usuario) en gris. Las respuestas crecen a medida que llegan y se muestran como
-  Markdown (CommonMark con tablas; el HTML en bruto se escapa). Intro envía el mensaje; el
-  selector `auto/voice/text/both` cambia el modo de respuesta y el botón de micrófono escucha
-  una frase (ver [Voz](#voz)).
+  Markdown (con tablas; el HTML en bruto se escapa). Intro envía el mensaje; el selector
+  `auto/voice/text/both` cambia el modo de respuesta y el botón de micrófono escucha una frase
+  (ver [Voz](#voz)).
 - **Actividad** (plegable): cada tarea delegada con su agente y objetivo, sus llamadas a tools
   con veredicto (y decisión del usuario), las de subagentes agrupadas bajo su nodo, los tokens y
   el tiempo al terminar, y cada servidor MCP con su estado (en rojo si está caído). Al arrancar
   se comprueba en segundo plano cada servidor de Jarvis y Viernes.
-- **Edith** (plegable): aviso con la pregunta pendiente y los botones «Permitir», «Denegar» y,
-  cuando procede, «Permitir siempre»; debajo, la auditoría de hoy (fecha local) filtrable por
-  veredicto.
+- **Edith** (plegable): la auditoría de hoy (fecha local, sin argumentos de las tools) filtrable
+  por veredicto, con las llamadas nuevas añadidas al vuelo.
+- **Tarjeta de confirmación**: sobre el orbe, con la pregunta pendiente y los botones
+  «Permitir», «Denegar» y, cuando procede, «Permitir siempre»; el foco empieza en «Denegar».
 
 «Permitir siempre» solo aparece si ninguna regla `deny` de la política tiene un patrón que
 encaje con la tool pendiente (sin mirar sus condiciones `when`); por eso nunca se ofrece, por
@@ -280,11 +297,20 @@ los comentarios del YAML (el orden y el contenido de las reglas se conservan). P
 borre la regla `user-always/<tool>` del fichero. Si no se puede escribir la política, la llamada
 se permite una vez y se muestra un error.
 
-El diálogo del PIN aparece al arrancar (y en el rebloqueo por inactividad) con el campo oculto,
-la cuenta atrás de la espera tras fallos y un botón de cancelar; sin `config/edith.lock` solo
-muestra cómo crear el PIN con `tony pin set`. Mientras Edith esté bloqueada, el menú
-«Desbloquear Edith» vuelve a abrirlo. Cerrar la ventana cancela la tarea en curso, cierra los
-servidores MCP y detiene el núcleo.
+El PIN se pide en una capa sobre la página al arrancar (y en el rebloqueo por inactividad) con
+el campo oculto, la cuenta atrás de la espera tras fallos y un botón de cancelar; sin
+`config/edith.lock` solo muestra cómo crear el PIN con `tony pin set`. Mientras Edith esté
+bloqueada, el botón «Introducir PIN» vuelve a abrirla. El PIN se envía una sola vez y el campo
+se vacía al momento; la página no lo guarda. Cerrar la ventana cancela la tarea en curso,
+cierra los servidores MCP y detiene el núcleo.
+
+Si la interfaz no está compilada, la ventana muestra la orden para compilarla
+(`npm --prefix tony/apps/desktop/web ci && npm --prefix tony/apps/desktop/web run build`); la
+voz, la bandeja, la instancia única, `tony --focus`, el atajo y las notificaciones siguen
+funcionando. La página está aislada: se le deniegan todos los permisos (micrófono, cámara,
+ubicación, notificaciones…), no puede salir de su `index.html` ni cargar recursos remotos, y los
+enlaces `http`/`https` de las respuestas se abren en el navegador del sistema (los demás se
+ignoran).
 
 ### Integración con el escritorio
 
@@ -313,8 +339,8 @@ notificaciones; sin él la app funciona igual y lo indica en el chat cuando har�
 - **Notificaciones**: si Edith espera una confirmación con la ventana oculta o minimizada, se
   muestra una notificación nativa `Tony — Edith` con la pregunta (con los secretos ya
   enmascarados; puede verse en la pantalla de bloqueo). Al pulsarla se abre la ventana en el
-  aviso de Edith con el foco en «Denegar». Sin servicio de notificaciones se muestra un error
-  `notifications` una vez y el aviso de la ventana sigue funcionando.
+  tarjeta de confirmación con el foco en «Denegar». Sin servicio de notificaciones se muestra un
+  error `notifications` una vez y la tarjeta de la ventana sigue funcionando.
 
 #### Atajos en Wayland
 
@@ -483,7 +509,9 @@ Las skills y los subagentes no necesitan vigilancia: se leen del disco en cada t
 3.12, PortAudio compilado como módulo y Tony con los extras `voice` y `desktop`), el fichero
 `.desktop` (con la acción «Escuchar», `tony --focus`) y el icono. Es para compilar en local: las
 dependencias de Python se descargan durante la compilación y se verifican con los hashes de
-`packaging/requirements.txt`. Tras cambiar dependencias, regenérelo:
+`packaging/requirements.txt`, y la interfaz web se compila dentro de la compilación con la
+extensión `org.freedesktop.Sdk.Extension.node20` (`npm ci` y `npm run build`, con los paquetes
+fijados por `package-lock.json`). Tras cambiar dependencias de Python, regenérelo:
 
 ```bash
 uv export --frozen --no-dev --extra voice --extra desktop --no-emit-project -o packaging/requirements.txt
@@ -493,7 +521,11 @@ flatpak run io.github.renzoramosdev.Tony --focus    # la levanta y escucha
 ```
 
 Permisos del sandbox: Wayland (con X11 de reserva), PulseAudio (micrófono y altavoces), red, el
-directorio personal y el servicio de notificaciones. Para usar otro `TONY_HOME`:
+directorio personal, el servicio de notificaciones, la GPU (`--device=dri`, para el WebGL del
+orbe; sin ella se ve el orbe estático) y `--env=QTWEBENGINE_DISABLE_SANDBOX=1`: el sandbox
+interno de Chromium no puede arrancar dentro de bubblewrap con PySide6 instalado por pip, así
+que se desactiva solo dentro del Flatpak (bubblewrap sigue siendo el sandbox exterior y la
+página solo ejecuta su propio código local). Para usar otro `TONY_HOME`:
 
 ```bash
 flatpak override --user --env=TONY_HOME=$HOME/Tony io.github.renzoramosdev.Tony
@@ -508,7 +540,11 @@ Wayland](#atajos-en-wayland).
 ## Desarrollo
 
 ```bash
-uv run pytest            # offline; omite los tests marcados evals y voice
+uv run pytest            # offline; omite los tests marcados evals, voice y web
 TONY_EVALS=1 uv run pytest tests/evals   # modelo real (requiere credenciales y npx)
 uv run ruff check && uv run ruff format --check
+npm --prefix tony/apps/desktop/web ci     # dependencias de la interfaz (una vez)
+npm --prefix tony/apps/desktop/web test   # tests de la interfaz (vitest, sin GPU ni red)
+npm --prefix tony/apps/desktop/web run build
+uv run pytest -m web     # carga la interfaz compilada en Qt WebEngine sin pantalla
 ```
