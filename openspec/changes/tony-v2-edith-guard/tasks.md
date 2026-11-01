@@ -64,7 +64,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 11. Final verification
 
-- [ ] 11.1 Run `uv run pytest` (offline, no `evals`/`voice`) and `uv run ruff check` and `uv run ruff format --check`; verify all pass, `evals/politica.yaml` test included, and no test exceeds the 30 s timeout
+- [x] 11.1 Run `uv run pytest` (offline, no `evals`/`voice`) and `uv run ruff check` and `uv run ruff format --check`; verify all pass, `evals/politica.yaml` test included, and no test exceeds the 30 s timeout
 - [ ] 11.2 Mutation testing scoped to this change's diff, each run wrapped in `timeout 180`, split by module: `timeout 180 uv run mutmut run "tony.core.guard.policy*" "tony.core.guard.evaluate*"`, then `"tony.core.guard.audit*" "tony.core.guard.edith*"`, then `"tony.core.guard.confirm*" "tony.core.guard.wording*"`, then `"tony.core.orchestrator.supervisor*" "tony.core.orchestrator.proxy*" "tony.core.orchestrator.runner*"`, then `"tony.core.config.secrets*" "tony.core.config.placeholders*" "tony.core.loader.agent*" "tony.apps.cli.main*"`; add `agents/edith/` and `evals/` to `also_copy` and `do_not_mutate` for the live `ClaudeWording` SDK call; verify each module's score > 95% via `uv run mutmut results` or record each surviving mutant with justification in the commit body; abort and split further if any run hits the 180 s limit
 - [ ] 11.3 Grep the change's files, `logs/` and `logs/audit.jsonl` produced by the test suite for every secret value used in tests (e.g. `s3cr3t`, `abc123`, `k3y`); verify none found
 
