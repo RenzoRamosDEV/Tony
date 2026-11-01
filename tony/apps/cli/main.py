@@ -4,7 +4,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from tony.apps.cli.chat import ChatPrinter, run_chat
 from tony.core.config.errors import DefinitionError
 from tony.core.config.reload import ChangeStream
-from tony.core.config.secrets import resolve_home
+from tony.core.config.secrets import ENV_FILE, SECRET_NAME, resolve_home
 from tony.core.config.settings import load_config
 from tony.core.config.watcher import watch_config
 from tony.core.events.messages import TaskRequest
@@ -21,8 +21,10 @@ from tony.core.guard.claude_wording import ClaudeWording
 from tony.core.guard.confirm import CliConfirmer, ConsoleLines, thread_line_reader
 from tony.core.guard.pin import LOCK_FILE, MIN_PIN_LENGTH, PinStore
 from tony.core.guard.policy import load_policy
+from tony.core.loader.tool_json_writer import add_server
 from tony.core.orchestrator.agents import AgentSlots, resolve_slots
 from tony.core.orchestrator.claude_engine import ClaudeEngine
+from tony.core.orchestrator.natives import NATIVE_TOOLS
 from tony.core.orchestrator.ports import ChatEngine, ModelEngine
 from tony.core.orchestrator.runner import NotWorkerError, RunDeps, WordingFactory, run_task
 
@@ -57,6 +59,40 @@ def create_app(
     app = typer.Typer()
     pin_app = typer.Typer(no_args_is_help=True, help="Manage Edith's PIN.")
     app.add_typer(pin_app, name="pin")
+    mcp_app = typer.Typer(no_args_is_help=True, help="Manage the agents' MCP servers.")
+    app.add_typer(mcp_app, name="mcp")
+
+    @mcp_app.command("add")
+    def mcp_add(
+        name: Annotated[str, typer.Argument(help="Server name, e.g. notas.")],
+        target: Annotated[str, typer.Argument(help="Command (stdio) or http(s):// URL (HTTP).")],
+        agent: Annotated[
+            str, typer.Option("--agent", help="Agent or <agent>/<subagent> to extend.")
+        ],
+        arg: Annotated[
+            list[str] | None, typer.Option("--arg", help="Stdio argument (repeatable).")
+        ] = None,
+        header: Annotated[
+            list[str] | None, typer.Option("--header", help="HTTP header K=V (repeatable).")
+        ] = None,
+        env: Annotated[
+            list[str] | None, typer.Option("--env", help="Stdio environment K=V (repeatable).")
+        ] = None,
+    ) -> None:
+        """Add an MCP server to an agent's tool.json (use ${VAR} placeholders for secrets)."""
+        try:
+            entry = server_entry(target, arg or [], header or [], env or [])
+            file = add_server(resolve_home(), agent, name, entry, native_tools=NATIVE_TOOLS)
+        except (UsageError, DefinitionError) as error:
+            typer.echo(f"tony: {error}", err=True)
+            raise typer.Exit(USAGE_ERROR) from error
+        for key in literal_secrets(entry):
+            typer.echo(
+                f"tony: warning: {key} looks like a secret written literally; use a ${{VAR}} "
+                f"placeholder defined in {ENV_FILE}",
+                err=True,
+            )
+        typer.echo(f"added {name} to {file}")
 
     @pin_app.command("set")
     def pin_set() -> None:
@@ -164,6 +200,49 @@ def create_app(
         typer.echo(agents_table(slots))
 
     return app
+
+
+class UsageError(Exception):
+    pass
+
+
+HTTP_PREFIXES = ("http://", "https://")
+
+
+def server_entry(
+    target: str, args: list[str], headers: list[str], env: list[str]
+) -> dict[str, Any]:
+    """The tool.json entry for a target: HTTP for http(s) URLs, stdio otherwise."""
+    if target.startswith(HTTP_PREFIXES):
+        _refuse_options(("--arg", args), ("--env", env), transport="an HTTP")
+        return _without_empty({"url": target, "headers": _pairs("--header", headers)})
+    _refuse_options(("--header", headers), transport="a stdio")
+    return _without_empty({"command": target, "args": args, "env": _pairs("--env", env)})
+
+
+def literal_secrets(entry: dict[str, Any]) -> list[str]:
+    pairs: dict[str, str] = {**entry.get("headers", {}), **entry.get("env", {})}
+    return [key for key, value in pairs.items() if SECRET_NAME.search(key) and "${" not in value]
+
+
+def _refuse_options(*options: tuple[str, list[str]], transport: str) -> None:
+    for option, values in options:
+        if values:
+            raise UsageError(f"{option} does not apply to {transport} server")
+
+
+def _pairs(option: str, items: list[str]) -> dict[str, str]:
+    pairs = {}
+    for item in items:
+        key, separator, value = item.partition("=")
+        if not separator or not key:
+            raise UsageError(f"{option} expects KEY=VALUE")
+        pairs[key] = value
+    return pairs
+
+
+def _without_empty(entry: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in entry.items() if value}
 
 
 def launch_desktop() -> None:
