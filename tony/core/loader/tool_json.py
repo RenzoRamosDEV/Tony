@@ -47,12 +47,21 @@ class ToolSpec(BaseModel):
     native: list[str] = []
 
 
-def tool_file(agent: str) -> str:
-    return f"agents/{agent}/tool/tool.json"
+def agent_folder(key: str) -> str:
+    parts = key.split("/")
+    if len(parts) > 2 or any(part in {"", ".", ".."} for part in parts):
+        raise DefinitionError(key, None, f"invalid agent key '{key}'")
+    if len(parts) == 1:
+        return f"agents/{key}/"
+    return f"agents/{parts[0]}/subagents/{parts[1]}/"
 
 
-def load_tool_spec(root: Path, agent: str, *, native_tools: Collection[str]) -> ToolSpec:
-    file = tool_file(agent)
+def tool_file(key: str) -> str:
+    return f"{agent_folder(key)}tool/tool.json"
+
+
+def load_tool_spec(root: Path, key: str, *, native_tools: Collection[str]) -> ToolSpec:
+    file = tool_file(key)
     path = root / file
     if not path.is_file():
         raise DefinitionError(file, None, f"missing file {file}")
