@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from tony.core.config.placeholders import SecretMasker
 from tony.core.events.messages import Ruling, ToolCall, UserDecision
+from tony.core.guard.allow_always import offers_allow_always
 from tony.core.guard.audit import AuditLog, args_preview
 from tony.core.guard.confirm import ConfirmationRequest, Confirmer
 from tony.core.guard.evaluate import evaluate
@@ -46,7 +47,11 @@ class EdithGuard:
     async def _ask_user(self, call: ToolCall, preview: str, rule: str) -> UserDecision:
         question = await worded_question(self._wording, call.tool, preview, rule)
         request = ConfirmationRequest(
-            task_id=call.task_id, tool=call.tool, args_preview=preview, question=question
+            task_id=call.task_id,
+            tool=call.tool,
+            args_preview=preview,
+            question=question,
+            allow_always=offers_allow_always(self._policy, call.tool),
         )
         timeout = self._policy.limits.confirm_timeout_s
         try:

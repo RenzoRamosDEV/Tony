@@ -20,12 +20,12 @@ class Verdict(NamedTuple):
 
 def evaluate(policy: Policy, tool: str, args: dict[str, Any]) -> Verdict:
     for rule in policy.rules:
-        if _matches(rule, tool) and _holds(rule.when, args):
+        if rule_matches(rule, tool) and _holds(rule.when, args):
             return Verdict(rule.verdict, rule.id)
     return Verdict(policy.default, DEFAULT_RULE)
 
 
-def _matches(rule: Rule, tool: str) -> bool:
+def rule_matches(rule: Rule, tool: str) -> bool:
     return any(fnmatchcase(tool, pattern) for pattern in rule.match)
 
 
