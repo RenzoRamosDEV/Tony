@@ -58,7 +58,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 ## 10. Desktop: notifications
 
 - [x] 10.1 Red: `ConfirmationAttention` tests: `needs_confirmation` with the window hidden or minimised -> one notification `Tony — Edith` with the question; visible -> none; the same event twice -> one notification; `FakeNotifier` click -> `reveal(edith=True)`; notifier raising -> one `error` source `notifications` shown and later confirmations still use the banner; Green: implement `presenters/attention.py` and `system/notifier.py` (desktop-notifier on its own thread loop, click marshalled by a Qt signal); verify tests pass
-- [ ] 10.2 Document desktop integration in `README.md`: tray states and actions, `desktop.tray`, single instance, `tony --focus`, X11 hotkey `desktop.hotkey` syntax, Wayland custom shortcut steps for KDE Plasma and GNOME bound to `tony --focus`, notifications and that they show the masked question; verify `uv run tony --help` lists `--focus`
+- [x] 10.2 Document desktop integration in `README.md`: tray states and actions, `desktop.tray`, single instance, `tony --focus`, X11 hotkey `desktop.hotkey` syntax, Wayland custom shortcut steps for KDE Plasma and GNOME bound to `tony --focus`, notifications and that they show the masked question; verify `uv run tony --help` lists `--focus`
 
 ## 11. Flatpak packaging (`packaging/`)
 

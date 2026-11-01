@@ -286,6 +286,40 @@ muestra cómo crear el PIN con `tony pin set`. Mientras Edith esté bloqueada, e
 «Desbloquear Edith» vuelve a abrirlo. Cerrar la ventana cancela la tarea en curso, cierra los
 servidores MCP y detiene el núcleo.
 
+### Integración con el escritorio
+
+Requiere el extra `desktop` (`uv sync --extra desktop`) para el atajo global y las
+notificaciones; sin él la app funciona igual y lo indica en el chat cuando haría falta.
+
+- **Bandeja del sistema** (`desktop.tray: true` por defecto en `config/tony.yaml`): icono con
+  «Mostrar/Ocultar» (oculta o muestra la ventana; el núcleo sigue trabajando) y «Salir» (igual
+  que cerrar la ventana). El icono y el tooltip muestran el estado: gris `Tony — en espera`, azul
+  `Tony — trabajando` (turno o tarea en curso) y ámbar `Tony — esperando confirmación`. Con
+  `desktop.tray: false`, o si el escritorio no ofrece bandeja, no se crea.
+- **Una sola instancia**: un segundo `tony` muestra y levanta la ventana ya abierta y termina
+  con código 0. El canal es un socket local solo accesible por su usuario
+  (`$XDG_RUNTIME_DIR/tony-desktop.sock`) que solo acepta los mensajes `show` y `focus`.
+- **`tony --focus`**: muestra, restaura y enfoca la ventana y empieza a escuchar (si no hay
+  ninguna abierta, abre la app y escucha en cuanto la voz esté `ready`; si la voz no está
+  disponible lo dice en el chat). `--focus` no se combina con subcomandos.
+- **Atajo global en X11** (`desktop.hotkey`, `Super+J` por defecto): hace lo mismo que
+  `tony --focus`. Sintaxis: modificadores `Super` (o `Meta`/`Win`), `Ctrl`, `Alt`, `Shift` unidos
+  con `+` y una tecla (letra, dígito, `F1`–`F12`, `Space`, `Enter`, `Tab` o `Esc`), sin
+  distinguir mayúsculas: `Ctrl+Alt+Space`, `Super+F2`. Un atajo inválido se muestra como error
+  nombrando `desktop.hotkey` y la app sigue funcionando. Solo se registra con
+  `XDG_SESSION_TYPE=x11`.
+- **Wayland**: no hay atajos globales para aplicaciones; cree un atajo personalizado del
+  escritorio que ejecute `tony --focus` (o `flatpak run io.github.renzoramosdev.Tony --focus`):
+  - KDE Plasma: Preferencias del sistema → Teclado → Accesos rápidos → Añadir nuevo → Orden o
+    script, con la orden `tony --focus` y el atajo que prefiera (p. ej. Meta+J).
+  - GNOME: Configuración → Teclado → Ver y personalizar atajos → Atajos personalizados → «+»,
+    con la orden `tony --focus` y el atajo que prefiera.
+- **Notificaciones**: si Edith espera una confirmación con la ventana oculta o minimizada, se
+  muestra una notificación nativa `Tony — Edith` con la pregunta (con los secretos ya
+  enmascarados; puede verse en la pantalla de bloqueo). Al pulsarla se abre la ventana en el
+  aviso de Edith con el foco en «Denegar». Sin servicio de notificaciones se muestra un error
+  `notifications` una vez y el aviso de la ventana sigue funcionando.
+
 ### Voz
 
 La voz es local: micrófono a 16 kHz mono, detección de voz con Silero VAD, transcripción en
