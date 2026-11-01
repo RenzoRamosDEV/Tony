@@ -1,8 +1,9 @@
-from typing import Any
+from typing import Any, Literal
 
 from tony.core.events.messages import TaskRequest, TaskResult
 
 Event = dict[str, Any]
+Outcome = Literal["ok", "error", "timeout", "cancelled"]
 
 
 def task_started(agent: str, task: TaskRequest) -> Event:
@@ -21,7 +22,11 @@ def token_usage(*, input_tokens: int, output_tokens: int) -> Event:
     return {"type": "token_usage", "input_tokens": input_tokens, "output_tokens": output_tokens}
 
 
-def task_finished(outcome: str, result: TaskResult) -> Event:
+def token_alert(*, total_tokens: int, limit: int) -> Event:
+    return {"type": "token_alert", "total_tokens": total_tokens, "limit": limit}
+
+
+def task_finished(outcome: Outcome, result: TaskResult) -> Event:
     return {"type": "task_finished", "outcome": outcome, "result": result.model_dump(mode="json")}
 
 

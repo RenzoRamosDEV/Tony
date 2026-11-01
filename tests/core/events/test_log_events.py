@@ -65,3 +65,21 @@ def test_error():
         "source": "mcp.github",
         "message": "connection refused",
     }
+
+
+def test_token_alert():
+    event = log_events.token_alert(total_tokens=50001, limit=50000)
+
+    assert roundtrip(event) == {"type": "token_alert", "total_tokens": 50001, "limit": 50000}
+
+
+def test_task_finished_cancelled():
+    result = TaskResult(resumen="", errores=["tarea cancelada: x"])
+
+    event = log_events.task_finished("cancelled", result)
+
+    assert roundtrip(event) == {
+        "type": "task_finished",
+        "outcome": "cancelled",
+        "result": {"resumen": "", "datos": None, "pasos": [], "errores": ["tarea cancelada: x"]},
+    }
