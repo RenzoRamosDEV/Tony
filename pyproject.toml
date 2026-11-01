@@ -68,8 +68,10 @@ timeout_multiplier = 3.0
 # The live Claude Agent SDK call is only exercised by the evals-marked real-model test.
 # Desktop widgets and app.py are pure Qt layout and glue: behaviour lives in the mutated
 # presenters, and widget mutants are equivalent or crash-only under offscreen Qt.
+# config/watcher.py is thin watchfiles glue covered by one real-filesystem test.
 do_not_mutate = [
     "tony/core/guard/claude_wording.py",
+    "tony/core/config/watcher.py",
     "tony/apps/desktop/widgets/*",
     "tony/apps/desktop/app.py",
 ]
