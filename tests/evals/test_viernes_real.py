@@ -28,6 +28,7 @@ async def test_viernes_lists_and_reads_notes_with_the_real_model(tmp_path):
         "args": ["-y", "@modelcontextprotocol/server-filesystem", str(notes)],
     }
     (agent / "tool" / "tool.json").write_text(json.dumps({"mcpServers": {"filesystem": server}}))
+    shutil.copytree(REPO / "agents" / "edith", home / "agents" / "edith")
     request = TaskRequest(
         objetivo=f"Lista los ficheros de la carpeta {notes} y resume el contenido de cada nota."
     )
