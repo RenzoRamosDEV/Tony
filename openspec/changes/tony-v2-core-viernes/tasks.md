@@ -22,7 +22,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 4. Agent definitions (`tony/core/loader`)
 
-- [ ] 4.1 Red: tests for `agent.md` parsing (valid file, missing frontmatter, empty body, invalid YAML) with errors naming the file; Green: implement frontmatter splitter; verify tests pass
+- [x] 4.1 Red: tests for `agent.md` parsing (valid file, missing frontmatter, empty body, invalid YAML) with errors naming the file; Green: implement frontmatter splitter; verify tests pass
 - [ ] 4.2 Red: tests for frontmatter schema (each required field missing, `name` != folder, invalid `role`, unknown top-level and nested field, `voice.tts` boundaries `kokoro/x` ok vs `em_alex` / `kokoro/` rejected, alias not in configured models) asserting dotted field names; Green: implement `AgentSpec`; verify tests pass
 - [ ] 4.3 Red: tests for `tool.json` schema (stdio+HTTP accepted, both/neither `command`/`url`, unknown keys, `native` default `[]`, invalid JSON, missing file, reserved server name `tony`, unknown native name against an injected native registry); Green: implement `ToolSpec`; verify tests pass
 - [ ] 4.4 Red: tests that `allow`/`confirm` at top level and nested depth fail with dotted path and `agents/edith/policy.yaml` in the message; Green: implement recursive forbidden-key scan; verify tests pass
