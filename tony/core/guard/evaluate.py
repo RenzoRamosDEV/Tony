@@ -2,10 +2,11 @@ import os
 from collections.abc import Iterator
 from fnmatch import fnmatchcase
 from pathlib import Path
+from re import Pattern
 from typing import Any, NamedTuple
 
 from tony.core.events.messages import Decision
-from tony.core.guard.policy import Policy, Rule, When
+from tony.core.guard.policy import NumericAbove, Policy, Rule, When
 
 DEFAULT_RULE = "default"
 PATH_KEYS = ("path", "source", "destination")
@@ -31,11 +32,32 @@ def _matches(rule: Rule, tool: str) -> bool:
 def _holds(when: When, args: dict[str, Any]) -> bool:
     if when.path_outside is not None and not _path_outside(when.path_outside, args):
         return False
-    if when.args_regex is not None:
-        strings = [value for value in args.values() if isinstance(value, str)]
-        if not any(when.args_regex.search(value) for value in strings):
-            return False
+    if when.args_regex is not None and not _args_match(when.args_regex, args):
+        return False
+    if when.numeric_above is not None and not _numeric_above(when.numeric_above, args):
+        return False
     return True
+
+
+def _args_match(pattern: Pattern[str], args: dict[str, Any]) -> bool:
+    return any(pattern.search(value) for value in _strings(args))
+
+
+def _strings(node: Any) -> Iterator[str]:
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for value in node.values():
+            yield from _strings(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _strings(item)
+
+
+def _numeric_above(condition: NumericAbove, args: dict[str, Any]) -> bool:
+    value = args.get(condition.arg)
+    is_number = isinstance(value, int | float) and not isinstance(value, bool)
+    return is_number and value > condition.value
 
 
 def _path_outside(folders: list[str], args: dict[str, Any]) -> bool:
