@@ -25,21 +25,22 @@ async def run(engine, tools):
 
 async def test_executes_scripted_calls_in_order_and_records_replies():
     log = []
-    engine = FakeModelEngine([
-        CallTool("fs.list", {"path": "."}),
-        CallTool("fs.read", {"path": "a.md"}),
-        Final(structured={"resumen": "r"}, usage=Usage(5, 2)),
-    ])
+    engine = FakeModelEngine(
+        [
+            CallTool("fs.list", {"path": "."}),
+            CallTool("fs.read", {"path": "a.md"}),
+            Final(structured={"resumen": "r"}, usage=Usage(5, 2)),
+        ]
+    )
 
     outcome = await run(engine, [tool("fs.list", log), tool("fs.read", log)])
 
     assert log == [("fs.list", {"path": "."}), ("fs.read", {"path": "a.md"})]
     assert [reply.text for reply in engine.replies] == [
-        "fs.list:{'path': '.'}", "fs.read:{'path': 'a.md'}",
+        "fs.list:{'path': '.'}",
+        "fs.read:{'path': 'a.md'}",
     ]
-    assert outcome == EngineOutcome(
-        text="", structured={"resumen": "r"}, usage=[Usage(5, 2)]
-    )
+    assert outcome == EngineOutcome(text="", structured={"resumen": "r"}, usage=[Usage(5, 2)])
 
 
 async def test_records_what_it_was_given():
@@ -52,10 +53,12 @@ async def test_records_what_it_was_given():
 
 
 async def test_structured_answer_may_be_built_from_replies():
-    engine = FakeModelEngine([
-        CallTool("fs.read", {}),
-        Final(structured=lambda replies: {"datos": replies[0].text}),
-    ])
+    engine = FakeModelEngine(
+        [
+            CallTool("fs.read", {}),
+            Final(structured=lambda replies: {"datos": replies[0].text}),
+        ]
+    )
 
     outcome = await run(engine, [tool("fs.read", [])])
 

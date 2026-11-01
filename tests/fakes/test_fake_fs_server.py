@@ -10,9 +10,7 @@ SERVER = Path(__file__).with_name("fake_fs_server.py")
 
 @asynccontextmanager
 async def session_for(root, env=None):
-    params = StdioServerParameters(
-        command=sys.executable, args=[str(SERVER), str(root)], env=env
-    )
+    params = StdioServerParameters(command=sys.executable, args=[str(SERVER), str(root)], env=env)
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
         await session.initialize()
         yield session
@@ -27,7 +25,10 @@ async def test_lists_the_four_fake_tools(tmp_path):
         listed = await session.list_tools()
 
     assert {tool.name for tool in listed.tools} == {
-        "list_directory", "read_file", "sleep", "echo_env",
+        "list_directory",
+        "read_file",
+        "sleep",
+        "echo_env",
     }
 
 

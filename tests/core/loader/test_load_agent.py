@@ -48,7 +48,9 @@ def test_loads_agent_from_root(tmp_path):
     agent = load_agent(tmp_path, "viernes", TonyConfig(), native_tools=set())
 
     assert (agent.name, agent.spec.system_prompt, agent.tools.mcp_servers) == (
-        "viernes", "Prompt.", {},
+        "viernes",
+        "Prompt.",
+        {},
     )
 
 

@@ -43,9 +43,7 @@ class TonyConfig(_Strict):
         try:
             return self.models[alias]
         except KeyError:
-            raise DefinitionError(
-                CONFIG_FILE, "models", f"unknown model alias '{alias}'"
-            ) from None
+            raise DefinitionError(CONFIG_FILE, "models", f"unknown model alias '{alias}'") from None
 
 
 def load_config(root: Path) -> TonyConfig:

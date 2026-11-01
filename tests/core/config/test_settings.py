@@ -40,7 +40,9 @@ def test_partial_nested_section_keeps_other_nested_defaults(tmp_path):
     write_config(tmp_path, "desktop:\n  tray: false\n")
 
     assert load_config(tmp_path).desktop.model_dump() == {
-        "hotkey": "Super+J", "tray": False, "theme": "system",
+        "hotkey": "Super+J",
+        "tray": False,
+        "theme": "system",
     }
 
 

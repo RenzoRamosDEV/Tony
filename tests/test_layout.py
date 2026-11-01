@@ -6,10 +6,20 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 PACKAGES = [
-    *(f"tony.core.{name}" for name in (
-        "config", "loader", "mcp", "orchestrator", "guard",
-        "voice", "events", "memory", "logging",
-    )),
+    *(
+        f"tony.core.{name}"
+        for name in (
+            "config",
+            "loader",
+            "mcp",
+            "orchestrator",
+            "guard",
+            "voice",
+            "events",
+            "memory",
+            "logging",
+        )
+    ),
     "tony.apps.cli",
     "tony.apps.desktop",
 ]
