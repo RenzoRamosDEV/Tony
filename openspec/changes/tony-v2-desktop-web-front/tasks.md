@@ -54,7 +54,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 9. Final verification
 
-- [ ] 9.1 Run `uv run pytest`, `uv run ruff check` and `uv run ruff format --check`; verify all pass, no test exceeds 30 s and no `web`/`voice`/`evals` test ran
+- [x] 9.1 Run `uv run pytest`, `uv run ruff check` and `uv run ruff format --check`; verify all pass, no test exceeds 30 s and no `web`/`voice`/`evals` test ran
 - [ ] 9.2 Run `npm --prefix tony/apps/desktop/web ci`, `npm --prefix tony/apps/desktop/web test` and `npm --prefix tony/apps/desktop/web run build`; verify tests pass, `dist/index.html` exists and `grep -r "googleapis\|http://\|https://" tony/apps/desktop/web/dist/index.html` finds no remote resource
 - [ ] 9.3 Headless launch smoke with the built page: `QT_QPA_PLATFORM=offscreen QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu timeout 60 uv run pytest -m web`, then a `timeout 30 uv run python -c` script that calls `launch` with the fake runtime factory and a `run_loop` that processes events until the page called `ready()` (bounded 15 s), dispatches `voice_state` `ready`, sends `{"type": "listen"}` from the page side and quits; verify exit 0, the page loaded from `file://` (ES modules and the lazy three.js chunk loaded, or the fallback orb shown), and no `tony-*` thread is alive afterwards; if `file://` module loading fails, record it and switch to the custom-scheme fallback of design D1 in a separate task before continuing
 - [ ] 9.4 Validate packaging without building: `python -c "import yaml; yaml.safe_load(open('packaging/io.github.renzoramosdev.Tony.yml'))"`; `flatpak-builder --show-manifest packaging/io.github.renzoramosdev.Tony.yml` when installed (report "not installed" otherwise); do not build
