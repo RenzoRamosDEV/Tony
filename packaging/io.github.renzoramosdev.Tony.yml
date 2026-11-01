@@ -4,6 +4,9 @@ id: io.github.renzoramosdev.Tony
 runtime: org.kde.Platform
 runtime-version: "6.8"
 sdk: org.kde.Sdk
+# Node.js only builds the desktop web front; it is not part of the installed app.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
 command: tony
 finish-args:
   - --socket=wayland
@@ -12,6 +15,11 @@ finish-args:
   - --share=network
   - --filesystem=home
   - --talk-name=org.freedesktop.Notifications
+  # Hardware WebGL for the orb; without it the page shows the static orb.
+  - --device=dri
+  # Chromium's own namespace sandbox cannot start inside bubblewrap with the pip wheel;
+  # the page only runs bundled local content and bubblewrap stays the outer sandbox.
+  - --env=QTWEBENGINE_DISABLE_SANDBOX=1
 cleanup:
   - /include
   - /lib/pkgconfig
@@ -29,9 +37,12 @@ modules:
   - name: tony
     buildsystem: simple
     build-options:
+      append-path: /usr/lib/sdk/node20/bin
       build-args:
         - --share=network
     build-commands:
+      - npm --prefix tony/apps/desktop/web ci
+      - npm --prefix tony/apps/desktop/web run build
       - pip3 install --prefix=/app --no-deps --require-hashes -r packaging/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
       - pip3 install --prefix=/app --no-deps .
       - install -Dm644 packaging/io.github.renzoramosdev.Tony.desktop /app/share/applications/io.github.renzoramosdev.Tony.desktop

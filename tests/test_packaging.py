@@ -14,7 +14,11 @@ FINISH_ARGS = {
     "--share=network",
     "--filesystem=home",
     "--talk-name=org.freedesktop.Notifications",
+    "--device=dri",
+    "--env=QTWEBENGINE_DISABLE_SANDBOX=1",
 }
+NPM_CI = "npm --prefix tony/apps/desktop/web ci"
+NPM_BUILD = "npm --prefix tony/apps/desktop/web run build"
 
 
 def manifest():
@@ -91,3 +95,15 @@ def test_the_built_web_front_ships_in_the_wheel():
     wheel = data["tool"]["hatch"]["build"]["targets"]["wheel"]
     assert "tony/apps/desktop/web/dist/**" in wheel["artifacts"]
     assert "tony/apps/desktop/web/node_modules" in wheel["exclude"]
+
+
+def test_the_node_sdk_extension_is_available_to_the_build():
+    data = manifest()
+    assert "org.freedesktop.Sdk.Extension.node20" in data["sdk-extensions"]
+    assert "/usr/lib/sdk/node20/bin" in module("tony")["build-options"]["append-path"]
+
+
+def test_the_web_front_is_built_before_tony_is_installed():
+    commands = module("tony")["build-commands"]
+    first_pip = next(i for i, command in enumerate(commands) if command.startswith("pip3 install"))
+    assert commands.index(NPM_CI) < commands.index(NPM_BUILD) < first_pip
