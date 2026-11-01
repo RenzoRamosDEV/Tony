@@ -60,6 +60,16 @@ def tool_file(key: str) -> str:
     return f"{agent_folder(key)}tool/tool.json"
 
 
+def tool_json_keys(root: Path) -> list[str]:
+    """Keys of every agent and subagent folder that has a `tool.json`, parents first."""
+    agents = [path.parents[1].name for path in root.glob("agents/*/tool/tool.json")]
+    subagents = [
+        f"{path.parents[3].name}/{path.parents[1].name}"
+        for path in root.glob("agents/*/subagents/*/tool/tool.json")
+    ]
+    return sorted([*agents, *subagents])
+
+
 def load_tool_spec(root: Path, key: str, *, native_tools: Collection[str]) -> ToolSpec:
     file = tool_file(key)
     path = root / file

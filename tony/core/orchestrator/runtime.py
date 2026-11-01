@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from tony.core.config.placeholders import SecretMasker
+from tony.core.config.reload import ChangeStream, live_config
 from tony.core.config.secrets import Variables, load_variables
 from tony.core.config.settings import load_config
+from tony.core.config.watcher import watch_config
 from tony.core.events import core_events
 from tony.core.events.core_events import MaskingPublisher, Publisher
 from tony.core.guard.broker import ConfirmationBroker
@@ -33,6 +35,7 @@ from tony.core.orchestrator.commands import (
 )
 from tony.core.orchestrator.conversation import Conversation
 from tony.core.orchestrator.front_tools import WAITING_AFTER_S
+from tony.core.orchestrator.natives import NATIVE_TOOLS
 from tony.core.orchestrator.ports import ChatEngine, ModelEngine
 from tony.core.orchestrator.runner import RunDeps, WordingFactory
 
@@ -81,6 +84,7 @@ class CoreRuntime:
         environ: Mapping[str, str] = os.environ,
         monotonic: Callable[[], float] = time.monotonic,
         waiting_after_s: float = WAITING_AFTER_S,
+        changes: ChangeStream = watch_config,
     ) -> None:
         self._root = root
         self._publish = publish
@@ -90,6 +94,8 @@ class CoreRuntime:
         self._environ = environ
         self._monotonic = monotonic
         self._waiting_after_s = waiting_after_s
+        self._changes = changes
+        self._stop_watching = asyncio.Event()
         self._commands: asyncio.Queue[Any] = asyncio.Queue()
         self._turns: asyncio.Queue[str] = asyncio.Queue()
         self._background: list[asyncio.Task[None]] = []
@@ -134,6 +140,14 @@ class CoreRuntime:
         self._publish = MaskingPublisher(masker, self._publish)
         self.broker = ConfirmationBroker(self._root, config.guard, self._publish)
         self.session = EdithSession(policy.auth, PinStore(self._root), monotonic=self._monotonic)
+        live = live_config(
+            self._root,
+            config.guard,
+            policy,
+            native_tools=NATIVE_TOOLS.keys(),
+            environ=self._environ,
+            publish=self._publish,
+        )
         self.pin_prompt = DesktopPinPrompt(self._publish)
         gate = SessionGate(
             self.session,
@@ -149,6 +163,8 @@ class CoreRuntime:
             environ=self._environ,
             monotonic=self._monotonic,
             publish=self._publish,
+            policy_source=live.policy,
+            tool_specs=live.tools,
         )
         self.history = HistoryStore(self._root, masker)
         self.conversation = Conversation(
@@ -166,6 +182,9 @@ class CoreRuntime:
         self._background += [
             asyncio.create_task(self._probe([slots.front, slots.worker], variables, masker)),
             asyncio.create_task(self._answer_turns()),
+            asyncio.create_task(
+                live.reloader.run(self._changes(self._root, config.guard, self._stop_watching))
+            ),
         ]
 
     def _dispatch(self, command: Command) -> None:
@@ -230,6 +249,7 @@ class CoreRuntime:
         return publish
 
     async def _shutdown(self) -> None:
+        self._stop_watching.set()
         if self._turn is not None:
             self._turn.cancel()
         for task in self._background:

@@ -11,8 +11,10 @@ from pydantic import ValidationError
 
 from tony.apps.cli.chat import ChatPrinter, run_chat
 from tony.core.config.errors import DefinitionError
+from tony.core.config.reload import ChangeStream
 from tony.core.config.secrets import resolve_home
 from tony.core.config.settings import load_config
+from tony.core.config.watcher import watch_config
 from tony.core.events.messages import TaskRequest
 from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
 from tony.core.guard.claude_wording import ClaudeWording
@@ -50,6 +52,7 @@ def create_app(
     chat_engine_factory: Callable[[], ChatEngine] = ClaudeEngine,
     console_factory: Callable[[], ConsoleLines] = lambda: ConsoleLines(sys.stdin),
     desktop_launcher: Callable[[], object] | None = None,
+    change_stream_factory: ChangeStream = watch_config,
 ) -> typer.Typer:
     app = typer.Typer()
     pin_app = typer.Typer(no_args_is_help=True, help="Manage Edith's PIN.")
@@ -145,6 +148,7 @@ def create_app(
                 chat_engine=chat_engine_factory(),
                 console=console,
                 getpass=getpass,
+                changes=change_stream_factory,
             )
         )
 

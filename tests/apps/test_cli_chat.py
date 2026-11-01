@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -5,6 +6,7 @@ from typer.testing import CliRunner
 
 from tests.core.guard.shipped_policy import SHIPPED_POLICY_YAML
 from tests.core.orchestrator.tony_home import make_tony_home
+from tests.fakes.changes import FakeChanges
 from tests.fakes.fake_chat import Fail, FakeChatEngine, Say
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final
 from tony.apps.cli.main import create_app
@@ -33,7 +35,7 @@ def paced(*items):
             yield f"{item}\n"
 
 
-def invoke(home, lines, chat, worker=None, pins=()):
+def invoke(home, lines, chat, worker=None, pins=(), changes=None):
     entered = list(pins)
     getpass_prompts = []
 
@@ -47,6 +49,7 @@ def invoke(home, lines, chat, worker=None, pins=()):
         chat_engine_factory=lambda: chat,
         console_factory=lambda: ConsoleLines(lines),
         getpass=getpass,
+        change_stream_factory=changes or FakeChanges(),
     )
     result = CliRunner().invoke(app, ["chat"], env={"TONY_HOME": str(home)})
     return result, getpass_prompts
@@ -196,3 +199,61 @@ def test_invalid_agent_fails_at_start(tmp_path):
 
     assert result.exit_code != 0
     assert "agents/jarvis/agent.md" in result.stderr
+
+
+NO_READ_POLICY = NO_PIN_POLICY.replace(
+    "rules:\n", 'rules:\n  - match: "filesystem.read_*"\n    verdict: deny\n    id: no-read\n', 1
+)
+
+
+def audit_rules(home):
+    path = home / "logs" / "audit.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line)["rule"] for line in path.read_text().splitlines()]
+
+
+def test_policy_edit_applies_to_the_next_call_in_chat(tmp_path):
+    home = home_with(tmp_path)
+    changes = FakeChanges()
+    policy = home / "agents" / "edith" / "policy.yaml"
+
+    def edit_policy():
+        policy.write_text(NO_READ_POLICY)
+        changes.push_from_thread(policy)
+        return True
+
+    read = CallTool("filesystem.read_file", {"path": "a.md"})
+    worker = FakeModelEngine([read, Final(structured=DONE)])
+    chat = FakeChatEngine(
+        [CallTool("tony.delegate", {"objetivo": "Lee"}), Say("uno")],
+        [CallTool("tony.delegate", {"objetivo": "Lee"}), Say("dos")],
+    )
+    lines = paced(
+        "uno",
+        lambda: len(audit_rules(home)) == 1,
+        edit_policy,
+        lambda: changes.handled == 1,
+        "dos",
+    )
+
+    result, _ = invoke(home, lines, chat, worker=worker, changes=changes)
+
+    assert result.exit_code == 0, result.output
+    assert audit_rules(home) == ["filesystem.read_*/allow", "no-read"]
+    assert changes.started == [(home, "edith")] and changes.stop.is_set()
+
+
+def test_run_starts_no_watcher(tmp_path):
+    home = home_with(tmp_path)
+    changes = FakeChanges()
+    app = create_app(
+        engine_factory=lambda: FakeModelEngine([Final(structured=DONE)]),
+        wording_factory=None,
+        change_stream_factory=changes,
+    )
+
+    result = CliRunner().invoke(app, ["run", "viernes", "x"], env={"TONY_HOME": str(home)})
+
+    assert result.exit_code == 0
+    assert changes.started == []

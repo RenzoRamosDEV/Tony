@@ -318,6 +318,27 @@ Memoria local (ignorada por git):
   la app abre una conversación nueva; a cada mensaje se le envían los 20 mensajes anteriores de
   la conversación actual. Los resultados de Viernes no se guardan como mensajes.
 
+### Recarga en caliente
+
+La app de escritorio y `tony chat` vigilan (con `watchfiles`) cada
+`agents/<agente>/tool/tool.json`, cada `agents/<agente>/subagents/<sub>/tool/tool.json` y el
+`agents/<guard>/policy.yaml`, también los creados después de arrancar; el resto de ficheros
+(incluido `tool.json.lock`) se ignora. `tony run` no vigila nada: cada ejecución ya lee los
+ficheros al empezar.
+
+- Un cambio válido de `policy.yaml` se aplica a la siguiente llamada a una tool, incluso dentro
+  de una tarea en curso. Los `limits` (salvo `confirm_timeout_s`) se aplican desde la siguiente
+  tarea y `auth` desde la siguiente sesión.
+- Un cambio válido de un `tool.json` se usa en la siguiente tarea o turno; la tarea en curso
+  conserva los servidores con los que empezó. Solo se conectan (y se cierran) los servidores
+  añadidos o modificados para actualizar su estado; los eliminados aparecen caídos con el motivo
+  `removed from tool.json`.
+- Un cambio inválido (YAML o JSON roto, error de esquema o fichero borrado) mantiene la última
+  configuración válida, publica un evento `error` (origen `reload`) y escribe en stderr
+  `tony: warning: <fichero>: <error>`. El siguiente guardado válido se aplica con normalidad.
+
+Las skills y los subagentes no necesitan vigilancia: se leen del disco en cada tarea o turno.
+
 ## Desarrollo
 
 ```bash

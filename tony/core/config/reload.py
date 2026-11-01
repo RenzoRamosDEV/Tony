@@ -11,7 +11,7 @@ from tony.core.config.secrets import load_variables
 from tony.core.events import core_events
 from tony.core.events.core_events import MaskingPublisher, Publisher
 from tony.core.guard.policy import Policy, load_policy, policy_file
-from tony.core.loader.tool_json import McpServer, ToolSpec, load_tool_spec
+from tony.core.loader.tool_json import McpServer, ToolSpec, load_tool_spec, tool_json_keys
 from tony.core.logging.task_log import Clock, utc_now
 from tony.core.mcp.manager import McpManager
 
@@ -21,6 +21,8 @@ TOOL_JSON = ("tool", "tool.json")
 
 Probe = Callable[[str, str, McpServer], Awaitable[None]]
 """Connects, lists and closes one server of an agent key, publishing its `mcp_status`."""
+ChangeStream = Callable[[Path, str, asyncio.Event], AsyncIterator[set[Path]]]
+"""Factory of batches of changed paths under a root for a guard, until the event is set."""
 Change = tuple[Literal["policy"], None] | tuple[Literal["tools"], str]
 
 
@@ -239,3 +241,35 @@ def mcp_probe(
             pass
 
     return probe
+
+
+@dataclass(frozen=True)
+class LiveConfig:
+    policy: LivePolicy
+    tools: LiveToolSpecs
+    reloader: ConfigReloader
+
+
+def live_config(
+    root: Path,
+    guard: str,
+    policy: Policy,
+    *,
+    native_tools: Collection[str],
+    environ: Mapping[str, str],
+    publish: Publisher,
+) -> LiveConfig:
+    """Live sources for a long-running host, seeded silently from every valid `tool.json`."""
+    live_policy = LivePolicy(root, guard, policy)
+    tools = LiveToolSpecs(root, native_tools=native_tools)
+    for key in tool_json_keys(root):
+        tools.reload(key)
+    reloader = ConfigReloader(
+        root,
+        guard,
+        live_policy,
+        tools,
+        publish=publish,
+        probe=mcp_probe(root, environ=environ, publish=publish),
+    )
+    return LiveConfig(policy=live_policy, tools=tools, reloader=reloader)

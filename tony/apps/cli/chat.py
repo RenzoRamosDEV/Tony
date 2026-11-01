@@ -2,11 +2,14 @@ import asyncio
 import sys
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TextIO
 
 from tony.core.config.placeholders import SecretMasker
+from tony.core.config.reload import ChangeStream, live_config
 from tony.core.config.secrets import load_variables
 from tony.core.config.settings import TonyConfig
+from tony.core.config.watcher import watch_config
 from tony.core.events.core_events import Event
 from tony.core.guard.confirm import ConsoleLines, thread_line_reader
 from tony.core.guard.pin import PinStore
@@ -104,7 +107,19 @@ async def run_chat(
     chat_engine: ChatEngine,
     console: ConsoleLines,
     getpass: Callable[[str], str],
+    changes: ChangeStream = watch_config,
 ) -> None:
+    live = live_config(
+        deps.root,
+        config.guard,
+        policy,
+        native_tools=deps.native.keys(),
+        environ=deps.environ,
+        publish=deps.publish,
+    )
+    deps = replace(deps, policy_source=live.policy, tool_specs=live.tools)
+    stop = asyncio.Event()
+    reloader = asyncio.create_task(live.reloader.run(changes(deps.root, config.guard, stop)))
     session = EdithSession(policy.auth, PinStore(deps.root))
     gate = SessionGate(
         session, TerminalPinPrompt(getpass), timeout_s=policy.limits.confirm_timeout_s
@@ -134,4 +149,7 @@ async def run_chat(
             elif text:
                 await conversation.handle(text)
     finally:
+        stop.set()
+        reloader.cancel()
+        await asyncio.gather(reloader, return_exceptions=True)
         history.close()
