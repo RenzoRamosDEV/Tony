@@ -1,0 +1,26 @@
+# APM dependencies and local AI tooling
+apm_modules/
+.claude/
+.serena/
+# Temporary requirement drafts
+requirements/
+# Python / uv
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mutmut-cache
+mutants/
+# Secrets and runtime data
+config/.env
+config/edith.lock
+config/engine-auth.json
+logs/
+memory/*.sqlite*
+memory/preferences.md
+memory/settings.json
+# Eval runs and local samples
+evals/runs/
+samples/
+# Lock file of tony mcp add
+tool.json.lock
