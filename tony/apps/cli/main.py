@@ -11,17 +11,20 @@ from pydantic import ValidationError
 
 from tony.core.config.errors import DefinitionError
 from tony.core.config.secrets import resolve_home
+from tony.core.config.settings import load_config
 from tony.core.events.messages import TaskRequest
 from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
 from tony.core.guard.claude_wording import ClaudeWording
 from tony.core.guard.confirm import CliConfirmer, thread_line_reader
 from tony.core.guard.pin import LOCK_FILE, MIN_PIN_LENGTH, PinStore
+from tony.core.orchestrator.agents import AgentSlots, resolve_slots
 from tony.core.orchestrator.claude_engine import ClaudeEngine
 from tony.core.orchestrator.ports import ModelEngine
 from tony.core.orchestrator.runner import NotWorkerError, RunDeps, WordingFactory, run_task
 
 USAGE_ERROR = 2
 TASK_FAILED = 1
+AGENT_COLUMNS = ("slot", "agent", "role", "model", "voice")
 AUDIT_COLUMNS = ("ts", "agent", "tool", "verdict", "rule", "user_decision")
 
 
@@ -106,15 +109,40 @@ def create_app(
         )
         typer.echo(audit_table(selected))
 
+    @app.command()
+    def agents() -> None:
+        """List the front, worker and guard agents of config/tony.yaml."""
+        root = resolve_home()
+        try:
+            slots = resolve_slots(root, load_config(root))
+        except DefinitionError as error:
+            typer.echo(f"tony: {error}", err=True)
+            raise typer.Exit(USAGE_ERROR) from error
+        typer.echo(agents_table(slots))
+
     return app
 
 
+def agents_table(slots: AgentSlots) -> str:
+    named = (("front", slots.front), ("worker", slots.worker), ("guard", slots.guard))
+    return table(
+        AGENT_COLUMNS,
+        [
+            (slot, agent.name, agent.spec.role, agent.spec.model, agent.spec.voice.tts)
+            for slot, agent in named
+        ],
+    )
+
+
 def audit_table(lines: list[AuditLine]) -> str:
-    rows = [
-        AUDIT_COLUMNS,
-        *(tuple(_cell(line, column) for column in AUDIT_COLUMNS) for line in lines),
-    ]
-    widths = [max(len(row[index]) for row in rows) for index in range(len(AUDIT_COLUMNS))]
+    return table(
+        AUDIT_COLUMNS, [tuple(_cell(line, column) for column in AUDIT_COLUMNS) for line in lines]
+    )
+
+
+def table(columns: tuple[str, ...], body: list[tuple[str, ...]]) -> str:
+    rows = [columns, *body]
+    widths = [max(len(row[index]) for row in rows) for index in range(len(columns))]
     return "\n".join(
         "  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
         for row in rows
