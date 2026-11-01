@@ -31,7 +31,7 @@ def home_dir(tmp_path, monkeypatch):
 
 
 class Harness:
-    def __init__(self, home, chat=None, worker=None, clock=None) -> None:
+    def __init__(self, home, chat=None, worker=None, clock=None, **options) -> None:
         self.events: list[dict] = []
         self.runtime = CoreRuntime(
             home,
@@ -40,6 +40,7 @@ class Harness:
             engine=worker or FakeModelEngine([Final(structured=DONE)]),
             environ={},
             monotonic=clock or Clock(),
+            **options,
         )
         self.serving: asyncio.Task | None = None
 
