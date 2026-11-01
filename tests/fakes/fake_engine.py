@@ -27,7 +27,12 @@ class Hang:
     pass
 
 
-Step = CallTool | Final | Hang
+@dataclass(frozen=True)
+class Raise:
+    error: Exception
+
+
+Step = CallTool | Final | Hang | Raise
 
 
 class FakeModelEngine:
@@ -48,6 +53,8 @@ class FakeModelEngine:
         for step in self._steps:
             if isinstance(step, Hang):
                 await asyncio.Event().wait()
+            if isinstance(step, Raise):
+                raise step.error
             if isinstance(step, Final):
                 return EngineOutcome(
                     text=step.text, structured=self._structured(step), usage=[step.usage]
@@ -61,3 +68,17 @@ class FakeModelEngine:
         if callable(step.structured):
             return step.structured(self.replies)
         return step.structured
+
+
+class ByAgentEngine:
+    """ModelEngine running one FakeModelEngine script per agent, chosen by `spec.name`."""
+
+    def __init__(self, scripts: dict[str, list[Step]]) -> None:
+        self.engines = {name: FakeModelEngine(steps) for name, steps in scripts.items()}
+        self.calls: list[str] = []
+
+    async def run(self, spec, request, tools: list[ProxiedTool], model_id: str) -> EngineOutcome:
+        self.calls.append(spec.name)
+        if spec.name not in self.engines:
+            raise ScriptError(f"no script for agent {spec.name}")
+        return await self.engines[spec.name].run(spec, request, tools, model_id)

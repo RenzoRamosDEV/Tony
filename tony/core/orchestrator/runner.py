@@ -4,9 +4,11 @@ import time
 from asyncio import FIRST_COMPLETED
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 
+from tony.core.config.errors import DefinitionError
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.secrets import Variables, load_variables
 from tony.core.config.settings import TonyConfig, load_config
@@ -22,15 +24,17 @@ from tony.core.guard.port import Guard
 from tony.core.guard.wording import QuestionWording
 from tony.core.loader.agent import AgentDefinition, load_agent
 from tony.core.loader.agent_md import AgentSpec
+from tony.core.loader.subagents import list_subagents, load_subagent
 from tony.core.logging.task_log import Clock, JsonlTaskLog, new_task_id, utc_now
 from tony.core.mcp.manager import McpManager
 from tony.core.mcp.native import NativeFactory, NativeScope, NativeTool
-from tony.core.orchestrator.natives import NATIVE_TOOLS
+from tony.core.orchestrator.natives import NATIVE_TOOLS, not_found
 from tony.core.orchestrator.ports import (
     EngineOutcome,
     EventSink,
     ModelEngine,
     ProxiedTool,
+    ToolReply,
     Usage,
 )
 from tony.core.orchestrator.prompt_sections import agent_prompt
@@ -79,6 +83,7 @@ class _TaskRun:
     publish: Publisher
     policy: Policy
     config: TonyConfig
+    usage: list[Usage] = field(default_factory=list)
 
 
 def _prepare_run(agent: AgentDefinition, config: TonyConfig, deps: RunDeps) -> _TaskRun:
@@ -117,20 +122,15 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
     run.log.emit(log_events.task_started(agent_name, request))
     run.publish(core_events.task_started(run.id, agent_name, request.objetivo, clock=deps.clock))
     try:
-        outcome, result, usage = await _execute(run, request, deps, timeout)
+        outcome, result = await _execute(run, request, deps, timeout)
     except asyncio.CancelledError:
-        _finish(run, "cancelled", _failed(USER_CANCELLED), [], started, deps)
+        _finish(run, "cancelled", _failed(USER_CANCELLED), started, deps)
         raise
-    return _finish(run, outcome, result, usage, started, deps)
+    return _finish(run, outcome, result, started, deps)
 
 
 def _finish(
-    run: _TaskRun,
-    outcome: Outcome,
-    result: TaskResult,
-    usage: list[Usage],
-    started: float,
-    deps: RunDeps,
+    run: _TaskRun, outcome: Outcome, result: TaskResult, started: float, deps: RunDeps
 ) -> TaskResult:
     run.log.emit(log_events.task_finished(outcome, result))
     run.publish(
@@ -139,8 +139,8 @@ def _finish(
             run.agent.name,
             outcome,
             result,
-            input_tokens=sum(item.input_tokens for item in usage),
-            output_tokens=sum(item.output_tokens for item in usage),
+            input_tokens=sum(item.input_tokens for item in run.usage),
+            output_tokens=sum(item.output_tokens for item in run.usage),
             elapsed_ms=round((deps.monotonic() - started) * 1000),
             clock=deps.clock,
         )
@@ -150,19 +150,20 @@ def _finish(
 
 async def _execute(
     run: _TaskRun, request: TaskRequest, deps: RunDeps, timeout: float
-) -> tuple[Outcome, TaskResult, list[Usage]]:
+) -> tuple[Outcome, TaskResult]:
     engine = asyncio.create_task(_run_engine(run, request, deps))
     finished = await _race(engine, run.supervisor, timeout, deps.user_cancel)
     if run.supervisor.cancelled.is_set():
-        return "cancelled", _failed(run.supervisor.reason), []
+        return "cancelled", _failed(run.supervisor.reason)
     if not finished:
-        return "timeout", _failed(f"task timed out after {timeout:g} s"), []
+        return "timeout", _failed(f"task timed out after {timeout:g} s")
     try:
-        outcome = engine.result()
+        return _engine_result(run, engine.result())
     except Exception as error:
-        message = str(error) or type(error).__name__
-        run.log.emit(log_events.error("engine", message))
-        return "error", _failed(message), []
+        return _engine_failed(run, error)
+
+
+def _engine_result(run: _TaskRun, outcome: EngineOutcome) -> tuple[Outcome, TaskResult]:
     for usage in outcome.usage:
         run.log.emit(
             log_events.token_usage(
@@ -172,9 +173,39 @@ async def _execute(
         run.supervisor.record_usage(
             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
         )
+        run.usage.append(usage)
     result = to_task_result(outcome)
     masked = TaskResult.model_validate(run.masker.mask_json(result.model_dump()))
-    return ("error" if masked.errores else "ok"), masked, outcome.usage
+    return ("error" if masked.errores else "ok"), masked
+
+
+def _engine_failed(run: _TaskRun, error: Exception) -> tuple[Outcome, TaskResult]:
+    message = str(error) or type(error).__name__
+    run.log.emit(log_events.error("engine", message))
+    return "error", _failed(message)
+
+
+async def _run_subagent(
+    parent: _TaskRun, deps: RunDeps, name: str, request: TaskRequest
+) -> ToolReply:
+    """Run a subagent inside the parent task: same id, log, guard, supervisor and usage."""
+    try:
+        agent = load_subagent(
+            deps.root, parent.agent.name, name, parent.config, native_tools=deps.native.keys()
+        )
+    except DefinitionError as error:
+        return ToolReply(text=str(error), is_error=True)
+    if agent is None:
+        listed = list_subagents(deps.root, parent.agent.name, parent.config)
+        return not_found("subagent", name, [listed_name for listed_name, _ in listed])
+    child = replace(parent, agent=agent, model_id=parent.config.resolve_model(agent.spec.model))
+    child.log.emit(log_events.subagent_started(agent.name, request))
+    try:
+        outcome, result = _engine_result(child, await _run_engine(child, request, deps))
+    except Exception as error:
+        outcome, result = _engine_failed(child, error)
+    child.log.emit(log_events.subagent_finished(agent.name, outcome, result))
+    return ToolReply(text=result.model_dump_json(), is_error=bool(result.errores))
 
 
 class _AlertTee:
@@ -310,7 +341,11 @@ async def _proxied_tools(run: _TaskRun, deps: RunDeps) -> AsyncIterator[list[Pro
 
 
 def _bind_natives(run: _TaskRun, deps: RunDeps) -> dict[str, NativeTool]:
-    scope = NativeScope(root=deps.root, agent=run.agent.name)
+    scope = NativeScope(
+        root=deps.root,
+        agent=run.agent.name,
+        run_subagent=partial(_run_subagent, run, deps),
+    )
     return {name: deps.native[name](scope) for name in run.agent.tools.native}
 
 

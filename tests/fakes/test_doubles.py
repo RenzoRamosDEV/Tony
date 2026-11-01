@@ -3,7 +3,15 @@ import asyncio
 import pytest
 
 from tests.fakes.confirm import HANG, FakeConfirmer, FakeWording
-from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final, Hang, ScriptError
+from tests.fakes.fake_engine import (
+    ByAgentEngine,
+    CallTool,
+    FakeModelEngine,
+    Final,
+    Hang,
+    Raise,
+    ScriptError,
+)
 from tests.fakes.guards import RecordingGuard
 from tests.fakes.sinks import ListEventSink
 from tony.core.events.messages import Ruling, TaskRequest, ToolCall
@@ -160,3 +168,38 @@ async def test_fake_wording_can_delay():
 
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(wording.word("t", "p", "r"), 0.05)
+
+
+class _Spec:
+    def __init__(self, name):
+        self.name = name
+
+
+async def test_by_agent_engine_dispatches_by_spec_name():
+
+    log = []
+    engine = ByAgentEngine(
+        {
+            "viernes": [CallTool("fs.read", {}), Final(structured={"resumen": "v"})],
+            "resumidor": [Final(structured={"resumen": "r"})],
+        }
+    )
+
+    sub = await engine.run(_Spec("resumidor"), REQUEST, [], "m")
+    main = await engine.run(_Spec("viernes"), REQUEST, [tool("fs.read", log)], "m")
+
+    assert (sub.structured, main.structured) == ({"resumen": "r"}, {"resumen": "v"})
+    assert engine.calls == ["resumidor", "viernes"]
+    assert engine.engines["viernes"].replies[0].text == "fs.read:{}"
+
+
+async def test_by_agent_engine_unknown_agent_fails():
+
+    with pytest.raises(ScriptError):
+        await ByAgentEngine({}).run(_Spec("nadie"), REQUEST, [], "m")
+
+
+async def test_raise_step_raises_the_error():
+
+    with pytest.raises(RuntimeError, match="model down"):
+        await FakeModelEngine([Raise(RuntimeError("model down"))]).run(None, REQUEST, [], "m")

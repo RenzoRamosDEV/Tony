@@ -3,11 +3,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tony.core.events.messages import TaskRequest
 from tony.core.orchestrator.ports import ToolReply
 
 NATIVE_SERVER = "tony"
 
-SubagentRunner = Callable[[dict[str, Any]], Awaitable[ToolReply]]
+SubagentRunner = Callable[[str, TaskRequest], Awaitable[ToolReply]]
 
 
 @dataclass(frozen=True)
