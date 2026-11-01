@@ -110,3 +110,22 @@ def test_model_id_instead_of_alias_rejected():
 
 def test_wrong_type_for_section():
     assert field_error(frontmatter(persona="es")) == "persona"
+
+
+def test_optional_description_exposed():
+    assert parse(frontmatter(description="Resume textos largos")).description == (
+        "Resume textos largos"
+    )
+
+
+def test_description_absent_is_none():
+    assert parse(frontmatter()).description is None
+
+
+@pytest.mark.parametrize("description", ["", "   "])
+def test_empty_description_rejected(description):
+    assert field_error(frontmatter(description=description)) == "description"
+
+
+def test_other_unknown_fields_still_rejected_with_description():
+    assert field_error(frontmatter(description="x", license="MIT")) == "license"

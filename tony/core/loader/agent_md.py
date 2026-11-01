@@ -28,6 +28,7 @@ class AgentFrontmatter(_Strict):
     model: str
     persona: Persona
     voice: Voice
+    description: str | None = Field(default=None, pattern=r"\S")
 
 
 class AgentSpec(AgentFrontmatter):
