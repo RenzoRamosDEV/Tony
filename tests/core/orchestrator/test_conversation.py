@@ -38,7 +38,7 @@ def home(tmp_path):
     return make_tony_home(tmp_path)[0]
 
 
-def make(home, chat, *, worker=None, pin_required=False, clock=None):
+def make(home, chat, *, worker=None, pin_required=False, clock=None, **options):
     published = []
     config = load_config(home)
     session = EdithSession(
@@ -59,6 +59,7 @@ def make(home, chat, *, worker=None, pin_required=False, clock=None):
         gate=SessionGate(session, FakePinPrompt(), timeout_s=1),
         history=history,
         conversation_id="c1",
+        **options,
     )
     return conversation, published, history, session
 
@@ -77,6 +78,7 @@ async def test_streamed_reply_publishes_tokens_then_the_turn_result(home):
     conversation, published, *_ = make(home, chat)
 
     await conversation.handle("Hola")
+    published = [e for e in published if e["type"] != "turn_started"]
 
     assert types(published) == ["token", "token", "result"]
     assert [(e["agent"], e["text"]) for e in published[:2]] == [
@@ -205,8 +207,8 @@ async def test_engine_error_publishes_front_error_and_keeps_only_the_user_row(ho
     await conversation.handle("uno")
     await conversation.handle("dos")
 
-    assert types(published) == ["error", "token", "result"]
-    assert (published[0]["source"], published[0]["message"]) == ("front", "model down")
+    assert types(published) == ["turn_started", "error", "turn_started", "token", "result"]
+    assert (published[1]["source"], published[1]["message"]) == ("front", "model down")
     assert [(m.role, m.content) for m in history.recent("c1")] == [
         ("user", "uno"),
         ("user", "dos"),

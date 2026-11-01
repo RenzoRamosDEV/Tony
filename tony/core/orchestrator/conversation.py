@@ -1,10 +1,11 @@
 import re
+from collections.abc import Callable
 
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.secrets import load_variables
 from tony.core.config.settings import TonyConfig
 from tony.core.events import core_events
-from tony.core.events.core_events import MaskingPublisher, ReplyMode
+from tony.core.events.core_events import MaskingPublisher, Origin, ReplyMode
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.guard.session import SessionGate
 from tony.core.loader.agent import AgentDefinition
@@ -14,6 +15,7 @@ from tony.core.orchestrator.agents import AgentSlots
 from tony.core.orchestrator.front_tools import WAITING_AFTER_S, FrontTools
 from tony.core.orchestrator.ports import ChatEngine
 from tony.core.orchestrator.prompt_sections import agent_prompt
+from tony.core.orchestrator.reply_plan import reply_plan
 from tony.core.orchestrator.runner import (
     SKILLS_SOURCE,
     RunDeps,
@@ -42,6 +44,7 @@ class Conversation:
         history: HistoryStore,
         conversation_id: str,
         waiting_after_s: float = WAITING_AFTER_S,
+        voice_ready: Callable[[], bool] = lambda: False,
     ) -> None:
         self.front = slots.front
         self._worker = slots.worker.name
@@ -51,6 +54,7 @@ class Conversation:
         self._gate = gate
         self._history = history
         self._conversation_id = conversation_id
+        self._voice_ready = voice_ready
         masker = SecretMasker(load_variables(deps.root, deps.environ).env_file_values.values())
         self._masker = masker
         self._publish = MaskingPublisher(masker, deps.publish)
@@ -67,12 +71,13 @@ class Conversation:
     def reply_mode(self) -> ReplyMode:
         return self.preferences.reply_mode() or self._config.reply_mode
 
-    async def handle(self, text: str) -> str | None:
+    async def handle(self, text: str, origin: Origin = "text") -> str | None:
         """Answer one user message; returns the reply, or None when the model failed."""
         relocked = self._gate.session.touch()
         if relocked is not None:
             self._publish(core_events.auth(*relocked))
         message, mode = self._split_mode(text)
+        self._announce_turn(origin, mode)
         earlier = self._history.recent(self._conversation_id)
         self._history.add(self._conversation_id, "user", self.front.name, message)
         try:
@@ -83,6 +88,14 @@ class Conversation:
         self._history.add(self._conversation_id, "assistant", self.front.name, reply)
         self._publish(core_events.turn_result(self.front.name, reply, mode))
         return reply
+
+    def _announce_turn(self, origin: Origin, mode: ReplyMode) -> None:
+        plan = reply_plan(mode, origin, self._voice_ready())
+        self._publish(
+            core_events.turn_started(
+                self.front.name, origin, mode, speaks=plan.speaks, writes=plan.writes
+            )
+        )
 
     async def _converse(self, message: str, earlier: list[StoredMessage]) -> str:
         front = with_live_tools(self.front, self._deps)
