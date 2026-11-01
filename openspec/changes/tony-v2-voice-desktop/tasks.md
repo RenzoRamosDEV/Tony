@@ -4,7 +4,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 1. Dependencies and layout
 
-- [ ] 1.1 Add `[project.optional-dependencies]` `voice` (`faster-whisper`, `kokoro`, `silero-vad`, `torch`, `sounddevice`, `numpy`) and `desktop` (`desktop-notifier`, `pynput`) with `uv add --optional`, plus an explicit `pytorch-cpu` index (`https://download.pytorch.org/whl/cpu`) and `[tool.uv.sources] torch`; commit `pyproject.toml` and `uv.lock`; verify `uv sync` (no extras) leaves them uninstalled, `uv sync --extra voice --extra desktop` resolves CPU-only torch, and `uv run pytest` still passes
+- [x] 1.1 Add `[project.optional-dependencies]` `voice` (`faster-whisper`, `kokoro`, `silero-vad`, `torch`, `sounddevice`, `numpy`) and `desktop` (`desktop-notifier`, `pynput`) with `uv add --optional`, plus an explicit `pytorch-cpu` index (`https://download.pytorch.org/whl/cpu`) and `[tool.uv.sources] torch`; commit `pyproject.toml` and `uv.lock`; verify `uv sync` (no extras) leaves them uninstalled, `uv sync --extra voice --extra desktop` resolves CPU-only torch, and `uv run pytest` still passes
 - [ ] 1.2 Red: layout test asserting that only `tony/core/voice/engines/*.py` and `tony/apps/desktop/system/{notifier,hotkey}.py` mention `faster_whisper`, `kokoro`, `silero_vad`, `torch`, `sounddevice`, `numpy`, `desktop_notifier` or `pynput` imports, and that importing `tony.core.voice` and `tony.apps.desktop.app` succeeds without the extras; Green: create the empty `engines/` and `system/` packages; add `tony/core/voice/engines/*` and `tony/apps/desktop/system/*` to `do_not_mutate` with a comment (thin engine/OS glue, logic lives in mutated pure modules); verify tests pass
 
 ## 2. Agent voices (`tony/core/loader`, `agents/`)
