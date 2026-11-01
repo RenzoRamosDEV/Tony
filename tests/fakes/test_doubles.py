@@ -7,9 +7,14 @@ from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final, Hang, Scri
 from tests.fakes.guards import RecordingGuard
 from tests.fakes.sinks import ListEventSink
 from tony.core.events.messages import Ruling, TaskRequest, ToolCall
+from tony.core.guard.confirm import ConfirmationRequest
 from tony.core.orchestrator.ports import EngineOutcome, ProxiedTool, ToolReply, Usage
 
 REQUEST = TaskRequest(objetivo="o")
+
+
+def request(question):
+    return ConfirmationRequest(task_id="t", tool="x", args_preview="{}", question=question)
 
 
 def tool(tool_id, log):
@@ -116,8 +121,8 @@ def test_list_event_sink_keeps_events_in_order():
 async def test_fake_confirmer_returns_scripted_answers_and_records_questions(answer):
     confirmer = FakeConfirmer([answer, True])
 
-    assert await confirmer.ask("¿Q1?") is answer
-    assert await confirmer.ask("¿Q2?") is True
+    assert await confirmer.ask(request("¿Q1?")) is answer
+    assert await confirmer.ask(request("¿Q2?")) is True
     assert confirmer.questions == ["¿Q1?", "¿Q2?"]
 
 
@@ -125,12 +130,12 @@ async def test_fake_confirmer_can_hang():
     confirmer = FakeConfirmer([HANG])
 
     with pytest.raises(TimeoutError):
-        await asyncio.wait_for(confirmer.ask("¿Q?"), 0.05)
+        await asyncio.wait_for(confirmer.ask(request("¿Q?")), 0.05)
     assert confirmer.questions == ["¿Q?"]
 
 
 async def test_fake_confirmer_without_script_answers_no():
-    assert await FakeConfirmer().ask("¿Q?") is False
+    assert await FakeConfirmer().ask(request("¿Q?")) is False
 
 
 async def test_fake_wording_returns_text_and_records_inputs():

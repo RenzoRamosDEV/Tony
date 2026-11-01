@@ -13,7 +13,7 @@ from tony.core.config.secrets import resolve_home
 from tony.core.events.messages import TaskRequest
 from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
 from tony.core.guard.claude_wording import ClaudeWording
-from tony.core.guard.confirm import CliConfirmer
+from tony.core.guard.confirm import CliConfirmer, thread_line_reader
 from tony.core.orchestrator.claude_engine import ClaudeEngine
 from tony.core.orchestrator.ports import ModelEngine
 from tony.core.orchestrator.runner import NotWorkerError, RunDeps, WordingFactory, run_task
@@ -56,7 +56,7 @@ def create_app(
             deps = RunDeps(
                 root=resolve_home(),
                 engine=engine_factory(),
-                confirmer=CliConfirmer(readline=readline_factory()),
+                confirmer=CliConfirmer(thread_line_reader(readline_factory())),
                 wording=wording_factory,
             )
             result = asyncio.run(run_task(agent, request, deps))

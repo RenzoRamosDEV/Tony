@@ -8,14 +8,21 @@ import threading
 import pytest
 
 from tests.fakes.confirm import FakeConfirmer
-from tony.core.guard.confirm import CliConfirmer, Confirmer, NoChannelConfirmer
+from tony.core.guard.confirm import (
+    CliConfirmer,
+    ConfirmationRequest,
+    Confirmer,
+    NoChannelConfirmer,
+    thread_line_reader,
+)
 
 QUESTION = "Acción: x. Regla: r. ¿Autoriza?"
+REQUEST = ConfirmationRequest(task_id="t1", tool="x", args_preview="{}", question=QUESTION)
 
 
 async def ask_with(line):
     err = io.StringIO()
-    answer = await CliConfirmer(readline=lambda: line, err=err).ask(QUESTION)
+    answer = await CliConfirmer(thread_line_reader(lambda: line), err=err).ask(REQUEST)
     return answer, err.getvalue()
 
 
@@ -37,22 +44,26 @@ async def test_question_written_to_stderr_only(capsys):
 
 
 async def test_never_answering_readline_is_bounded_by_outer_timeout():
-    blocked = CliConfirmer(readline=lambda: __import__("time").sleep(60), err=io.StringIO())
+    blocked = CliConfirmer(
+        thread_line_reader(lambda: __import__("time").sleep(60)), err=io.StringIO()
+    )
 
     with pytest.raises(TimeoutError):
-        await asyncio.wait_for(blocked.ask(QUESTION), 0.05)
+        await asyncio.wait_for(blocked.ask(REQUEST), 0.05)
 
 
 def test_blocked_reader_does_not_keep_interpreter_alive():
     script = textwrap.dedent(
         """
         import asyncio, io, threading
-        from tony.core.guard.confirm import CliConfirmer
+        from tony.core.guard.confirm import CliConfirmer, ConfirmationRequest, thread_line_reader
+
+        REQUEST = ConfirmationRequest(task_id="t", tool="x", args_preview="{}", question="q")
 
         async def main():
-            confirmer = CliConfirmer(readline=threading.Event().wait, err=io.StringIO())
+            confirmer = CliConfirmer(thread_line_reader(threading.Event().wait), err=io.StringIO())
             try:
-                await asyncio.wait_for(confirmer.ask("q"), 0.05)
+                await asyncio.wait_for(confirmer.ask(REQUEST), 0.05)
             except TimeoutError:
                 print("timed out")
 
@@ -68,11 +79,12 @@ def test_blocked_reader_does_not_keep_interpreter_alive():
 
 
 async def test_no_channel_answers_no():
-    assert await NoChannelConfirmer().ask(QUESTION) is False
+    assert await NoChannelConfirmer().ask(REQUEST) is False
 
 
 @pytest.mark.parametrize(
-    "confirmer", [NoChannelConfirmer(), CliConfirmer(readline=lambda: ""), FakeConfirmer()]
+    "confirmer",
+    [NoChannelConfirmer(), CliConfirmer(thread_line_reader(lambda: "")), FakeConfirmer()],
 )
 def test_confirmers_satisfy_port(confirmer):
     assert isinstance(confirmer, Confirmer)
@@ -85,7 +97,7 @@ async def test_reader_thread_is_a_daemon():
         seen.append(threading.current_thread().daemon)
         return "s\n"
 
-    await CliConfirmer(readline=readline, err=io.StringIO()).ask(QUESTION)
+    await CliConfirmer(thread_line_reader(readline), err=io.StringIO()).ask(REQUEST)
 
     assert seen == [True]
 
@@ -101,9 +113,9 @@ def test_late_answer_after_the_loop_closed_is_ignored(monkeypatch):
         return "s\n"
 
     async def main():
-        confirmer = CliConfirmer(readline=readline, err=io.StringIO())
+        confirmer = CliConfirmer(thread_line_reader(readline), err=io.StringIO())
         with pytest.raises(TimeoutError):
-            await asyncio.wait_for(confirmer.ask(QUESTION), 0.05)
+            await asyncio.wait_for(confirmer.ask(REQUEST), 0.05)
 
     asyncio.run(main())
     release.set()

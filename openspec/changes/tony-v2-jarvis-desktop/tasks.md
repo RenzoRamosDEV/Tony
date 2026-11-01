@@ -20,8 +20,8 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 4. Confirmation port (`tony/core/guard/confirm.py`, `edith.py`)
 
-- [ ] 4.1 Red: tests that `EdithGuard` passes `ConfirmationRequest(task_id, tool, args_preview, question, allow_always)` (masked preview, JSON round trip) to the confirmer; update `FakeConfirmer` to record requests; existing confirm/timeout/audit tests adapted and passing; Green: introduce `ConfirmationRequest`, change `Confirmer.ask(request)`, `NoChannelConfirmer`, `CliConfirmer`; verify tests pass and `tony run` CLI tests still pass
-- [ ] 4.2 Red: tests for `CliConfirmer(read_line, prefix)`: prefix `Edith: ` written before the question on stderr; accepted/other answers unchanged; with `ConsoleLines` (fed by an injected line iterator) a confirmation that times out does not consume the next line, which the next `await lines.next()` receives; end of input -> `None`; Green: implement `ConsoleLines` (single daemon reader thread + `asyncio.Queue`) and the `read_line` parameter (default: current daemon-thread stdin read); verify tests pass
+- [x] 4.1 Red: tests that `EdithGuard` passes `ConfirmationRequest(task_id, tool, args_preview, question, allow_always)` (masked preview, JSON round trip) to the confirmer; update `FakeConfirmer` to record requests; existing confirm/timeout/audit tests adapted and passing; Green: introduce `ConfirmationRequest`, change `Confirmer.ask(request)`, `NoChannelConfirmer`, `CliConfirmer`; verify tests pass and `tony run` CLI tests still pass
+- [x] 4.2 Red: tests for `CliConfirmer(read_line, prefix)`: prefix `Edith: ` written before the question on stderr; accepted/other answers unchanged; with `ConsoleLines` (fed by an injected line iterator) a confirmation that times out does not consume the next line, which the next `await lines.next()` receives; end of input -> `None`; Green: implement `ConsoleLines` (single daemon reader thread + `asyncio.Queue`) and the `read_line` parameter (default: current daemon-thread stdin read); verify tests pass
 
 ## 5. Memory (`tony/core/memory`)
 

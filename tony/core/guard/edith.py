@@ -5,7 +5,7 @@ from collections.abc import Callable
 from tony.core.config.placeholders import SecretMasker
 from tony.core.events.messages import Ruling, ToolCall, UserDecision
 from tony.core.guard.audit import AuditLog, args_preview
-from tony.core.guard.confirm import Confirmer
+from tony.core.guard.confirm import ConfirmationRequest, Confirmer
 from tony.core.guard.evaluate import evaluate
 from tony.core.guard.policy import Policy
 from tony.core.guard.wording import QuestionWording, worded_question
@@ -37,17 +37,20 @@ class EdithGuard:
         preview = args_preview(call.args, self._masker)
         user_decision = None
         if verdict.verdict == "confirm":
-            user_decision = await self._ask_user(call.tool, preview, verdict.rule)
+            user_decision = await self._ask_user(call, preview, verdict.rule)
         ruling = Ruling(verdict=verdict.verdict, rule=verdict.rule, user_decision=user_decision)
         duration_ms = round((self._monotonic() - start) * 1000)
         self._audit.append(call, ruling, args_preview=preview, duration_ms=duration_ms)
         return ruling
 
-    async def _ask_user(self, tool: str, preview: str, rule: str) -> UserDecision:
-        question = await worded_question(self._wording, tool, preview, rule)
+    async def _ask_user(self, call: ToolCall, preview: str, rule: str) -> UserDecision:
+        question = await worded_question(self._wording, call.tool, preview, rule)
+        request = ConfirmationRequest(
+            task_id=call.task_id, tool=call.tool, args_preview=preview, question=question
+        )
         timeout = self._policy.limits.confirm_timeout_s
         try:
-            answer = await asyncio.wait_for(self._confirmer.ask(question), timeout)
+            answer = await asyncio.wait_for(self._confirmer.ask(request), timeout)
         except TimeoutError:
             return "timeout"
         return "allow" if answer is True else "deny"

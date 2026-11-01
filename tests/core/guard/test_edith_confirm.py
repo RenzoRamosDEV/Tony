@@ -70,3 +70,18 @@ async def test_audit_written_after_answer_with_wait_in_duration(tmp_path):
     assert seen_before_answer == [[]]
     [line] = audit_lines(tmp_path)
     assert (line["user_decision"], line["duration_ms"]) == ("allow", 8423)
+
+
+async def test_confirmer_receives_a_masked_json_request(tmp_path):
+    from tony.core.guard.confirm import ConfirmationRequest
+
+    edith, confirmer = make_edith(tmp_path, confirmer=FakeConfirmer([True]))
+
+    await edith.decide(DELETE)
+
+    [request] = confirmer.requests
+    assert isinstance(request, ConfirmationRequest)
+    assert (request.task_id, request.tool) == ("t" * 32, "filesystem.delete_file")
+    assert request.args_preview == '{"path": "/home/renzo/notas/viejo.md", "token": "***"}'
+    assert request.question == confirmer.questions[0]
+    assert ConfirmationRequest.model_validate_json(request.model_dump_json()) == request

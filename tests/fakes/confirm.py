@@ -1,5 +1,7 @@
 import asyncio
 
+from tony.core.guard.confirm import ConfirmationRequest
+
 HANG = object()
 
 
@@ -8,10 +10,14 @@ class FakeConfirmer:
 
     def __init__(self, answers: list | None = None) -> None:
         self._answers = list(answers or [])
-        self.questions: list[str] = []
+        self.requests: list[ConfirmationRequest] = []
 
-    async def ask(self, question: str) -> bool | None:
-        self.questions.append(question)
+    @property
+    def questions(self) -> list[str]:
+        return [request.question for request in self.requests]
+
+    async def ask(self, request: ConfirmationRequest) -> bool | None:
+        self.requests.append(request)
         answer = self._answers.pop(0) if self._answers else False
         if answer is HANG:
             await asyncio.Event().wait()
