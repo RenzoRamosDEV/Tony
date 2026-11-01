@@ -1,3 +1,5 @@
+import asyncio
+import sys
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -8,6 +10,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from tony.core.config.placeholders import SecretMasker, resolve_placeholders
+from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
 from tony.core.orchestrator.ports import EventSink
 
@@ -36,8 +39,10 @@ class McpManager:
         masker: SecretMasker,
         sink: EventSink,
         log_dir: Path,
+        connect_timeout: float = 10.0,
     ) -> None:
         self.spec = spec
+        self.connect_timeout = connect_timeout
         self.tools: list[CatalogTool] = []
         self.status: dict[str, ServerStatus] = {}
         self._variables = variables
@@ -55,20 +60,15 @@ class McpManager:
         await self._stack.aclose()
 
     async def _start(self, name: str, declared: McpServer) -> None:
-        resolved, used = resolve_placeholders(
-            declared.model_dump(exclude_unset=True), self._variables
-        )
-        self._masker.register(used)
-        server = McpServer.model_validate(resolved)
-        self._log_dir.mkdir(parents=True, exist_ok=True)
-        errlog = self._stack.enter_context((self._log_dir / f"{name}.log").open("a"))
-        params = StdioServerParameters(
-            command=server.command, args=server.args, env=server.env or None
-        )
-        read, write = await self._stack.enter_async_context(stdio_client(params, errlog))
-        session = await self._stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        listed = await session.list_tools()
+        stack = AsyncExitStack()
+        try:
+            async with asyncio.timeout(self.connect_timeout):
+                listed = await self._connect(name, declared, stack)
+        except Exception as error:
+            await stack.aclose()
+            self._mark_down(name, _describe(error, self.connect_timeout))
+            return
+        self._stack.push_async_callback(stack.aclose)
         self.tools += [
             CatalogTool(
                 id=f"{name}.{tool.name}",
@@ -80,3 +80,34 @@ class McpManager:
             for tool in listed.tools
         ]
         self.status[name] = ServerStatus(up=True)
+
+    async def _connect(self, name: str, declared: McpServer, stack: AsyncExitStack) -> Any:
+        resolved, used = resolve_placeholders(
+            declared.model_dump(exclude_unset=True), self._variables
+        )
+        self._masker.register(used)
+        server = McpServer.model_validate(resolved)
+        self._log_dir.mkdir(parents=True, exist_ok=True)
+        errlog = stack.enter_context((self._log_dir / f"{name}.log").open("a"))
+        params = StdioServerParameters(
+            command=server.command, args=server.args, env=server.env or None
+        )
+        read, write = await stack.enter_async_context(stdio_client(params, errlog))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        return await session.list_tools()
+
+    def _mark_down(self, name: str, reason: str) -> None:
+        reason = self._masker.mask(reason)
+        self.status[name] = ServerStatus(up=False, reason=reason)
+        message = f"MCP server '{name}' is down: {reason}"
+        self._sink.emit(log_events.error(f"mcp.{name}", message))
+        print(f"tony: {message}", file=sys.stderr)
+
+
+def _describe(error: BaseException, timeout: float) -> str:
+    while isinstance(error, BaseExceptionGroup) and error.exceptions:
+        error = error.exceptions[0]
+    if isinstance(error, TimeoutError):
+        return f"connect timeout after {timeout:g} s"
+    return str(error) or type(error).__name__
