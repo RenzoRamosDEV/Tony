@@ -27,12 +27,15 @@ class StageThread:
     def put(self, item: Any) -> None:
         self._queue.put(item)
 
-    def clear(self) -> None:
-        try:
-            while True:
+    def clear(self) -> int:
+        """Drop the queued items; returns how many were dropped."""
+        dropped = 0
+        while True:
+            try:
                 self._queue.get_nowait()
-        except queue.Empty:
-            return
+            except queue.Empty:
+                return dropped
+            dropped += 1
 
     def is_alive(self) -> bool:
         return self._thread.is_alive()
