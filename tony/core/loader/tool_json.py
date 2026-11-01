@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Collection
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from tony.core.config.errors import DefinitionError
 
 RESERVED_SERVER = "tony"
+SERVER_NAME = re.compile(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*")
 PERMISSION_KEYS = {"allow", "confirm"}
 POLICY_FILE = "agents/edith/policy.yaml"
 _STDIO_ONLY = {"args", "env"}
@@ -66,14 +68,23 @@ def parse_tool_spec(text: str, *, file: str, native_tools: Collection[str]) -> T
         spec = ToolSpec.model_validate(data)
     except ValidationError as error:
         raise DefinitionError.from_validation(file, error) from error
-    if RESERVED_SERVER in spec.mcp_servers:
-        raise DefinitionError(
-            file, f"mcpServers.{RESERVED_SERVER}", "server name 'tony' is reserved"
-        )
+    for name in spec.mcp_servers:
+        _check_server_name(name, file)
     unknown = [name for name in spec.native if name not in native_tools]
     if unknown:
         raise DefinitionError(file, "native", f"unknown native tools {unknown}")
     return spec
+
+
+def _check_server_name(name: str, file: str) -> None:
+    if name == RESERVED_SERVER:
+        raise DefinitionError(file, f"mcpServers.{name}", "server name 'tony' is reserved")
+    if not SERVER_NAME.fullmatch(name):
+        raise DefinitionError(
+            file,
+            f"mcpServers.{name}",
+            "server name must be letters or digits separated by single '-' or '_'",
+        )
 
 
 def _parse_json(text: str, file: str) -> dict[str, Any]:

@@ -131,3 +131,20 @@ def test_unknown_native_tool(tmp_path, native):
 
     assert error.field == "native"
     assert "clock" in error.message
+
+
+@pytest.mark.parametrize("name", ["brave_search", "gh-1", "a", "A1", "a_b-c9"])
+def test_server_names_accepted(tmp_path, name):
+    write(tmp_path, {"mcpServers": {name: {"command": "srv"}}})
+
+    assert list(load(tmp_path).mcp_servers) == [name]
+
+
+@pytest.mark.parametrize(
+    "name", ["my.server", "my__server", "-x", "x-", "a--b", "", "_a", "a_", "a b", "a-_b"]
+)
+def test_server_names_rejected(tmp_path, name):
+    error = error_of(tmp_path, {"mcpServers": {name: {"command": "srv"}}})
+
+    assert error.field == f"mcpServers.{name}"
+    assert "server name" in error.message
