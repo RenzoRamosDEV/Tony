@@ -1,18 +1,21 @@
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
 
+from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
 from tony.apps.desktop.bridge import CoreThread, QtEventBridge, Runtime
+from tony.apps.desktop.hotkey_spec import Hotkeys, HotkeysFactory, register_hotkey
 from tony.apps.desktop.instance_channel import socket_name
 from tony.apps.desktop.presenters.bundle import Presenters
 from tony.apps.desktop.system.single_instance import InstanceServer, send_to_running
 from tony.apps.desktop.system.tray import create_tray
 from tony.apps.desktop.widgets.main_window import MainWindow
 from tony.core.config.settings import DesktopSettings, load_config
+from tony.core.events import core_events
 from tony.core.events.core_events import Publisher
 
 RuntimeFactory = Callable[[Publisher], Runtime]
@@ -80,6 +83,30 @@ class LocalChannel:
             self._server.close()
 
 
+def pynput_hotkeys(mapping: dict[str, Callable[[], None]]) -> Hotkeys:
+    from tony.apps.desktop.system.hotkey import PynputHotkeys
+
+    return PynputHotkeys(mapping)
+
+
+class Summoner(QObject):
+    """Brings `show`/`focus` requests from any thread to the Qt main thread."""
+
+    requested = Signal(str)
+
+    def __init__(self, window: MainWindow, submit: Callable[[dict], None]) -> None:
+        super().__init__()
+        self._window = window
+        self._submit = submit
+        self.requested.connect(self.summon)
+
+    @Slot(str)
+    def summon(self, message: str) -> None:
+        self._window.reveal()
+        if message == "focus":
+            self._submit({"type": "listen"})
+
+
 def desktop_settings(root: Path) -> DesktopSettings:
     try:
         return load_config(root).desktop
@@ -94,28 +121,35 @@ def launch(
     focus: bool = False,
     run_loop: EventLoop = lambda app, window: app.exec(),
     channel: InstanceChannel | None = None,
+    environ: Mapping[str, str] = os.environ,
+    hotkeys: HotkeysFactory = pynput_hotkeys,
 ) -> int:
     """Raise the running instance, or open the app and serve the single-instance channel."""
     app = QApplication.instance() or QApplication(sys.argv)
-    channel = channel or LocalChannel(socket_name(os.environ, os.getuid()))
+    channel = channel or LocalChannel(socket_name(environ, os.getuid()))
     if channel.send("focus" if focus else "show"):
         return 0
     window, core = open_desktop(root, runtime_factory or default_runtime_factory(root))
     app.aboutToQuit.connect(core.stop)
 
-    def summon(message: str) -> None:
-        window.reveal()
-        if message == "focus":
-            core.submit({"type": "listen"})
-
-    channel.serve(summon)
+    summoner = Summoner(window, core.submit)
+    channel.serve(summoner.summon)
     settings = desktop_settings(root)
     tray = create_tray(window, window.presenters.tray, enabled=settings.tray, quit=app.quit)
+    hotkey = register_hotkey(
+        settings.hotkey,
+        environ,
+        lambda: summoner.requested.emit("focus"),
+        hotkeys,
+        lambda source, message: window.dispatch(core_events.error(source, message)),
+    )
     if focus:
-        summon("focus")
+        summoner.summon("focus")
     try:
         return run_loop(app, window)
     finally:
+        if hotkey is not None:
+            hotkey.stop()
         if tray is not None:
             tray.hide()
         channel.close()

@@ -83,3 +83,77 @@ def test_channel_messages_reveal_and_focus_listens(qtbot, tmp_path):
 
     assert revealed == [False, False]
     assert runtimes[0].commands == [{"type": "listen"}]
+
+
+def test_the_x11_hotkey_reveals_and_listens(qtbot, tmp_path):
+    import threading
+
+    from tests.fakes.desktop import FakeHotkeys
+
+    channel, runtimes, revealed = FakeChannel(answers=False), [], []
+    FakeHotkeys.instances.clear()
+
+    def run_loop(app, window):
+        window.reveal = lambda edith=False: revealed.append(edith)
+        [hotkeys] = FakeHotkeys.instances
+        assert list(hotkeys.mapping) == ["<cmd>+j"]
+        presser = threading.Thread(target=hotkeys.press, args=("<cmd>+j",))
+        presser.start()
+        presser.join(5)
+        qtbot.waitUntil(lambda: bool(runtimes[0].commands), timeout=5000)
+        window.close()
+        return 0
+
+    launch(
+        tmp_path,
+        fake_factory(runtimes),
+        run_loop=run_loop,
+        channel=channel,
+        environ={"XDG_SESSION_TYPE": "x11"},
+        hotkeys=FakeHotkeys,
+    )
+
+    assert revealed == [False]
+    assert runtimes[0].commands == [{"type": "listen"}]
+    assert FakeHotkeys.instances[0].stopped
+
+
+def test_an_invalid_hotkey_is_shown_and_the_app_keeps_running(qtbot, tmp_path):
+    from tests.fakes.desktop import FakeHotkeys
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "tony.yaml").write_text("desktop:\n  hotkey: 'Super+'\n")
+    seen = []
+
+    def run_loop(app, window):
+        seen.append([b.markdown for b in window.presenters.chat.bubbles])
+        window.close()
+        return 0
+
+    code = launch(
+        tmp_path,
+        fake_factory([]),
+        run_loop=run_loop,
+        channel=FakeChannel(answers=False),
+        environ={"XDG_SESSION_TYPE": "x11"},
+        hotkeys=FakeHotkeys,
+    )
+
+    assert code == 0
+    [bubbles] = seen
+    assert any("desktop.hotkey" in text for text in bubbles)
+
+
+def test_no_hotkey_on_wayland(qtbot, tmp_path):
+    from tests.fakes.desktop import FakeHotkeys
+
+    FakeHotkeys.instances.clear()
+    launch(
+        tmp_path,
+        fake_factory([]),
+        run_loop=closing_loop([]),
+        channel=FakeChannel(answers=False),
+        environ={"XDG_SESSION_TYPE": "wayland"},
+        hotkeys=FakeHotkeys,
+    )
+    assert FakeHotkeys.instances == []
