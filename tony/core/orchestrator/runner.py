@@ -9,7 +9,8 @@ from pathlib import Path
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.secrets import Variables, load_variables
 from tony.core.config.settings import TonyConfig, load_config
-from tony.core.events import log_events
+from tony.core.events import core_events, log_events
+from tony.core.events.core_events import Event, MaskingPublisher, Publisher
 from tony.core.events.log_events import Outcome
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.guard.audit import AuditLog
@@ -22,10 +23,10 @@ from tony.core.loader.agent import AgentDefinition, load_agent
 from tony.core.logging.task_log import Clock, JsonlTaskLog, new_task_id, utc_now
 from tony.core.mcp.manager import McpManager
 from tony.core.mcp.native import NATIVE_TOOLS, NativeTool
-from tony.core.orchestrator.ports import EngineOutcome, ModelEngine
+from tony.core.orchestrator.ports import EngineOutcome, EventSink, ModelEngine, Usage
 from tony.core.orchestrator.proxy import ToolProxy
 from tony.core.orchestrator.results import to_task_result
-from tony.core.orchestrator.supervisor import TaskSupervisor
+from tony.core.orchestrator.supervisor import USER_CANCELLED, TaskSupervisor
 
 WordingFactory = Callable[[str, str], QuestionWording]
 """Builds the guard's question wording from its system prompt and resolved model id."""
@@ -44,6 +45,8 @@ class RunDeps:
     monotonic: Callable[[], float] = time.monotonic
     task_id_factory: Callable[[], str] = new_task_id
     task_timeout: float | None = None
+    publish: Publisher = core_events.no_op
+    user_cancel: asyncio.Event | None = None
 
 
 class NotWorkerError(Exception):
@@ -61,6 +64,7 @@ class _TaskRun:
     log: JsonlTaskLog
     guard: Guard
     supervisor: TaskSupervisor
+    publish: Publisher
 
 
 async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> TaskResult:
@@ -75,6 +79,7 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
     variables = load_variables(deps.root, deps.environ)
     masker = SecretMasker(variables.env_file_values.values())
     log = JsonlTaskLog(deps.root, task_id, masker=masker, clock=deps.clock)
+    publish = MaskingPublisher(masker, deps.publish)
     run = _TaskRun(
         id=task_id,
         agent=agent,
@@ -83,24 +88,47 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
         masker=masker,
         log=log,
         guard=deps.guard or _edith(deps, config, guard_agent, policy, masker),
-        supervisor=TaskSupervisor(policy.limits, log),
+        supervisor=TaskSupervisor(policy.limits, _AlertTee(log, publish, task_id, deps.clock)),
+        publish=publish,
     )
     timeout = policy.limits.task_timeout_s if deps.task_timeout is None else deps.task_timeout
+    started = deps.monotonic()
     log.emit(log_events.task_started(agent_name, request))
+    publish(core_events.task_started(task_id, agent_name, request.objetivo, clock=deps.clock))
+    outcome, result, usage = await _execute(run, request, deps, timeout)
+    log.emit(log_events.task_finished(outcome, result))
+    publish(
+        core_events.task_result(
+            task_id,
+            agent_name,
+            outcome,
+            result,
+            input_tokens=sum(item.input_tokens for item in usage),
+            output_tokens=sum(item.output_tokens for item in usage),
+            elapsed_ms=round((deps.monotonic() - started) * 1000),
+            clock=deps.clock,
+        )
+    )
+    return result
+
+
+async def _execute(
+    run: _TaskRun, request: TaskRequest, deps: RunDeps, timeout: float
+) -> tuple[Outcome, TaskResult, list[Usage]]:
     engine = asyncio.create_task(_run_engine(run, request, deps))
-    finished = await _race(engine, run.supervisor, timeout)
+    finished = await _race(engine, run.supervisor, timeout, deps.user_cancel)
     if run.supervisor.cancelled.is_set():
-        return _finish(log, "cancelled", _failed(run.supervisor.reason))
+        return "cancelled", _failed(run.supervisor.reason), []
     if not finished:
-        return _finish(log, "timeout", _failed(f"task timed out after {timeout:g} s"))
+        return "timeout", _failed(f"task timed out after {timeout:g} s"), []
     try:
         outcome = engine.result()
     except Exception as error:
         message = str(error) or type(error).__name__
-        log.emit(log_events.error("engine", message))
-        return _finish(log, "error", _failed(message))
+        run.log.emit(log_events.error("engine", message))
+        return "error", _failed(message), []
     for usage in outcome.usage:
-        log.emit(
+        run.log.emit(
             log_events.token_usage(
                 input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
             )
@@ -109,22 +137,52 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
             input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
         )
     result = to_task_result(outcome)
-    masked = TaskResult.model_validate(masker.mask_json(result.model_dump()))
-    return _finish(log, "error" if masked.errores else "ok", masked)
+    masked = TaskResult.model_validate(run.masker.mask_json(result.model_dump()))
+    return ("error" if masked.errores else "ok"), masked, outcome.usage
+
+
+class _AlertTee:
+    """Supervisor sink: every event goes to the task log; token alerts are also published."""
+
+    def __init__(self, log: EventSink, publish: Publisher, task_id: str, clock: Clock) -> None:
+        self._log = log
+        self._publish = publish
+        self._task_id = task_id
+        self._clock = clock
+
+    def emit(self, event: Event) -> None:
+        self._log.emit(event)
+        if event["type"] == "token_alert":
+            self._publish(
+                core_events.token_alert(
+                    self._task_id,
+                    total_tokens=event["total_tokens"],
+                    limit=event["limit"],
+                    clock=self._clock,
+                )
+            )
 
 
 async def _race(
-    engine: "asyncio.Task[EngineOutcome]", supervisor: TaskSupervisor, timeout: float
+    engine: "asyncio.Task[EngineOutcome]",
+    supervisor: TaskSupervisor,
+    timeout: float,
+    user_cancel: asyncio.Event | None,
 ) -> bool:
     """Wait for the engine, a cancellation or the timeout; stop the engine unless it finished.
 
     Cancelling the engine task unwinds the McpManager context, closing every server.
     """
-    cancelled = asyncio.create_task(supervisor.cancelled.wait())
+    waiters = [asyncio.create_task(supervisor.cancelled.wait())]
+    if user_cancel is not None:
+        waiters.append(asyncio.create_task(user_cancel.wait()))
     try:
-        await asyncio.wait({engine, cancelled}, timeout=timeout, return_when=FIRST_COMPLETED)
+        await asyncio.wait({engine, *waiters}, timeout=timeout, return_when=FIRST_COMPLETED)
     finally:
-        cancelled.cancel()
+        for waiter in waiters:
+            waiter.cancel()
+    if user_cancel is not None and user_cancel.is_set():
+        supervisor.cancel(USER_CANCELLED)
     if engine.done() and not supervisor.cancelled.is_set():
         return True
     engine.cancel()
@@ -161,6 +219,11 @@ async def _run_engine(run: _TaskRun, request: TaskRequest, deps: RunDeps) -> Eng
         sink=run.log,
         log_dir=deps.root / "logs" / "mcp",
         native=deps.native,
+        on_status=lambda server, status: run.publish(
+            core_events.mcp_status(
+                run.agent.name, server, up=status.up, reason=status.reason, clock=deps.clock
+            )
+        ),
     ) as manager:
         proxy = ToolProxy(
             task_id=run.id,
@@ -170,6 +233,8 @@ async def _run_engine(run: _TaskRun, request: TaskRequest, deps: RunDeps) -> Eng
             sink=run.log,
             masker=run.masker,
             supervisor=run.supervisor,
+            publish=run.publish,
+            clock=deps.clock,
         )
         tools = proxy.wrap(manager.tools)
         return await deps.engine.run(run.agent.spec, request, tools, run.model_id)
@@ -177,8 +242,3 @@ async def _run_engine(run: _TaskRun, request: TaskRequest, deps: RunDeps) -> Eng
 
 def _failed(message: str) -> TaskResult:
     return TaskResult(resumen="", errores=[message])
-
-
-def _finish(log: JsonlTaskLog, outcome: Outcome, result: TaskResult) -> TaskResult:
-    log.emit(log_events.task_finished(outcome, result))
-    return result

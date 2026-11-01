@@ -7,6 +7,7 @@ from tony.core.guard.policy import Limits
 from tony.core.orchestrator.ports import EventSink
 
 CANCELLED = "tarea cancelada"
+USER_CANCELLED = f"{CANCELLED} por el usuario"
 
 
 class TaskSupervisor:

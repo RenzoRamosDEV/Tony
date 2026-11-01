@@ -3,9 +3,12 @@ import json
 from typing import Any, Protocol
 
 from tony.core.config.placeholders import SecretMasker
-from tony.core.events import log_events
+from tony.core.events import core_events, log_events
+from tony.core.events.core_events import Publisher
 from tony.core.events.messages import Ruling, ToolCall
+from tony.core.guard.audit import args_preview
 from tony.core.guard.port import Guard
+from tony.core.logging.task_log import Clock, utc_now
 from tony.core.mcp.manager import CatalogTool
 from tony.core.orchestrator.ports import EventSink, ProxiedTool, ToolReply
 from tony.core.orchestrator.supervisor import TaskSupervisor
@@ -28,6 +31,8 @@ class ToolProxy:
         sink: EventSink,
         masker: SecretMasker,
         supervisor: TaskSupervisor,
+        publish: Publisher = core_events.no_op,
+        clock: Clock = utc_now,
     ) -> None:
         self._task_id = task_id
         self._agent = agent
@@ -36,6 +41,8 @@ class ToolProxy:
         self._sink = sink
         self._masker = masker
         self._supervisor = supervisor
+        self._publish = publish
+        self._clock = clock
 
     def wrap(self, catalog: list[CatalogTool]) -> list[ProxiedTool]:
         return [
@@ -60,6 +67,12 @@ class ToolProxy:
             return _not_executed(tool_id, self._supervisor.reason)
         envelope = ToolCall(task_id=self._task_id, agent=self._agent, tool=tool_id, args=args)
         ruling = await self._guard.decide(envelope)
+        preview = args_preview(args, self._masker)
+        self._publish(
+            core_events.tool_call(
+                self._task_id, self._agent, tool_id, preview, ruling, clock=self._clock
+            )
+        )
         if ruling.verdict == "deny":
             self._supervisor.denied(tool_id, ruling.rule)
             return _blocked(ruling)

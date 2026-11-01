@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +35,9 @@ class ServerStatus:
     reason: str | None = None
 
 
+StatusCallback = Callable[[str, ServerStatus], None]
+
+
 class McpManager:
     def __init__(
         self,
@@ -46,6 +49,7 @@ class McpManager:
         log_dir: Path,
         connect_timeout: float = 10.0,
         native: Mapping[str, NativeTool] = NATIVE_TOOLS,
+        on_status: StatusCallback = lambda server, status: None,
     ) -> None:
         self.spec = spec
         self.connect_timeout = connect_timeout
@@ -58,6 +62,7 @@ class McpManager:
         self._stack = AsyncExitStack()
         self._sessions: dict[str, ClientSession] = {}
         self._native = {name: native[name] for name in spec.native}
+        self._on_status = on_status
 
     async def __aenter__(self) -> Self:
         for name, server in self.spec.mcp_servers.items():
@@ -111,7 +116,7 @@ class McpManager:
             )
             for tool in listed.tools
         ]
-        self.status[name] = ServerStatus(up=True)
+        self._set_status(name, ServerStatus(up=True))
 
     async def _connect(
         self, name: str, declared: McpServer, stack: AsyncExitStack
@@ -138,9 +143,13 @@ class McpManager:
         client = await stack.enter_async_context(create_mcp_http_client(headers=server.headers))
         return streamable_http_client(server.url, http_client=client)
 
+    def _set_status(self, name: str, status: ServerStatus) -> None:
+        self.status[name] = status
+        self._on_status(name, status)
+
     def _mark_down(self, name: str, reason: str) -> None:
         reason = self._masker.mask(reason)
-        self.status[name] = ServerStatus(up=False, reason=reason)
+        self._set_status(name, ServerStatus(up=False, reason=reason))
         message = f"MCP server '{name}' is down: {reason}"
         self._sink.emit(log_events.error(f"mcp.{name}", message))
         print(f"tony: {message}", file=sys.stderr)

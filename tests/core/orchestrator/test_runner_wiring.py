@@ -111,7 +111,7 @@ async def test_edith_uses_injected_clocks_for_audit(tmp_path):
         engine,
         confirmer=FakeConfirmer([True]),
         clock=lambda: FIXED,
-        monotonic=TickingClock(50.0, 52.5),
+        monotonic=TickingClock(0.0, 50.0, 52.5, 60.0),
     )
 
     await run_task("viernes", REQUEST, deps)

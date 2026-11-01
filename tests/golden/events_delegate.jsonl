@@ -1,0 +1,4 @@
+{"type": "task_started", "ts": "2026-11-01T09:00:00+00:00", "task_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "agent": "viernes", "objetivo": "Lee la nota a.md"}
+{"type": "mcp_status", "ts": "2026-11-01T09:00:00+00:00", "agent": "viernes", "server": "filesystem", "up": true, "reason": null}
+{"type": "tool_call", "ts": "2026-11-01T09:00:00+00:00", "task_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "agent": "viernes", "tool": "filesystem.read_file", "args_preview": "{\"path\": \"a.md\"}", "verdict": "allow", "rule": "filesystem.read_*/allow", "user_decision": null}
+{"type": "result", "ts": "2026-11-01T09:00:00+00:00", "scope": "task", "task_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "agent": "viernes", "outcome": "ok", "result": {"resumen": "leída", "datos": null, "pasos": [], "errores": []}, "input_tokens": 7, "output_tokens": 3, "elapsed_ms": 3000}
