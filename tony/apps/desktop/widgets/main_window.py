@@ -1,4 +1,6 @@
-from PySide6.QtGui import QAction
+from collections.abc import Callable
+
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -25,9 +27,10 @@ __all__ = ["MainWindow", "Presenters"]
 class MainWindow(QMainWindow):
     """One window: Chat, plus collapsible Activity and Edith zones."""
 
-    def __init__(self, presenters: Presenters) -> None:
+    def __init__(self, presenters: Presenters, on_close: Callable[[], None] = lambda: None) -> None:
         super().__init__()
         self.presenters = presenters
+        self._on_close = on_close
         self.setWindowTitle("Tony")
         self.resize(1100, 720)
         self.chat_view = ChatView(presenters.chat)
@@ -52,6 +55,10 @@ class MainWindow(QMainWindow):
         self.unlock_action.triggered.connect(presenters.pin.request_unlock)
         presenters.chat.subscribe(self._render_mode)
         presenters.pin.subscribe(self._render_unlock)
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
+        self._on_close()
+        super().closeEvent(event)
 
     def dispatch(self, event: Event) -> None:
         self.presenters.apply(event)

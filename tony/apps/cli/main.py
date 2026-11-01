@@ -49,8 +49,9 @@ def create_app(
     getpass: Callable[[str], str] = getpass_module.getpass,
     chat_engine_factory: Callable[[], ChatEngine] = ClaudeEngine,
     console_factory: Callable[[], ConsoleLines] = lambda: ConsoleLines(sys.stdin),
+    desktop_launcher: Callable[[], object] | None = None,
 ) -> typer.Typer:
-    app = typer.Typer(no_args_is_help=True)
+    app = typer.Typer()
     pin_app = typer.Typer(no_args_is_help=True, help="Manage Edith's PIN.")
     app.add_typer(pin_app, name="pin")
 
@@ -68,9 +69,11 @@ def create_app(
         PinStore(resolve_home()).set(first)
         typer.echo(f"PIN stored in {LOCK_FILE}")
 
-    @app.callback()
-    def main() -> None:
-        """Tony: asistente personal local."""
+    @app.callback(invoke_without_command=True)
+    def main(context: typer.Context) -> None:
+        """Tony: asistente personal local. Without a command, opens the desktop app."""
+        if context.invoked_subcommand is None:
+            (desktop_launcher or launch_desktop)()
 
     @app.command()
     def run(
@@ -157,6 +160,12 @@ def create_app(
         typer.echo(agents_table(slots))
 
     return app
+
+
+def launch_desktop() -> None:
+    from tony.apps.desktop.app import launch
+
+    raise typer.Exit(launch(resolve_home()))
 
 
 def agents_table(slots: AgentSlots) -> str:

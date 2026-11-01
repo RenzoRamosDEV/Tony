@@ -97,8 +97,8 @@ def test_help_lists_run_command(home):
     assert "run" in result.stdout
 
 
-def test_no_arguments_shows_help(home):
-    result, _ = invoke(home)
+def test_help_flag_shows_help(home):
+    result, _ = invoke(home, "--help")
 
     assert "Usage" in result.output and "run" in result.output
     assert "Tony: asistente personal local." in result.output
