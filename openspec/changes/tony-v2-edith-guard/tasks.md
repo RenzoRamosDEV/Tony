@@ -51,7 +51,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 9. Supervision and proxy (`tony/core/orchestrator`)
 
-- [ ] 9.1 Red: tests for `TaskSupervisor`: steps per agent (30th ok, 31st cancels with reason naming agent and limit), denials per tool id (3rd of same tool cancels with tool/count/rule; 2+2 different tools do not), `cancel()` sets the event once and keeps the first reason, `record_usage` emits exactly one `token_alert` above the limit (50001) and none at 50000; Green: implement; verify tests pass
+- [x] 9.1 Red: tests for `TaskSupervisor`: steps per agent (30th ok, 31st cancels with reason naming agent and limit), denials per tool id (3rd of same tool cancels with tool/count/rule; 2+2 different tools do not), `cancel()` sets the event once and keeps the first reason, `record_usage` emits exactly one `token_alert` above the limit (50001) and none at 50000; Green: implement; verify tests pass
 - [ ] 9.2 Red: switch the `Guard` port to `decide(ToolCall) -> Ruling` (`RecordingGuard` returns a configurable `Ruling`; `AllowAllGuard` returns `Ruling(verdict="allow", rule="allow_all")` until 10.1 removes it) and write proxy tests: deny reply is exactly `{"error": "blocked_by_policy", "rule": "<rule>"}` with `is_error` and caller not invoked; confirm+allow executes; confirm+deny/timeout not executed, error reply names the tool and supervisor cancelled; step overflow skips the guard; tool timeout taken from `limits.tool_timeout_s` and counted after confirmation; `tool_call`/`tool_result` events still logged in order; Green: update `ToolProxy`; verify tests pass
 
 ## 10. Runner and CLI wiring
