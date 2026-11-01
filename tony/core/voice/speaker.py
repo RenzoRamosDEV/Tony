@@ -1,6 +1,8 @@
 import threading
+import time
 from collections.abc import Callable
 
+from tony.core.voice.levels import LevelMeter, envelope
 from tony.core.voice.ports import AudioOutput, Clip, Tts
 from tony.core.voice.stages import Report, StageThread
 
@@ -9,9 +11,19 @@ class Speaker:
     """Synthesises and plays sentences in order on the `tony-tts` and `tony-playback` threads.
     `stop_speaking` bumps a generation counter so sentences queued before it are discarded."""
 
-    def __init__(self, tts: Tts, output: AudioOutput, report: Report) -> None:
+    def __init__(
+        self,
+        tts: Tts,
+        output: AudioOutput,
+        report: Report,
+        *,
+        meter: LevelMeter | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._tts = tts
         self._output = output
+        self._meter = meter or LevelMeter()
+        self._clock = clock
         self._lock = threading.Lock()
         self._generation = 0
         self._pending = 0
@@ -35,6 +47,7 @@ class Speaker:
         with self._lock:
             self._generation += 1
             dropped = self._synthesis.clear() + self._playback.clear()
+        self._meter.stop_output()
         self._output.stop()
         self._finished(dropped)
 
@@ -70,9 +83,16 @@ class Speaker:
         generation, clip = item
         try:
             if generation == self._generation:
-                self._output.play(clip)
+                self._play_metered(clip)
         finally:
             self._finished(1)
+
+    def _play_metered(self, clip: Clip) -> None:
+        self._meter.start_output(envelope(clip), self._clock())
+        try:
+            self._output.play(clip)
+        finally:
+            self._meter.stop_output()
 
     def _finished(self, count: int) -> None:
         with self._lock:

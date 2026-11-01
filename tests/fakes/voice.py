@@ -5,6 +5,7 @@ import struct
 import threading
 from collections.abc import Callable, Iterable
 
+from tony.core.voice.levels import LevelMeter
 from tony.core.voice.ports import WINDOW_SAMPLES, Clip
 
 SPEECH_LEVEL = 0.9
@@ -120,3 +121,27 @@ class RecordingAudioOutput:
     def stop(self) -> None:
         self.stops += 1
         self._released.set()
+
+
+class RecordingMeter(LevelMeter):
+    """A real meter that also logs each hook call into `log` (shared with other doubles)."""
+
+    def __init__(self, log: list | None = None) -> None:
+        super().__init__()
+        self.log = [] if log is None else log
+
+    def set_input(self, value: float) -> None:
+        self.log.append(("input", value))
+        super().set_input(value)
+
+    def clear_input(self) -> None:
+        self.log.append(("clear_input",))
+        super().clear_input()
+
+    def start_output(self, values: list[float], now: float) -> None:
+        self.log.append(("start_output", len(values)))
+        super().start_output(values, now)
+
+    def stop_output(self) -> None:
+        self.log.append(("stop_output",))
+        super().stop_output()

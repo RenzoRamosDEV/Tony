@@ -23,6 +23,10 @@ def test_level_of_empty_pcm_is_zero():
     assert level(b"") == 0.0
 
 
+def test_level_ignores_a_trailing_partial_sample():
+    assert level(pcm(0.05, 4) + b"\x01\x02") == 0.25
+
+
 def test_level_mixes_samples_by_rms():
     assert level(array("f", [0.1, -0.1, 0.0, 0.0]).tobytes()) == 0.35
 

@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from tony.core.voice.levels import LevelMeter, level
 from tony.core.voice.ports import WINDOW_BYTES, AudioInput, Stt, Vad
 from tony.core.voice.stages import Report, StageThread
 from tony.core.voice.utterances import UtteranceAssembler
@@ -31,12 +32,14 @@ class Listener:
         report: Report,
         *,
         clock: Callable[[], float] = time.monotonic,
+        meter: LevelMeter | None = None,
     ) -> None:
         self._audio = audio
         self._vad = vad
         self._stt = stt
         self._report = report
         self._clock = clock
+        self._meter = meter or LevelMeter()
         self._lock = threading.Lock()
         self._session: _Session | None = None
         self._vad_session: _Session | None = None
@@ -96,6 +99,7 @@ class Listener:
             self._detect_window(session, window)
 
     def _detect_window(self, session: _Session, window: bytes) -> None:
+        self._meter.set_input(level(window))
         speech = self._vad.is_speech(window)
         session.heard = session.heard or speech
         utterance = self._assembler.push(window, speech)
@@ -124,6 +128,7 @@ class Listener:
     def _close_capture(self, session: _Session) -> None:
         with self._lock:
             was_capturing, session.capturing = session.capturing, False
+        self._meter.clear_input()
         if was_capturing:
             self._audio.close()
 

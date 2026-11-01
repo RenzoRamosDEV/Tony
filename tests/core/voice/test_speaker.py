@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from tests.fakes.voice import RecordingAudioOutput, TextTts
+from tests.fakes.voice import RecordingAudioOutput, RecordingMeter, TextTts
 from tony.core.voice.speaker import Speaker
 
 ALEX = "kokoro/em_alex"
@@ -18,9 +18,10 @@ class Reports(list):
 def make():
     speakers = []
 
-    def build(tts=None, output=None):
+    def build(tts=None, output=None, meter=None):
         reports = Reports()
-        speaker = Speaker(tts or TextTts(), output or RecordingAudioOutput(), reports)
+        kwargs = {} if meter is None else {"meter": meter}
+        speaker = Speaker(tts or TextTts(), output or RecordingAudioOutput(), reports, **kwargs)
         speaker.start()
         speakers.append(speaker)
         return speaker, reports
@@ -99,3 +100,43 @@ def test_close_stops_the_threads(make):
     speaker, _ = make()
     speaker.close()
     assert not any(t.name in {"tony-tts", "tony-playback"} for t in threading.enumerate())
+
+
+class LoggingOutput(RecordingAudioOutput):
+    def __init__(self, log, **kwargs):
+        super().__init__(**kwargs)
+        self.log = log
+
+    def play(self, clip):
+        self.log.append(("play", clip.pcm.decode("utf-8")))
+        super().play(clip)
+
+
+def test_clip_envelope_starts_before_play_and_stops_after_it(make):
+    log = []
+    speaker, _ = make(output=LoggingOutput(log), meter=RecordingMeter(log))
+    speaker.say("Uno.", ALEX)
+    assert speaker.wait_drained(5)
+    assert log == [("start_output", 1), ("play", "Uno."), ("stop_output",)]
+
+
+def test_playback_error_stops_the_envelope(make):
+    log = []
+    meter = RecordingMeter(log)
+    speaker, _ = make(output=LoggingOutput(log, fail_on={"Uno."}), meter=meter)
+    speaker.say("Uno.", ALEX)
+    assert speaker.wait_drained(5)
+    assert log[-1] == ("stop_output",)
+    assert meter.sample(0.0) is None
+
+
+def test_stop_speaking_stops_the_envelope(make):
+    log = []
+    meter = RecordingMeter(log)
+    output = RecordingAudioOutput(blocking=True)
+    speaker, _ = make(output=output, meter=meter)
+    speaker.say("Uno.", ALEX)
+    assert output.started.wait(5)
+    log.clear()
+    speaker.stop_speaking()
+    assert log[0] == ("stop_output",)

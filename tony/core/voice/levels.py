@@ -16,7 +16,7 @@ Sample = tuple[str, float]
 
 
 def level(pcm: bytes) -> float:
-    samples = array("f", pcm)
+    samples = array("f", pcm[: len(pcm) - len(pcm) % FLOAT32_BYTES])
     if not samples:
         return 0.0
     rms = math.sqrt(sum(value * value for value in samples) / len(samples))

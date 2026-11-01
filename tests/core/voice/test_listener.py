@@ -1,8 +1,15 @@
 import threading
+import time
 
 import pytest
 
-from tests.fakes.voice import ScriptedAudioInput, ScriptedStt, ThresholdVad, frames
+from tests.fakes.voice import (
+    RecordingMeter,
+    ScriptedAudioInput,
+    ScriptedStt,
+    ThresholdVad,
+    frames,
+)
 from tony.core.voice.listener import Listener
 
 UTTERANCE = "..SSSS" + "." * 22
@@ -41,9 +48,11 @@ class Reports(list):
 def make():
     listeners = []
 
-    def build(audio, stt=None, clock=None):
+    def build(audio, stt=None, clock=None, meter=None):
         reports = Reports()
         kwargs = {"clock": clock} if clock else {}
+        if meter is not None:
+            kwargs["meter"] = meter
         listener = Listener(audio, ThresholdVad(), stt or ScriptedStt(), reports, **kwargs)
         listener.start()
         listeners.append(listener)
@@ -52,6 +61,15 @@ def make():
     yield build
     for listener in listeners:
         listener.close()
+
+
+def wait_for(condition, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.005)
+    return True
 
 
 def listen(listener, idle=None):
@@ -169,3 +187,43 @@ def test_close_stops_the_threads(make):
     listener, _ = make(ScriptedAudioInput())
     listener.close()
     assert not any(t.name in {"tony-vad", "tony-stt"} for t in threading.enumerate())
+
+
+def test_each_window_reports_its_level_and_the_utterance_clears_it(make):
+    meter = RecordingMeter()
+    audio = ScriptedAudioInput(frames(UTTERANCE + "SSS"))
+    listener, _ = make(audio, ScriptedStt("hola"), meter=meter)
+    session = listen(listener)
+    assert session.ended.wait(5)
+    levels = [entry[1] for entry in meter.log if entry[0] == "input"]
+    assert levels == [0.0, 0.0, 1.0, 1.0, 1.0, 1.0] + [0.0] * 22
+    assert meter.log[len(UTTERANCE)] == ("clear_input",)
+    assert meter.sample(0.0) is None
+
+
+def test_stop_clears_the_input_level(make):
+    meter = RecordingMeter()
+    listener, _ = make(ScriptedAudioInput(frames("SS")), meter=meter)
+    listen(listener)
+    assert wait_for(lambda: meter.sample(0.0) == ("input", 1.0))
+    listener.stop()
+    assert meter.sample(0.0) is None
+
+
+def test_idle_timeout_clears_the_input_level(make):
+    meter = RecordingMeter()
+    audio = ScriptedAudioInput(frames("." * 30))
+    listener, _ = make(audio, clock=SteppingClock(0.5), meter=meter)
+    session = listen(listener, idle=10)
+    assert session.ended.wait(5)
+    assert meter.log[-1] == ("clear_input",)
+    assert meter.sample(0.0) is None
+
+
+def test_capture_error_clears_the_input_level(make):
+    meter = RecordingMeter()
+    meter.set_input(0.5)
+    listener, _ = make(ScriptedAudioInput(error=OSError("no input device")), meter=meter)
+    session = listen(listener)
+    assert session.ended.wait(5)
+    assert meter.sample(0.0) is None
