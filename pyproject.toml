@@ -1,0 +1,51 @@
+[project]
+name = "tony"
+version = "2.0.0a0"
+description = "Asistente personal local con agentes Jarvis, Viernes y Edith."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "claude-agent-sdk==0.2.176",
+    "mcp==2.3.0",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+tony = "tony.apps.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tony"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+timeout = 30
+testpaths = ["tests"]
+markers = [
+    "evals: pruebas con modelo real (solo con TONY_EVALS=1)",
+    "voice: pruebas con los motores de voz reales (uv run pytest -m voice)",
+]
+addopts = "-m 'not voice'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".agents", ".claude", "apm_modules", "openspec"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[dependency-groups]
+dev = [
+    "mutmut>=3.8.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.17.3",
+]
