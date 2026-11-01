@@ -157,3 +157,52 @@ def test_no_hotkey_on_wayland(qtbot, tmp_path):
         hotkeys=FakeHotkeys,
     )
     assert FakeHotkeys.instances == []
+
+
+def test_a_hidden_window_notifies_pending_confirmations(qtbot, tmp_path):
+    from tests.fakes.desktop import FakeNotifier
+    from tony.core.events import core_events as ev
+
+    notifier, revealed, seen = FakeNotifier(), [], []
+
+    def run_loop(app, window):
+        window.hide()
+        window.dispatch(ev.needs_confirmation("t1", "fs.delete", "{}", "¿Autoriza?", True))
+        seen.append(list(notifier.shown))
+        window.reveal = lambda edith=False: revealed.append(edith)
+        notifier.click()
+        window.close()
+        return 0
+
+    launch(
+        tmp_path,
+        fake_factory([]),
+        run_loop=run_loop,
+        channel=FakeChannel(answers=False),
+        notifier=lambda: notifier,
+    )
+
+    assert seen == [[("Tony — Edith", "¿Autoriza?")]]
+    assert revealed == [True]
+
+
+def test_a_visible_window_does_not_notify(qtbot, tmp_path):
+    from tests.fakes.desktop import FakeNotifier
+    from tony.core.events import core_events as ev
+
+    notifier = FakeNotifier()
+
+    def run_loop(app, window):
+        window.dispatch(ev.needs_confirmation("t1", "fs.delete", "{}", "¿Autoriza?", True))
+        window.close()
+        return 0
+
+    launch(
+        tmp_path,
+        fake_factory([]),
+        run_loop=run_loop,
+        channel=FakeChannel(answers=False),
+        notifier=lambda: notifier,
+    )
+
+    assert notifier.shown == []

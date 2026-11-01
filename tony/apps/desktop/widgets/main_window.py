@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -26,6 +27,8 @@ __all__ = ["MainWindow", "Presenters"]
 
 class MainWindow(QMainWindow):
     """One window: Chat, plus collapsible Activity and Edith zones."""
+
+    dispatched = Signal(object)
 
     def __init__(self, presenters: Presenters, on_close: Callable[[], None] = lambda: None) -> None:
         super().__init__()
@@ -74,6 +77,7 @@ class MainWindow(QMainWindow):
 
     def dispatch(self, event: Event) -> None:
         self.presenters.apply(event)
+        self.dispatched.emit(event)
 
     def _send(self) -> None:
         self.presenters.chat.send(self.input.text())

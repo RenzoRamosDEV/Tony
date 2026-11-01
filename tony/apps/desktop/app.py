@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 from tony.apps.desktop.bridge import CoreThread, QtEventBridge, Runtime
 from tony.apps.desktop.hotkey_spec import Hotkeys, HotkeysFactory, register_hotkey
 from tony.apps.desktop.instance_channel import socket_name
+from tony.apps.desktop.presenters.attention import ConfirmationAttention, Notifier
 from tony.apps.desktop.presenters.bundle import Presenters
 from tony.apps.desktop.system.single_instance import InstanceServer, send_to_running
 from tony.apps.desktop.system.tray import create_tray
@@ -89,6 +90,16 @@ def pynput_hotkeys(mapping: dict[str, Callable[[], None]]) -> Hotkeys:
     return PynputHotkeys(mapping)
 
 
+class ClosableNotifier(Notifier, Protocol):
+    def close(self) -> None: ...
+
+
+def desktop_notifications() -> ClosableNotifier:
+    from tony.apps.desktop.system.notifier import DesktopNotifications
+
+    return DesktopNotifications()
+
+
 class Summoner(QObject):
     """Brings `show`/`focus` requests from any thread to the Qt main thread."""
 
@@ -123,6 +134,7 @@ def launch(
     channel: InstanceChannel | None = None,
     environ: Mapping[str, str] = os.environ,
     hotkeys: HotkeysFactory = pynput_hotkeys,
+    notifier: Callable[[], ClosableNotifier] = desktop_notifications,
 ) -> int:
     """Raise the running instance, or open the app and serve the single-instance channel."""
     app = QApplication.instance() or QApplication(sys.argv)
@@ -143,6 +155,14 @@ def launch(
         hotkeys,
         lambda source, message: window.dispatch(core_events.error(source, message)),
     )
+    notifications = notifier()
+    attention = ConfirmationAttention(
+        notifications,
+        window_hidden=lambda: not window.isVisible() or window.isMinimized(),
+        reveal=lambda edith: window.reveal(edith=edith),
+        report=window.dispatch,
+    )
+    window.dispatched.connect(attention.apply)
     if focus:
         summoner.summon("focus")
     try:
@@ -152,5 +172,6 @@ def launch(
             hotkey.stop()
         if tray is not None:
             tray.hide()
+        notifications.close()
         channel.close()
         core.stop()
