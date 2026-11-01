@@ -25,8 +25,8 @@ def test_lists_the_three_slots(tmp_path):
     assert rows == [
         ["slot", "agent", "role", "model", "voice"],
         ["front", "jarvis", "front", "claude-haiku", "kokoro/em_alex"],
-        ["worker", "viernes", "worker", "claude-sonnet", "kokoro/em_alex"],
-        ["guard", "edith", "guard", "claude-haiku", "kokoro/ef_dora"],
+        ["worker", "viernes", "worker", "claude-sonnet", "kokoro/ef_dora"],
+        ["guard", "edith", "guard", "claude-haiku", "kokoro/ef_dora,bf_emma"],
     ]
 
 

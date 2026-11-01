@@ -43,7 +43,11 @@ def test_bundled_viernes_persona():
     viernes = bundled("viernes")
 
     assert viernes.spec.persona.tone == "cercano, ágil y pragmático; humor sutil solo en el resumen"
-    assert (viernes.spec.role, viernes.spec.model) == ("worker", "claude-sonnet")
+    assert (viernes.spec.role, viernes.spec.model, viernes.spec.voice.tts) == (
+        "worker",
+        "claude-sonnet",
+        "kokoro/ef_dora",
+    )
     assert "resumen" in viernes.spec.system_prompt
 
 

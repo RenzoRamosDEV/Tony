@@ -10,7 +10,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 ## 2. Agent voices (`tony/core/loader`, `agents/`)
 
 - [x] 2.1 Red: `agent_md` tests: `kokoro/em_alex` and `kokoro/ef_dora,bf_emma` accepted; `em_alex`, `kokoro/`, `kokoro/ef_dora,`, `kokoro/ef dora`, `kokoro/EF_dora` rejected naming the file and `voice.tts`; `tony/core/voice/voices.py` tests: `kokoro_voices("kokoro/ef_dora,bf_emma") == ("ef_dora", "bf_emma")`, single voice -> 1-tuple; Green: tighten the pattern to `^kokoro/[a-z]{2}_[a-z0-9]+(,[a-z]{2}_[a-z0-9]+)*$` and add `voices.py`; verify tests pass
-- [ ] 2.2 Red: bundled tests: Viernes voice `kokoro/ef_dora`, Edith voice `kokoro/ef_dora,bf_emma`, Jarvis `kokoro/em_alex`; `tony agents` rows `worker viernes worker claude-sonnet kokoro/ef_dora` and `guard edith guard claude-haiku kokoro/ef_dora,bf_emma`; Green: update `agents/viernes/agent.md` and `agents/edith/agent.md`; update the README `voice.tts` line (blend syntax); verify tests pass
+- [x] 2.2 Red: bundled tests: Viernes voice `kokoro/ef_dora`, Edith voice `kokoro/ef_dora,bf_emma`, Jarvis `kokoro/em_alex`; `tony agents` rows `worker viernes worker claude-sonnet kokoro/ef_dora` and `guard edith guard claude-haiku kokoro/ef_dora,bf_emma`; Green: update `agents/viernes/agent.md` and `agents/edith/agent.md`; update the README `voice.tts` line (blend syntax); verify tests pass
 
 ## 3. Commands, events and the speak/write decision (`tony/core/orchestrator`, `tony/core/events`)
 

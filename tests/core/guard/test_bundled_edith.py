@@ -16,7 +16,7 @@ def test_bundled_edith_loads_as_guard_without_tools():
         "es",
         "muy formal, neutral, literal, sin humor",
     )
-    assert agent.spec.voice.tts == "kokoro/ef_dora"
+    assert agent.spec.voice.tts == "kokoro/ef_dora,bf_emma"
     assert (agent.tools.mcp_servers, agent.tools.native) == ({}, [])
     assert not (REPO / "agents" / "edith" / "tool").exists()
 

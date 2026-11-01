@@ -55,7 +55,8 @@ agents/edith/
 
 `agent.md` exige exactamente estos campos: `name` (igual a la carpeta), `role`
 (`front|worker|guard`), `model` (un alias de `config/tony.yaml`), `persona.language`,
-`persona.tone` y `voice.tts` (`kokoro/<voz>`), más el campo opcional `description` (texto no
+`persona.tone` y `voice.tts` (`kokoro/<voz>` o una mezcla `kokoro/<voz>,<voz>`, p. ej.
+`kokoro/ef_dora,bf_emma`, que promedia esas voces de Kokoro), más el campo opcional `description` (texto no
 vacío). El cuerpo es el prompt de sistema y no puede estar vacío.
 
 `tool/tool.json`:
