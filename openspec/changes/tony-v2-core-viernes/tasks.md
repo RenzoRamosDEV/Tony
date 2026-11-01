@@ -16,7 +16,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 ## 3. Configuration (`tony/core/config`)
 
 - [x] 3.1 Red: tests for `TonyConfig` defaults (missing file), partial merge (`reply_mode: text` only), invalid `reply_mode`, unknown key, error naming `config/tony.yaml` and field; Green: implement loader with `extra="forbid"` and `DefinitionError(file, field, message)`; verify tests pass
-- [ ] 3.2 Red: tests for model alias resolution (`claude-sonnet` -> `claude-sonnet-5-5`, unknown alias error); Green: implement; verify tests pass
+- [x] 3.2 Red: tests for model alias resolution (`claude-sonnet` -> `claude-sonnet-5-5`, unknown alias error); Green: implement; verify tests pass
 - [ ] 3.3 Red: tests for `Secrets` from `config/.env` (missing file allowed, values readable) and root dir via `TONY_HOME`; Green: implement with pydantic-settings; verify tests pass
 - [ ] 3.4 Red: tests for `${VAR}` placeholder resolution (string, list, dict; multiple vars; undefined var error naming the var and not leaking values; literal text without placeholders unchanged) and `SecretMasker` (replaces each registered value with `***` in strings and nested JSON; ignores empty values); Green: implement; verify tests pass
 

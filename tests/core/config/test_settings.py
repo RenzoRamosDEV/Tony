@@ -92,3 +92,25 @@ def test_definition_error_message_format():
 
 def test_definition_error_without_field():
     assert str(DefinitionError("a/b.md", None, "boom")) == "a/b.md: boom"
+
+
+class TestModelAlias:
+    @pytest.mark.parametrize(
+        ("alias", "model_id"),
+        [("claude-sonnet", "claude-sonnet-5-5"), ("claude-haiku", "claude-haiku-5-5")],
+    )
+    def test_default_alias_resolves(self, alias, model_id):
+        assert TonyConfig().resolve_model(alias) == model_id
+
+    def test_custom_alias_resolves(self):
+        config = TonyConfig(models={"rapido": "claude-haiku-9"})
+
+        assert config.resolve_model("rapido") == "claude-haiku-9"
+
+    @pytest.mark.parametrize("alias", ["claude-opus", "", "claude-sonnet-5-5"])
+    def test_unknown_alias_is_rejected(self, alias):
+        with pytest.raises(DefinitionError) as info:
+            TonyConfig().resolve_model(alias)
+
+        assert (info.value.file, info.value.field) == ("config/tony.yaml", "models")
+        assert f"'{alias}'" in info.value.message

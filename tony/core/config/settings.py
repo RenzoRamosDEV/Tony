@@ -39,6 +39,14 @@ class TonyConfig(_Strict):
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
     desktop: DesktopSettings = Field(default_factory=DesktopSettings)
 
+    def resolve_model(self, alias: str) -> str:
+        try:
+            return self.models[alias]
+        except KeyError:
+            raise DefinitionError(
+                CONFIG_FILE, "models", f"unknown model alias '{alias}'"
+            ) from None
+
 
 def load_config(root: Path) -> TonyConfig:
     path = root / CONFIG_FILE
