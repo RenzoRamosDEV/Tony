@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from tony.core.config.errors import DefinitionError
 
 RESERVED_SERVER = "tony"
+PERMISSION_KEYS = {"allow", "confirm"}
+POLICY_FILE = "agents/edith/policy.yaml"
 _STDIO_ONLY = {"args", "env"}
 _HTTP_ONLY = {"headers"}
 
@@ -57,6 +59,9 @@ def load_tool_spec(root: Path, agent: str, *, native_tools: Collection[str]) -> 
 
 def parse_tool_spec(text: str, *, file: str, native_tools: Collection[str]) -> ToolSpec:
     data = _parse_json(text, file)
+    forbidden = _find_permission_key(data)
+    if forbidden:
+        raise DefinitionError(file, forbidden, f"permissions belong to {POLICY_FILE}")
     try:
         spec = ToolSpec.model_validate(data)
     except ValidationError as error:
@@ -79,3 +84,20 @@ def _parse_json(text: str, file: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise DefinitionError(file, None, "must be a JSON object")
     return data
+
+
+def _find_permission_key(node: Any, path: str = "") -> str | None:
+    if isinstance(node, dict):
+        children = node.items()
+    elif isinstance(node, list):
+        children = ((str(index), item) for index, item in enumerate(node))
+    else:
+        return None
+    for key, child in children:
+        child_path = f"{path}.{key}" if path else key
+        if isinstance(node, dict) and key in PERMISSION_KEYS:
+            return child_path
+        found = _find_permission_key(child, child_path)
+        if found:
+            return found
+    return None

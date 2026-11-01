@@ -25,7 +25,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 - [x] 4.1 Red: tests for `agent.md` parsing (valid file, missing frontmatter, empty body, invalid YAML) with errors naming the file; Green: implement frontmatter splitter; verify tests pass
 - [x] 4.2 Red: tests for frontmatter schema (each required field missing, `name` != folder, invalid `role`, unknown top-level and nested field, `voice.tts` boundaries `kokoro/x` ok vs `em_alex` / `kokoro/` rejected, alias not in configured models) asserting dotted field names; Green: implement `AgentSpec`; verify tests pass
 - [x] 4.3 Red: tests for `tool.json` schema (stdio+HTTP accepted, both/neither `command`/`url`, unknown keys, `native` default `[]`, invalid JSON, missing file, reserved server name `tony`, unknown native name against an injected native registry); Green: implement `ToolSpec`; verify tests pass
-- [ ] 4.4 Red: tests that `allow`/`confirm` at top level and nested depth fail with dotted path and `agents/edith/policy.yaml` in the message; Green: implement recursive forbidden-key scan; verify tests pass
+- [x] 4.4 Red: tests that `allow`/`confirm` at top level and nested depth fail with dotted path and `agents/edith/policy.yaml` in the message; Green: implement recursive forbidden-key scan; verify tests pass
 - [ ] 4.5 Red: test that the bundled `agents/viernes/` loads with default config (role `worker`, model `claude-sonnet`); Green: write `agents/viernes/agent.md` (Spanish persona, `kokoro/em_alex`, system prompt describing the structured task and result) and `agents/viernes/tool/tool.json` (filesystem server via `npx -y @modelcontextprotocol/server-filesystem ${HOME}/notas`, `native: []`); verify test passes
 
 ## 5. Task log (`tony/core/logging`)
