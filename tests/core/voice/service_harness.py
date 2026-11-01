@@ -17,7 +17,14 @@ ALEX = "kokoro/em_alex"
 DORA = "kokoro/ef_dora"
 EDITH = "kokoro/ef_dora,bf_emma"
 CAST = VoiceCast(front="jarvis", front_voice=ALEX, worker_voice=DORA, guard_voice=EDITH)
-VOICE_THREADS = {"tony-vad", "tony-stt", "tony-tts", "tony-playback", "tony-voice-load"}
+VOICE_THREADS = {
+    "tony-vad",
+    "tony-stt",
+    "tony-tts",
+    "tony-playback",
+    "tony-voice-load",
+    "tony-level",
+}
 
 
 class FakeLoader:

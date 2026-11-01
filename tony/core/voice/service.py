@@ -1,6 +1,7 @@
 import asyncio
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -9,6 +10,7 @@ from tony.core.config.settings import VoiceSettings
 from tony.core.events import core_events
 from tony.core.events.core_events import Event, Publisher, VoiceState
 from tony.core.voice.answer import is_voice_yes, spoken_question
+from tony.core.voice.levels import FRAME_S, LevelMeter
 from tony.core.voice.listener import Listener
 from tony.core.voice.ports import Engines, Unavailable
 from tony.core.voice.speaker import Speaker
@@ -45,6 +47,39 @@ def unsupported_setting(settings: VoiceSettings) -> str | None:
     return None
 
 
+class _LevelTicker:
+    """Samples the meter every `interval_s` on the `tony-level` thread and hands each level to
+    `emit`; nothing is emitted while the meter is silent."""
+
+    def __init__(
+        self,
+        meter: LevelMeter,
+        emit: Callable[[str, float], None],
+        interval_s: float,
+        clock: Callable[[], float],
+    ) -> None:
+        self._meter = meter
+        self._emit = emit
+        self._interval_s = interval_s
+        self._clock = clock
+        self._stopped = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=THREAD_PREFIX + "level", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stopped.set()
+        if self._thread.is_alive():
+            self._thread.join(STOP_TIMEOUT_S)
+
+    def _run(self) -> None:
+        while not self._stopped.wait(self._interval_s):
+            sample = self._meter.sample(self._clock())
+            if sample is not None:
+                self._emit(*sample)
+
+
 class VoiceService:
     """Voice around the core: observes published events to speak speaking turns and Edith's
     questions, and turns transcripts into `send_message` or `confirm` commands.
@@ -59,8 +94,13 @@ class VoiceService:
         *,
         idle_timeout_s: float = IDLE_TIMEOUT_S,
         flush_after_s: float = FLUSH_AFTER_S,
+        level_interval_s: float = FRAME_S,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.loader = loader
+        self._clock = clock
+        self._meter = LevelMeter()
+        self._ticker = _LevelTicker(self._meter, self._post_level, level_interval_s, clock)
         self._idle_timeout_s = idle_timeout_s
         self._flush_after_s = flush_after_s
         self._state: VoiceState = "loading"
@@ -145,6 +185,7 @@ class VoiceService:
 
     def close(self) -> None:
         self._closed = True
+        self._ticker.stop()
         self._cancel_flush()
         if self._listener is not None:
             self._listener.close()
@@ -166,10 +207,15 @@ class VoiceService:
         if isinstance(outcome, Unavailable):
             self._set_state("unavailable", outcome.reason)
             return
-        self._speaker = Speaker(outcome.tts, outcome.audio_output, self._report)
-        self._listener = Listener(outcome.audio_input, outcome.vad, outcome.stt, self._report)
+        self._speaker = Speaker(
+            outcome.tts, outcome.audio_output, self._report, meter=self._meter, clock=self._clock
+        )
+        self._listener = Listener(
+            outcome.audio_input, outcome.vad, outcome.stt, self._report, meter=self._meter
+        )
         self._speaker.start()
         self._listener.start()
+        self._ticker.start()
         self._set_state("ready")
         if self._listen_when_ready:
             self._listen_when_ready = False
@@ -249,6 +295,9 @@ class VoiceService:
     def _say(self, text: str, voice: str) -> None:
         if self._speaker is not None:
             self._speaker.say(text, voice)
+
+    def _post_level(self, source: str, value: float) -> None:
+        self._post(lambda: self._publish(core_events.voice_level(source, value)))
 
     def _report(self, source: str, message: str) -> None:
         self._post(lambda: self._publish(core_events.error(source, message)))

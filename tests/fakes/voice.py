@@ -3,10 +3,11 @@ encodes the text in the clip and an output that records what it played."""
 
 import struct
 import threading
+import time
 from collections.abc import Callable, Iterable
 
 from tony.core.voice.levels import LevelMeter
-from tony.core.voice.ports import WINDOW_SAMPLES, Clip
+from tony.core.voice.ports import FLOAT32_BYTES, OUTPUT_RATE, WINDOW_SAMPLES, Clip
 
 SPEECH_LEVEL = 0.9
 
@@ -145,3 +146,34 @@ class RecordingMeter(LevelMeter):
     def stop_output(self) -> None:
         self.log.append(("stop_output",))
         super().stop_output()
+
+
+class ToneTts:
+    """Every sentence becomes a constant tone of `seconds` at `amplitude`."""
+
+    def __init__(self, seconds: float = 1.0, amplitude: float = 0.05) -> None:
+        samples = int(OUTPUT_RATE * seconds)
+        self._pcm = struct.pack(f"<{samples}f", *([amplitude] * samples))
+
+    def synthesize(self, text: str, voice: str) -> Clip:
+        return Clip(self._pcm)
+
+
+class RealtimeAudioOutput:
+    """Plays each clip for its real duration unless `stop()` interrupts it."""
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self.started = threading.Event()
+        self.finished = threading.Event()
+        self.finished_at: float | None = None
+
+    def play(self, clip: Clip) -> None:
+        self._stop.clear()
+        self.started.set()
+        self._stop.wait(len(clip.pcm) / FLOAT32_BYTES / clip.rate)
+        self.finished_at = time.monotonic()
+        self.finished.set()
+
+    def stop(self) -> None:
+        self._stop.set()
