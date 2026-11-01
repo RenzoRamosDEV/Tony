@@ -48,3 +48,31 @@ async def test_on_status_defaults_to_no_op(tmp_path):
 
     async with manager:
         assert manager.status["fs"].up
+
+
+async def test_failure_while_entering_closes_started_servers(tmp_path):
+    import asyncio
+
+    import pytest
+
+    from tests.fakes.processes import processes_mentioning
+
+    marker = str(tmp_path / "enter-failure")
+    spec = ToolSpec.model_validate({"mcpServers": {"fs": fake_fs_entry(marker)}})
+
+    def fail(server, status):
+        raise RuntimeError("status sink broken")
+
+    manager = McpManager(
+        spec,
+        variables=secret_variables({}),
+        masker=SecretMasker(),
+        sink=ListEventSink(),
+        log_dir=tmp_path / "mcp",
+        on_status=fail,
+    )
+
+    with pytest.raises(RuntimeError, match="status sink broken"):
+        await asyncio.wait_for(manager.__aenter__(), 10)
+
+    assert processes_mentioning(marker) == []

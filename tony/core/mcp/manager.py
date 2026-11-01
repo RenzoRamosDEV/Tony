@@ -65,8 +65,13 @@ class McpManager:
         self._on_status = on_status
 
     async def __aenter__(self) -> Self:
-        for name, server in self.spec.mcp_servers.items():
-            await self._start(name, server)
+        try:
+            for name, server in self.spec.mcp_servers.items():
+                await self._start(name, server)
+        except BaseException:
+            # `async with` never calls __aexit__ when entering fails: close what already started.
+            await self._stack.aclose()
+            raise
         self.tools += [
             CatalogTool(
                 id=f"{NATIVE_SERVER}.{name}",

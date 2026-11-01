@@ -62,8 +62,16 @@ known-first-party = ["tony", "tests"]
 [tool.mutmut]
 source_paths = ["tony/"]
 also_copy = ["agents/", "evals/"]
+# Mutants that hang a stdio MCP server otherwise wait 15x the slowest covering test.
+timeout_multiplier = 3.0
 # The live Claude Agent SDK call is only exercised by the evals-marked real-model test.
-do_not_mutate = ["tony/core/guard/claude_wording.py"]
+# Desktop widgets and app.py are pure Qt layout and glue: behaviour lives in the mutated
+# presenters, and widget mutants are equivalent or crash-only under offscreen Qt.
+do_not_mutate = [
+    "tony/core/guard/claude_wording.py",
+    "tony/apps/desktop/widgets/*",
+    "tony/apps/desktop/app.py",
+]
 # Repository layout checks read files outside the copied tree and cover no mutated code.
 pytest_add_cli_args = [
     "-p", "no:cacheprovider",
