@@ -1,6 +1,7 @@
 import asyncio
 import os
 import time
+from asyncio import FIRST_COMPLETED
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -86,10 +87,14 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
     )
     timeout = policy.limits.task_timeout_s if deps.task_timeout is None else deps.task_timeout
     log.emit(log_events.task_started(agent_name, request))
-    try:
-        outcome = await asyncio.wait_for(_run_engine(run, request, deps), timeout)
-    except TimeoutError:
+    engine = asyncio.create_task(_run_engine(run, request, deps))
+    finished = await _race(engine, run.supervisor, timeout)
+    if run.supervisor.cancelled.is_set():
+        return _finish(log, "cancelled", _failed(run.supervisor.reason or "tarea cancelada"))
+    if not finished:
         return _finish(log, "timeout", _failed(f"task timed out after {timeout:g} s"))
+    try:
+        outcome = engine.result()
     except Exception as error:
         message = str(error) or type(error).__name__
         log.emit(log_events.error("engine", message))
@@ -100,9 +105,31 @@ async def run_task(agent_name: str, request: TaskRequest, deps: RunDeps) -> Task
                 input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
             )
         )
+        run.supervisor.record_usage(
+            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
+        )
     result = to_task_result(outcome)
     masked = TaskResult.model_validate(masker.mask_json(result.model_dump()))
     return _finish(log, "error" if masked.errores else "ok", masked)
+
+
+async def _race(
+    engine: "asyncio.Task[EngineOutcome]", supervisor: TaskSupervisor, timeout: float
+) -> bool:
+    """Wait for the engine, a cancellation or the timeout; stop the engine unless it finished.
+
+    Cancelling the engine task unwinds the McpManager context, closing every server.
+    """
+    cancelled = asyncio.create_task(supervisor.cancelled.wait())
+    try:
+        await asyncio.wait({engine, cancelled}, timeout=timeout, return_when=FIRST_COMPLETED)
+    finally:
+        cancelled.cancel()
+    if engine.done() and not supervisor.cancelled.is_set():
+        return True
+    engine.cancel()
+    await asyncio.gather(engine, return_exceptions=True)
+    return False
 
 
 def _edith(
