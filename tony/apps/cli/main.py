@@ -1,9 +1,12 @@
 import asyncio
 import getpass as getpass_module
+import os
 import sys
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -11,8 +14,9 @@ from pydantic import ValidationError
 
 from tony.apps.cli.chat import ChatPrinter, run_chat
 from tony.core.config.errors import DefinitionError
+from tony.core.config.placeholders import SecretMasker
 from tony.core.config.reload import ChangeStream
-from tony.core.config.secrets import ENV_FILE, SECRET_NAME, resolve_home
+from tony.core.config.secrets import ENV_FILE, SECRET_NAME, load_variables, resolve_home
 from tony.core.config.settings import load_config
 from tony.core.config.watcher import watch_config
 from tony.core.events.messages import TaskRequest
@@ -21,7 +25,9 @@ from tony.core.guard.claude_wording import ClaudeWording
 from tony.core.guard.confirm import CliConfirmer, ConsoleLines, thread_line_reader
 from tony.core.guard.pin import LOCK_FILE, MIN_PIN_LENGTH, PinStore
 from tony.core.guard.policy import load_policy
+from tony.core.loader.tool_json import ToolSpec, agent_folder, load_tool_spec, tool_json_keys
 from tony.core.loader.tool_json_writer import add_server
+from tony.core.mcp.manager import McpManager
 from tony.core.orchestrator.agents import AgentSlots, resolve_slots
 from tony.core.orchestrator.claude_engine import ClaudeEngine
 from tony.core.orchestrator.natives import NATIVE_TOOLS
@@ -32,6 +38,7 @@ EDITH_PREFIX = "Edith: "
 USAGE_ERROR = 2
 TASK_FAILED = 1
 AGENT_COLUMNS = ("slot", "agent", "role", "model", "voice")
+MCP_COLUMNS = ("agent", "server", "state", "tools")
 AUDIT_COLUMNS = ("ts", "agent", "tool", "verdict", "rule", "user_decision")
 
 
@@ -93,6 +100,31 @@ def create_app(
                 err=True,
             )
         typer.echo(f"added {name} to {file}")
+
+    @mcp_app.command("list")
+    def mcp_list(
+        agent: Annotated[
+            str | None, typer.Option("--agent", help="Only this agent or <agent>/<subagent>.")
+        ] = None,
+    ) -> None:
+        """Connect every declared MCP server and print its state and tool count."""
+        root = resolve_home()
+        try:
+            keys = tool_json_keys(root) if agent is None else [_existing_agent(root, agent)]
+        except DefinitionError as error:
+            typer.echo(f"tony: {error}", err=True)
+            raise typer.Exit(USAGE_ERROR) from error
+        specs, invalid = {}, False
+        for key in keys:
+            try:
+                specs[key] = load_tool_spec(root, key, native_tools=NATIVE_TOOLS)
+            except DefinitionError as error:
+                typer.echo(f"tony: {error}", err=True)
+                invalid = True
+        body = asyncio.run(server_rows(root, specs))
+        typer.echo(table(MCP_COLUMNS, body))
+        if invalid:
+            raise typer.Exit(TASK_FAILED)
 
     @pin_app.command("set")
     def pin_set() -> None:
@@ -243,6 +275,38 @@ def _pairs(option: str, items: list[str]) -> dict[str, str]:
 
 def _without_empty(entry: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in entry.items() if value}
+
+
+def _existing_agent(root: Path, key: str) -> str:
+    folder = agent_folder(key)
+    if not (root / folder).is_dir():
+        raise DefinitionError(folder, None, f"agent folder {folder} does not exist")
+    return key
+
+
+class _Discard:
+    def emit(self, event: dict[str, Any]) -> None:
+        return None
+
+
+async def server_rows(root: Path, specs: dict[str, ToolSpec]) -> list[tuple[str, ...]]:
+    """One row per declared server: connected, listed and closed one agent at a time."""
+    variables = load_variables(root, os.environ)
+    masker = SecretMasker(variables.env_file_values.values())
+    body: list[tuple[str, ...]] = []
+    for key, spec in specs.items():
+        async with McpManager(
+            spec.model_copy(update={"native": []}),
+            variables=variables,
+            masker=masker,
+            sink=_Discard(),
+            log_dir=root / "logs" / "mcp",
+        ) as manager:
+            counts = Counter(tool.server for tool in manager.tools)
+            for server, status in manager.status.items():
+                state = "ok" if status.up else f"error: {status.reason}"
+                body.append((key, server, state, str(counts[server])))
+    return body
 
 
 def launch_desktop() -> None:

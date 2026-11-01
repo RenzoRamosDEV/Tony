@@ -318,6 +318,41 @@ Memoria local (ignorada por git):
   la app abre una conversación nueva; a cada mensaje se le envían los 20 mensajes anteriores de
   la conversación actual. Los resultados de Viernes no se guardan como mensajes.
 
+### Servidores MCP: `tony mcp`
+
+```bash
+uv run tony mcp --help
+uv run tony mcp add notas npx --arg -y --arg @modelcontextprotocol/server-filesystem \
+    --arg '${HOME}/notas' --env LOG=1 --agent viernes
+uv run tony mcp add remoto https://example.test/mcp \
+    --header 'Authorization=Bearer ${REMOTE_TOKEN}' --agent viernes
+uv run tony mcp add notas npx --agent viernes/resumidor   # tool.json de un subagente
+uv run tony mcp list                  # todos los agentes y subagentes
+uv run tony mcp list --agent viernes
+```
+
+`tony mcp add <nombre> <comando-o-url> --agent <agente>` añade el servidor al `tool.json` del
+agente (o de `<agente>/<subagente>`) sin tocar el resto de claves ni su orden e imprime
+`added <nombre> to <fichero>`. Un destino que empieza por `http://` o `https://` crea una
+entrada HTTP (`url` y `--header K=V` repetible); cualquier otro, una entrada stdio (`command`,
+`--arg` y `--env K=V` repetibles). Mezclar opciones de otro transporte, un par sin `=` o con la
+clave vacía, un nombre ya existente, un nombre inválido (`tony`, con `.` o `__`), un agente
+inexistente o guardián, o un resultado que no valide terminan con error y dejan el fichero
+intacto. Las escrituras se serializan con un bloqueo exclusivo sobre `tool.json.lock` (espera
+como máximo 5 s) y sustituyen el fichero de forma atómica (JSON UTF-8 con sangría de 2 espacios).
+
+Los `${VAR}` se escriben tal cual y se resuelven al conectar, desde el entorno o
+`config/.env`. Si la clave de un `--header` o `--env` parece un secreto (`token`, `key`,
+`secret`, `password`, `passwd`, `authorization`, `pin`) y su valor no usa `${...}`, la entrada
+se escribe igualmente y stderr avisa recomendando un `${VAR}` definido en `config/.env`; los
+valores nunca se imprimen.
+
+`tony mcp list [--agent <agente>]` conecta cada servidor declarado con las mismas reglas que
+una tarea, imprime la tabla `agent server state tools` (`ok` o `error: <motivo enmascarado>`, y
+el número de tools) y cierra todas las conexiones. Sale con 0 aunque haya servidores caídos;
+un `--agent` inexistente o un `tool.json` inválido (que se nombra en stderr mientras se listan
+los demás) dan un código distinto de 0.
+
 ### Recarga en caliente
 
 La app de escritorio y `tony chat` vigilan (con `watchfiles`) cada
