@@ -85,3 +85,51 @@ def test_native_tools_checked_against_registry(tmp_path):
     agent = load_agent(tmp_path, "viernes", TonyConfig(), native_tools={"now"})
 
     assert agent.tools.native == ["now"]
+
+
+GUARD_MD = """---
+name: edith
+role: guard
+model: claude-haiku
+persona: {language: es, tone: formal}
+voice: {tts: kokoro/ef_dora}
+---
+Prompt.
+"""
+
+
+def make_guard(root, with_tool_folder):
+    folder = root / "agents" / "edith"
+    folder.mkdir(parents=True)
+    (folder / "agent.md").write_text(GUARD_MD)
+    if with_tool_folder:
+        (folder / "tool").mkdir()
+
+
+def test_guard_without_tool_folder_loads_with_no_tools(tmp_path):
+    make_guard(tmp_path, with_tool_folder=False)
+
+    agent = load_agent(tmp_path, "edith", TonyConfig(), native_tools={"now"})
+
+    assert agent.spec.role == "guard"
+    assert (agent.tools.mcp_servers, agent.tools.native) == ({}, [])
+
+
+def test_guard_with_tool_folder_rejected(tmp_path):
+    make_guard(tmp_path, with_tool_folder=True)
+
+    with pytest.raises(DefinitionError) as info:
+        load_agent(tmp_path, "edith", TonyConfig(), native_tools=set())
+
+    assert (info.value.file, info.value.field) == ("agents/edith/tool/", None)
+    assert "guard agent has no tools" in info.value.message
+
+
+@pytest.mark.parametrize("role", ["worker", "front"])
+def test_non_guard_without_tool_json_names_expected_file(tmp_path, role):
+    make_agent(tmp_path, agent_md=AGENT_MD.replace("role: worker", f"role: {role}"), tool_json=None)
+
+    with pytest.raises(DefinitionError) as info:
+        load_agent(tmp_path, "viernes", TonyConfig(), native_tools=set())
+
+    assert info.value.file == "agents/viernes/tool/tool.json"

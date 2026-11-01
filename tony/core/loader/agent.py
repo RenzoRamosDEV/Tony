@@ -7,6 +7,8 @@ from tony.core.config.settings import TonyConfig
 from tony.core.loader.agent_md import AgentSpec, parse_agent
 from tony.core.loader.tool_json import ToolSpec, load_tool_spec
 
+GUARD_ROLE = "guard"
+
 
 @dataclass(frozen=True)
 class AgentDefinition:
@@ -27,5 +29,17 @@ def load_agent(
     spec = parse_agent(
         (root / agent_file).read_text(), folder=name, file=agent_file, models=config.models
     )
-    tools = load_tool_spec(root, name, native_tools=native_tools)
+    if spec.role == GUARD_ROLE:
+        tools = _guard_tools(root, folder)
+    else:
+        tools = load_tool_spec(root, name, native_tools=native_tools)
     return AgentDefinition(name=name, spec=spec, tools=tools)
+
+
+def _guard_tools(root: Path, folder: str) -> ToolSpec:
+    tool_folder = f"{folder}tool/"
+    if (root / tool_folder).exists():
+        raise DefinitionError(
+            tool_folder, None, f"a guard agent has no tools: remove {tool_folder}"
+        )
+    return ToolSpec(mcp_servers={})
