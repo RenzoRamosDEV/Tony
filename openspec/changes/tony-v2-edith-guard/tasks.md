@@ -40,7 +40,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 7. Confirmation and wording (`tony/core/guard/confirm.py`, `wording.py`)
 
-- [ ] 7.1 Red: tests for `template_question(tool, preview, rule)` exact text and `worded_question`: valid model text used; model raising, exceeding injected 5 s timeout (short in tests), multi-line, wrong rule or off-template text -> template; model input contains `***` not the secret; Green: implement `QuestionWording` port and `worded_question`; verify tests pass
+- [x] 7.1 Red: tests for `template_question(tool, preview, rule)` exact text and `worded_question`: valid model text used; model raising, exceeding injected 5 s timeout (short in tests), multi-line, wrong rule or off-template text -> template; model input contains `***` not the secret; Green: implement `QuestionWording` port and `worded_question`; verify tests pass
 - [ ] 7.2 Red: tests for `CliConfirmer` with injected `readline` and `StringIO` stderr: ` Sí `, `YES`, `s`, `si`, `y` -> `True`; `vale`, empty line, EOF (`""`/`None`) -> `False`; question written to stderr only; a never-returning `readline` under an outer `wait_for` does not keep the loop or interpreter from finishing (daemon thread); `NoChannelConfirmer` -> `False`; Green: implement; verify tests pass
 - [ ] 7.3 Implement `ClaudeWording` adapter (one-shot Claude Agent SDK `query`, `tools=[]`, `setting_sources=[]`, `max_turns=1`, Edith's system prompt and resolved model id) test-first with a fake SDK `query` callable asserting options and returned text; add an `evals`-marked test with the real model asserting the returned question matches the template; verify the default run skips it
 
