@@ -11,7 +11,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 2. Shared message models (`tony/core/events`)
 
-- [ ] 2.1 Red: tests for `TaskRequest` (non-empty `objetivo`, defaults `contexto=""`, `restricciones=[]`), `TaskResult` (`resumen`, `datos`, `pasos`, `errores`), `ToolCall` envelope `{task_id, agent, tool, args}` and `Decision` literal, including JSON round-trip and boundary cases (empty/whitespace `objetivo`); Green: implement pydantic models; verify tests pass
+- [x] 2.1 Red: tests for `TaskRequest` (non-empty `objetivo`, defaults `contexto=""`, `restricciones=[]`), `TaskResult` (`resumen`, `datos`, `pasos`, `errores`), `ToolCall` envelope `{task_id, agent, tool, args}` and `Decision` literal, including JSON round-trip and boundary cases (empty/whitespace `objetivo`); Green: implement pydantic models; verify tests pass
 
 ## 3. Configuration (`tony/core/config`)
 
