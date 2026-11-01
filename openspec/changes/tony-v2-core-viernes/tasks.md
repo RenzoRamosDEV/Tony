@@ -30,7 +30,7 @@ Every implementation task follows Red -> Green -> Refactor: write the named fail
 
 ## 5. Task log (`tony/core/logging`)
 
-- [ ] 5.1 Red: tests for task id (32 lowercase hex, unique) and `JsonlTaskLog` (creates `logs/tasks/`, appends one JSON object per line, `ts` UTC ISO 8601 via injected clock, `task_id`, `type`, applies `SecretMasker`); Green: implement; verify tests pass
+- [x] 5.1 Red: tests for task id (32 lowercase hex, unique) and `JsonlTaskLog` (creates `logs/tasks/`, appends one JSON object per line, `ts` UTC ISO 8601 via injected clock, `task_id`, `type`, applies `SecretMasker`); Green: implement; verify tests pass
 - [ ] 5.2 Red: tests for typed event builders `task_started`, `tool_call`, `tool_result`, `token_usage`, `task_finished`, `error` (required fields present, JSON-serializable); Green: implement; verify tests pass
 
 ## 6. Test doubles
