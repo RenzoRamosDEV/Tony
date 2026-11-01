@@ -1,0 +1,1 @@
+{"ts": "2026-11-01T10:15:02Z", "task_id": "3f2a9c1e0b7d4e8f9a6b5c4d3e2f1a0b", "agent": "viernes", "tool": "filesystem.delete_file", "args_hash": "3fb94b7182a489ba6013f13de24e78cca69b1e373e8281c9035a78255be91b5e", "args_preview": "{\"path\": \"/home/renzo/notas/viejo.md\"}", "verdict": "confirm", "rule": "filesystem.delete*/confirm", "user_decision": "allow", "duration_ms": 8423}
