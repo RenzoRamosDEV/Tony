@@ -41,6 +41,23 @@ const voice = (state: string, reason: string | null = null): CoreEvent =>
   ({ type: "voice_state", ts: TS, state, reason }) as CoreEvent;
 const error = (source: string, message = "fallo"): CoreEvent => ({ type: "error", ts: TS, source, message });
 
+describe("audio devices", () => {
+  it("audio_devices event updates the audioDevices slice", () => {
+    const state = reduce(initialState(), {
+      kind: "event",
+      now: Date.now(),
+      event: {
+        type: "audio_devices", ts: "",
+        input: [{ name: "Mic A", is_default: true }], output: [],
+        selected_input: "Mic A", selected_output: null,
+        input_fallback_warning: null, output_fallback_warning: null,
+      },
+    });
+    expect(state.audioDevices.selectedInput).toBe("Mic A");
+    expect(state.audioDevices.input).toEqual([{ name: "Mic A", is_default: true }]);
+  });
+});
+
 describe("chat", () => {
   it("streams tokens into one bubble per agent with its label and colour", () => {
     const state = apply(token("jarvis", "Hola"), token("jarvis", ", señor"), token("viernes", "Leo"));

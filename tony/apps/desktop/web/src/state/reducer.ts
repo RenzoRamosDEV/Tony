@@ -1,4 +1,6 @@
 import type {
+  AudioDeviceOption,
+  AudioDevicesEvent,
   AuditRow,
   AuthEvent,
   CoreEvent,
@@ -90,6 +92,15 @@ export interface PinView {
   canUnlock: boolean;
 }
 
+export interface AudioDevicesView {
+  input: AudioDeviceOption[];
+  output: AudioDeviceOption[];
+  selectedInput: string | null;
+  selectedOutput: string | null;
+  inputWarning: string | null;
+  outputWarning: string | null;
+}
+
 export interface UiState {
   messages: ChatMessage[];
   nextId: number;
@@ -103,6 +114,7 @@ export interface UiState {
   confirmation: NeedsConfirmationEvent | null;
   pin: PinView;
   thinking: boolean;
+  audioDevices: AudioDevicesView;
 }
 
 export type UiAction =
@@ -129,6 +141,28 @@ export function initialState(): UiState {
     confirmation: null,
     pin: { mode: "hidden", message: "", retryAt: 0, canUnlock: false },
     thinking: false,
+    audioDevices: {
+      input: [],
+      output: [],
+      selectedInput: null,
+      selectedOutput: null,
+      inputWarning: null,
+      outputWarning: null,
+    },
+  };
+}
+
+function onAudioDevices(state: UiState, event: AudioDevicesEvent): UiState {
+  return {
+    ...state,
+    audioDevices: {
+      input: event.input,
+      output: event.output,
+      selectedInput: event.selected_input,
+      selectedOutput: event.selected_output,
+      inputWarning: event.input_fallback_warning,
+      outputWarning: event.output_fallback_warning,
+    },
   };
 }
 
@@ -322,6 +356,8 @@ function onEvent(state: UiState, event: CoreEvent, now: number): UiState {
       return { ...state, confirmation: event };
     case "auth":
       return onAuth(state, event, now);
+    case "audio_devices":
+      return onAudioDevices(state, event);
     default:
       return state;
   }
