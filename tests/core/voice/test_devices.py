@@ -1,4 +1,4 @@
-from tony.core.voice.devices import list_devices
+from tony.core.voice.engines.devices import list_devices
 
 FAKE_DEVICES = [
     {"name": "Built-in Mic", "max_input_channels": 2, "max_output_channels": 0},

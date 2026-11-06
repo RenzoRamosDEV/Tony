@@ -43,7 +43,7 @@ from tony.core.orchestrator.front_tools import WAITING_AFTER_S
 from tony.core.orchestrator.natives import NATIVE_TOOLS
 from tony.core.orchestrator.ports import ChatEngine, ModelEngine
 from tony.core.orchestrator.runner import RunDeps, WordingFactory
-from tony.core.voice.devices import list_devices
+from tony.core.voice.engines.devices import list_devices
 from tony.core.voice.service import VoiceCast, VoiceService
 
 VOICE_NOT_CONFIGURED = "voice is not configured"

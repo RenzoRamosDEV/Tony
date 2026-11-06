@@ -229,7 +229,7 @@ def test_voice_level_uses_the_injected_clock():
 
 
 def test_audio_devices_event_shape():
-    from tony.core.voice.devices import DeviceInfo
+    from tony.core.voice.engines.devices import DeviceInfo
 
     event = ev.audio_devices(
         (DeviceInfo(name="Mic A", kind="input", is_default=True),), (),

@@ -28,7 +28,7 @@ async def test_list_devices_publishes_audio_devices_event(tmp_path, monkeypatch)
     home, _ = home_for(tmp_path)
     loader, voice = with_voice()
     monkeypatch.setattr(
-        "tony.core.voice.devices.list_devices",
+        "tony.core.voice.engines.devices.list_devices",
         lambda: (),
     )
 
@@ -44,7 +44,7 @@ async def test_set_audio_device_applies_persists_and_republishes(tmp_path, monke
     home, _ = home_for(tmp_path)
     loader, voice = with_voice()
     monkeypatch.setattr(
-        "tony.core.voice.devices.list_devices",
+        "tony.core.voice.engines.devices.list_devices",
         lambda: (),
     )
 
