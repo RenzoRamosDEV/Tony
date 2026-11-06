@@ -1,7 +1,7 @@
 import pytest
 
 from tony.core.config.errors import DefinitionError
-from tony.core.config.settings import TonyConfig, load_config
+from tony.core.config.settings import TonyConfig, VoiceSettings, load_config, save_config
 
 DEFAULTS = {
     "front": "jarvis",
@@ -9,9 +9,31 @@ DEFAULTS = {
     "guard": "edith",
     "reply_mode": "auto",
     "models": {"claude-haiku": "claude-haiku-5-5", "claude-sonnet": "claude-sonnet-5-5"},
-    "voice": {"stt": "faster-whisper/small", "vad": "silero", "tts_default": "kokoro/em_alex"},
+    "voice": {
+        "stt": "faster-whisper/small",
+        "vad": "silero",
+        "tts_default": "kokoro/em_alex",
+        "input_device": None,
+        "output_device": None,
+    },
     "desktop": {"hotkey": "Super+J", "tray": True, "theme": "system"},
 }
+
+
+def test_voice_settings_defaults_to_system_default_devices():
+    assert VoiceSettings().input_device is None
+    assert VoiceSettings().output_device is None
+
+
+def test_save_config_round_trips_through_load_config(tmp_path):
+    config = TonyConfig(voice=VoiceSettings(input_device="USB Mic"))
+    save_config(tmp_path, config)
+    assert load_config(tmp_path).voice.input_device == "USB Mic"
+
+
+def test_save_config_writes_atomically_no_temp_file_left(tmp_path):
+    save_config(tmp_path, TonyConfig())
+    assert sorted(p.name for p in (tmp_path / "config").iterdir()) == ["tony.yaml"]
 
 
 def write_config(root, text):

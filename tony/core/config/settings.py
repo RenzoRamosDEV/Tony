@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -17,6 +19,8 @@ class VoiceSettings(_Strict):
     stt: str = "faster-whisper/small"
     vad: str = "silero"
     tts_default: str = "kokoro/em_alex"
+    input_device: str | None = None
+    output_device: str | None = None
 
 
 class DesktopSettings(_Strict):
@@ -60,3 +64,16 @@ def load_config(root: Path) -> TonyConfig:
         return TonyConfig.model_validate(data)
     except ValidationError as error:
         raise DefinitionError.from_validation(CONFIG_FILE, error) from error
+
+
+def save_config(root: Path, config: TonyConfig) -> None:
+    path = root / CONFIG_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp = tempfile.mkstemp(dir=path.parent, prefix=".tony.yaml.")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            yaml.safe_dump(config.model_dump(), handle)
+        os.replace(temp, path)
+    except BaseException:
+        Path(temp).unlink(missing_ok=True)
+        raise
