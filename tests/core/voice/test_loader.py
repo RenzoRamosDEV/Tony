@@ -1,8 +1,25 @@
 import pytest
 
 from tony.core.config.settings import VoiceSettings
-from tony.core.voice.engines.loader import EXTRA_MISSING, REQUIRED_MODULES, load_engines
+from tony.core.voice.engines.loader import EXTRA_MISSING, REQUIRED_MODULES, build_engines, load_engines
 from tony.core.voice.ports import Unavailable
+
+
+def test_build_engines_passes_device_settings_through(monkeypatch):
+    captured = {}
+
+    class SpyInput:
+        def __init__(self, device=None):
+            captured["input"] = device
+
+    class SpyOutput:
+        def __init__(self, device=None):
+            captured["output"] = device
+
+    monkeypatch.setattr("tony.core.voice.engines.sounddevice_io.SoundDeviceInput", SpyInput)
+    monkeypatch.setattr("tony.core.voice.engines.sounddevice_io.SoundDeviceOutput", SpyOutput)
+    build_engines(VoiceSettings(input_device="Mic A", output_device="Speak B"), ("kokoro/em_alex",))
+    assert captured == {"input": "Mic A", "output": "Speak B"}
 
 
 def failing_on(missing, error):

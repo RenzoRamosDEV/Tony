@@ -18,8 +18,8 @@ def build_engines(settings: VoiceSettings, voices: tuple[str, ...]) -> Engines:
     from tony.core.voice.engines.sounddevice_io import SoundDeviceInput, SoundDeviceOutput
 
     return Engines(
-        audio_input=SoundDeviceInput(),
-        audio_output=SoundDeviceOutput(),
+        audio_input=SoundDeviceInput(device=settings.input_device),
+        audio_output=SoundDeviceOutput(device=settings.output_device),
         vad=SileroVad(),
         stt=FasterWhisperStt(settings.stt.split("/", 1)[1]),
         tts=KokoroTts(voices),
