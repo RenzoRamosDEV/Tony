@@ -124,6 +124,19 @@ export interface VoiceLevelEvent extends Base {
   source: "input" | "output";
   level: number;
 }
+export interface AudioDeviceOption {
+  name: string;
+  is_default: boolean;
+}
+export interface AudioDevicesEvent extends Base {
+  type: "audio_devices";
+  input: AudioDeviceOption[];
+  output: AudioDeviceOption[];
+  selected_input: string | null;
+  selected_output: string | null;
+  input_fallback_warning: string | null;
+  output_fallback_warning: string | null;
+}
 
 export type CoreEvent =
   | TokenEvent
@@ -141,7 +154,8 @@ export type CoreEvent =
   | TurnStartedEvent
   | TranscriptEvent
   | VoiceStateEvent
-  | VoiceLevelEvent;
+  | VoiceLevelEvent
+  | AudioDevicesEvent;
 
 export type Command =
   | { type: "send_message"; text: string; origin?: Origin }
@@ -150,7 +164,9 @@ export type Command =
   | { type: "set_mode"; mode: ReplyMode }
   | { type: "unlock"; pin: string | null }
   | { type: "listen" }
-  | { type: "stop_listening" };
+  | { type: "stop_listening" }
+  | { type: "list_devices" }
+  | { type: "set_audio_device"; kind: "input" | "output"; device: string | null };
 
 export interface AuditRow {
   time: string;
