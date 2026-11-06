@@ -226,3 +226,16 @@ def test_masking_publisher_masks_transcripts_and_voice_reasons():
 
 def test_voice_level_uses_the_injected_clock():
     assert ev.voice_level("input", 0.0, clock=clock)["ts"] == TS
+
+
+def test_audio_devices_event_shape():
+    from tony.core.voice.devices import DeviceInfo
+
+    event = ev.audio_devices(
+        (DeviceInfo(name="Mic A", kind="input", is_default=True),), (),
+        selected_input="Mic A", selected_output=None,
+    )
+    assert event["type"] == "audio_devices"
+    assert event["input"] == [{"name": "Mic A", "kind": "input", "is_default": True}]
+    assert event["selected_input"] == "Mic A"
+    assert event["input_fallback_warning"] is None

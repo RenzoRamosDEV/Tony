@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC
 from typing import Any, Literal
@@ -169,3 +170,25 @@ def voice_state(state: VoiceState, reason: str | None = None, *, clock: Clock = 
 
 def voice_level(source: VoiceLevelSource, level: float, *, clock: Clock = utc_now) -> Event:
     return _event("voice_level", clock, source=source, level=level)
+
+
+def audio_devices(
+    input: tuple[Any, ...],
+    output: tuple[Any, ...],
+    *,
+    selected_input: str | None,
+    selected_output: str | None,
+    input_fallback_warning: str | None = None,
+    output_fallback_warning: str | None = None,
+    clock: Clock = utc_now,
+) -> Event:
+    return _event(
+        "audio_devices",
+        clock,
+        input=[dataclasses.asdict(device) for device in input],
+        output=[dataclasses.asdict(device) for device in output],
+        selected_input=selected_input,
+        selected_output=selected_output,
+        input_fallback_warning=input_fallback_warning,
+        output_fallback_warning=output_fallback_warning,
+    )
