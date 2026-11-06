@@ -15,6 +15,13 @@ from tony.core.voice.listener import Listener
 UTTERANCE = "..SSSS" + "." * 22
 
 
+def test_listener_set_device_delegates_to_audio():
+    audio = ScriptedAudioInput()
+    listener = Listener(audio, ThresholdVad(), ScriptedStt(), lambda *_: None)
+    listener.set_device("Mic B")
+    assert audio.device == "Mic B"
+
+
 class SteppingClock:
     """Each read advances `step` seconds, starting at 0."""
 

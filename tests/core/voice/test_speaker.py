@@ -9,6 +9,13 @@ ALEX = "kokoro/em_alex"
 DORA = "kokoro/ef_dora,bf_emma"
 
 
+def test_speaker_set_device_delegates_to_output():
+    output = RecordingAudioOutput()
+    speaker = Speaker(TextTts(), output, lambda *_: None)
+    speaker.set_device("Speak B")
+    assert output.device == "Speak B"
+
+
 class Reports(list):
     def __call__(self, source, message):
         self.append((source, message))

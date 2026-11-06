@@ -67,6 +67,9 @@ class Speaker:
         self._synthesis.stop()
         self._playback.stop()
 
+    def set_device(self, device: str | None) -> None:
+        self._output.set_device(device)
+
     def _synthesize(self, item: tuple[int, str, str]) -> None:
         generation, text, voice = item
         if generation != self._generation:

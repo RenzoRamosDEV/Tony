@@ -84,6 +84,9 @@ class Listener:
         self._detection.stop()
         self._transcription.stop()
 
+    def set_device(self, device: str | None) -> None:
+        self._audio.set_device(device)
+
     def _detect(self, item: tuple[_Session, bytes]) -> None:
         session, frame = item
         if session is not self._session or not session.capturing:
