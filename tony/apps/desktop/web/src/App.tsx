@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } f
 import { connectBridge } from "./bridge/channel";
 import type { Command, CoreEvent, TonyBridge } from "./bridge/types";
 import { ActivityPanel } from "./components/ActivityPanel";
+import { AudioSettingsOverlay } from "./components/AudioSettingsOverlay";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConfirmationCard } from "./components/ConfirmationCard";
 import { EdithPanel } from "./components/EdithPanel";
@@ -150,6 +151,7 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
         onHide={() => dispatch({ kind: "pin_cancelled" })}
         onUnlockRequest={() => dispatch({ kind: "unlock_requested" })}
       />
+      <AudioSettingsOverlay devices={state.audioDevices} onCommand={send} />
     </>
   );
 }

@@ -114,6 +114,14 @@ describe("App", () => {
     expect(screen.getByText("shell.run")).toBeInTheDocument();
   });
 
+  it("renders the audio settings trigger and forwards commands through the bridge", async () => {
+    const { bridge } = await mount();
+
+    fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
+
+    expect(bridge.sent).toContainEqual({ type: "list_devices" });
+  });
+
   it("listens to the bridge once", async () => {
     const { bridge } = await mount();
 
