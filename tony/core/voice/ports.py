@@ -24,12 +24,16 @@ class AudioInput(Protocol):
 
     def close(self) -> None: ...
 
+    def set_device(self, device: str | None) -> None: ...
+
 
 class AudioOutput(Protocol):
     def play(self, clip: Clip) -> None:
         """Play the clip, returning once it has finished or `stop()` interrupted it."""
 
     def stop(self) -> None: ...
+
+    def set_device(self, device: str | None) -> None: ...
 
 
 class Vad(Protocol):
