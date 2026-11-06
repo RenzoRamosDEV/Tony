@@ -20,6 +20,31 @@ from tony.core.voice.service import VoiceCast
 UTTERANCE = frames("..SSSS" + "." * 22)
 
 
+async def test_set_input_device_delegates_once_loaded(harness):
+    loader = FakeLoader()
+    h = harness(loader)
+    h.start()
+    await h.ready()
+    h.service.set_input_device("Mic B")
+    assert loader.audio.device == "Mic B"
+
+
+async def test_set_output_device_delegates_once_loaded(harness):
+    loader = FakeLoader()
+    h = harness(loader)
+    h.start()
+    await h.ready()
+    h.service.set_output_device("Speak B")
+    assert loader.output.device == "Speak B"
+
+
+def test_set_output_device_is_a_no_op_before_engines_load():
+    from tony.core.voice.service import VoiceService
+
+    service = VoiceService(loader=lambda *a: Unavailable("loading"))
+    service.set_output_device("Speak B")
+
+
 @pytest.fixture
 async def harness():
     made = []

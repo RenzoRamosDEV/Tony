@@ -154,6 +154,14 @@ class VoiceService:
         if self._listener is not None:
             self._listener.stop()
 
+    def set_input_device(self, device: str | None) -> None:
+        if self._listener is not None:
+            self._listener.set_device(device)
+
+    def set_output_device(self, device: str | None) -> None:
+        if self._speaker is not None:
+            self._speaker.set_device(device)
+
     def stop_speaking(self) -> None:
         self._turn = None
         self._cancel_flush()
