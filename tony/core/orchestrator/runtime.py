@@ -10,7 +10,7 @@ from typing import Any
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.reload import ChangeStream, live_config
 from tony.core.config.secrets import Variables, load_variables
-from tony.core.config.settings import VoiceSettings, load_config
+from tony.core.config.settings import VoiceSettings, load_config, save_config
 from tony.core.config.watcher import watch_config
 from tony.core.events import core_events
 from tony.core.events.core_events import Event, MaskingPublisher, Origin, Publisher
@@ -28,7 +28,9 @@ from tony.core.orchestrator.commands import (
     Confirm,
     InvalidCommand,
     Listen,
+    ListDevices,
     SendMessage,
+    SetAudioDevice,
     SetMode,
     Stop,
     StopListening,
@@ -40,6 +42,7 @@ from tony.core.orchestrator.front_tools import WAITING_AFTER_S
 from tony.core.orchestrator.natives import NATIVE_TOOLS
 from tony.core.orchestrator.ports import ChatEngine, ModelEngine
 from tony.core.orchestrator.runner import RunDeps, WordingFactory
+from tony.core.voice.devices import list_devices
 from tony.core.voice.service import VoiceCast, VoiceService
 
 VOICE_NOT_CONFIGURED = "voice is not configured"
@@ -142,6 +145,7 @@ class CoreRuntime:
             self._startup_error = _describe(error)
             self._publish(core_events.error("startup", self._startup_error))
             return
+        self._config = config
         variables = load_variables(self._root, self._environ)
         masker = SecretMasker(variables.env_file_values.values())
         ui_publish = MaskingPublisher(masker, self._publish)
@@ -235,6 +239,40 @@ class CoreRuntime:
             self._require_voice().listen()
         elif isinstance(command, StopListening) and self.voice is not None:
             self.voice.stop_listening()
+        elif isinstance(command, ListDevices):
+            self._publish_audio_devices()
+        elif isinstance(command, SetAudioDevice):
+            self._set_audio_device(command.kind, command.device)
+
+    def _publish_audio_devices(
+        self, *, input_fallback_warning: str | None = None, output_fallback_warning: str | None = None
+    ) -> None:
+        devices = list_devices()
+        inputs = tuple(device for device in devices if device.kind == "input")
+        outputs = tuple(device for device in devices if device.kind == "output")
+        self._publish(
+            core_events.audio_devices(
+                inputs,
+                outputs,
+                selected_input=self._config.voice.input_device,
+                selected_output=self._config.voice.output_device,
+                input_fallback_warning=input_fallback_warning,
+                output_fallback_warning=output_fallback_warning,
+            )
+        )
+
+    def _set_audio_device(self, kind: str, device: str | None) -> None:
+        if self.voice is not None:
+            if kind == "input":
+                self.voice.set_input_device(device)
+            else:
+                self.voice.set_output_device(device)
+        if kind == "input":
+            self._config.voice.input_device = device
+        else:
+            self._config.voice.output_device = device
+        save_config(self._root, self._config)
+        self._publish_audio_devices()
 
     def _require_voice(self) -> VoiceService:
         if self.voice is None:

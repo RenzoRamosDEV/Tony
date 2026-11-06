@@ -4,9 +4,44 @@ from tests.core.orchestrator.test_runtime import Harness, home_for
 from tests.core.voice.service_harness import ALEX, EDITH, FakeLoader, voice_threads
 from tests.fakes.fake_chat import FakeChatEngine, Say, Wait
 from tests.fakes.voice import RecordingAudioOutput, ScriptedAudioInput, ScriptedStt, frames
+from tony.core.config.settings import load_config
 from tony.core.voice.service import VoiceService
 
 UTTERANCE = frames("..SSSS" + "." * 22)
+
+
+async def test_list_devices_publishes_audio_devices_event(tmp_path, monkeypatch):
+    home, _ = home_for(tmp_path)
+    loader, voice = with_voice()
+    monkeypatch.setattr(
+        "tony.core.voice.devices.list_devices",
+        lambda: (),
+    )
+
+    async with Harness(home, voice=voice) as harness:
+        await ready(harness)
+        harness.send(type="list_devices")
+        await harness.until(lambda: harness.of("audio_devices"))
+
+    assert harness.of("audio_devices")[-1]["type"] == "audio_devices"
+
+
+async def test_set_audio_device_applies_persists_and_republishes(tmp_path, monkeypatch):
+    home, _ = home_for(tmp_path)
+    loader, voice = with_voice()
+    monkeypatch.setattr(
+        "tony.core.voice.devices.list_devices",
+        lambda: (),
+    )
+
+    async with Harness(home, voice=voice) as harness:
+        await ready(harness)
+        harness.send(type="set_audio_device", kind="input", device="Mic A")
+        await harness.until(lambda: harness.of("audio_devices"))
+
+    assert loader.audio.device == "Mic A"
+    assert load_config(home).voice.input_device == "Mic A"
+    assert harness.of("audio_devices")[-1]["selected_input"] == "Mic A"
 
 
 @pytest.fixture(autouse=True)
