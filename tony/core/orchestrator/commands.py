@@ -48,8 +48,27 @@ class Stop(_Command):
     type: Literal["stop"] = "stop"
 
 
+class ListDevices(_Command):
+    type: Literal["list_devices"] = "list_devices"
+
+
+class SetAudioDevice(_Command):
+    type: Literal["set_audio_device"] = "set_audio_device"
+    kind: Literal["input", "output"]
+    device: str | None
+
+
 Command = Annotated[
-    SendMessage | Confirm | Cancel | SetMode | Unlock | Listen | StopListening | Stop,
+    SendMessage
+    | Confirm
+    | Cancel
+    | SetMode
+    | Unlock
+    | Listen
+    | StopListening
+    | Stop
+    | ListDevices
+    | SetAudioDevice,
     Field(discriminator="type"),
 ]
 _COMMAND = TypeAdapter(Command)

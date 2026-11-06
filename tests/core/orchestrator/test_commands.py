@@ -5,13 +5,34 @@ from tony.core.orchestrator.commands import (
     Confirm,
     InvalidCommand,
     Listen,
+    ListDevices,
     SendMessage,
+    SetAudioDevice,
     SetMode,
     Stop,
     StopListening,
     Unlock,
     parse_command,
 )
+
+
+def test_parses_list_devices():
+    assert parse_command({"type": "list_devices"}) == ListDevices()
+
+
+def test_parses_set_audio_device():
+    cmd = parse_command({"type": "set_audio_device", "kind": "input", "device": "Mic A"})
+    assert cmd == SetAudioDevice(kind="input", device="Mic A")
+
+
+def test_parses_set_audio_device_with_null_device_as_system_default():
+    cmd = parse_command({"type": "set_audio_device", "kind": "output", "device": None})
+    assert cmd.device is None
+
+
+def test_rejects_set_audio_device_with_bad_kind():
+    with pytest.raises(InvalidCommand):
+        parse_command({"type": "set_audio_device", "kind": "sideways", "device": None})
 
 
 @pytest.mark.parametrize(
