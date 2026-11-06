@@ -14,6 +14,7 @@ mutants/
 # Secrets and runtime data
 config/.env
 config/edith.lock
+config/edith.session
 config/engine-auth.json
 logs/
 memory/*.sqlite*

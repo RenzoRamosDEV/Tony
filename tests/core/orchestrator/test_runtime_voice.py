@@ -4,10 +4,24 @@ from tests.core.orchestrator.test_runtime import Harness, home_for
 from tests.core.voice.service_harness import ALEX, EDITH, FakeLoader, voice_threads
 from tests.fakes.fake_chat import FakeChatEngine, Say, Wait
 from tests.fakes.voice import RecordingAudioOutput, ScriptedAudioInput, ScriptedStt, frames
+from tests.core.guard.shipped_policy import SHIPPED_POLICY_YAML
 from tony.core.config.settings import load_config
+from tony.core.guard.pin import PinStore
+from tony.core.guard.unlock_expiry import UnlockExpiry
 from tony.core.voice.service import VoiceService
 
 UTTERANCE = frames("..SSSS" + "." * 22)
+
+PIN = "4821"
+
+
+async def test_start_constructs_session_with_unlock_expiry(tmp_path):
+    home, _ = home_for(tmp_path, SHIPPED_POLICY_YAML)
+    UnlockExpiry(home).refresh(lock_after_min=30)
+    PinStore(home).set(PIN)
+
+    async with Harness(home) as harness:
+        assert harness.runtime.session.unlocked
 
 
 async def test_list_devices_publishes_audio_devices_event(tmp_path, monkeypatch):

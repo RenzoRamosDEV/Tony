@@ -18,6 +18,7 @@ from tony.core.guard.broker import ConfirmationBroker
 from tony.core.guard.pin import PinStore
 from tony.core.guard.policy import load_policy
 from tony.core.guard.session import AuthStatus, EdithSession, SessionGate
+from tony.core.guard.unlock_expiry import UnlockExpiry
 from tony.core.loader.agent import AgentDefinition
 from tony.core.mcp.manager import McpManager
 from tony.core.memory.history import HistoryStore
@@ -151,7 +152,12 @@ class CoreRuntime:
         ui_publish = MaskingPublisher(masker, self._publish)
         self._publish = ui_publish if self.voice is None else _fan_out(ui_publish, self.voice)
         self.broker = ConfirmationBroker(self._root, config.guard, self._publish)
-        self.session = EdithSession(policy.auth, PinStore(self._root), monotonic=self._monotonic)
+        self.session = EdithSession(
+            policy.auth,
+            PinStore(self._root),
+            monotonic=self._monotonic,
+            expiry=UnlockExpiry(self._root),
+        )
         live = live_config(
             self._root,
             config.guard,
