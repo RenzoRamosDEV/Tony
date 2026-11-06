@@ -6,6 +6,7 @@ from typing import NamedTuple, Protocol
 
 from tony.core.events.core_events import AuthReason, AuthState
 from tony.core.guard.policy import Auth
+from tony.core.guard.unlock_expiry import UnlockExpiry
 
 FREE_ATTEMPTS = 2
 BACKOFF_S = (10, 30, 60)
@@ -38,10 +39,12 @@ class EdithSession:
         pins: PinVerifier,
         *,
         monotonic: Callable[[], float] = time.monotonic,
+        expiry: UnlockExpiry | None = None,
     ) -> None:
         self._auth = auth
         self._pins = pins
         self._monotonic = monotonic
+        self._expiry = expiry
         self._failures = 0
         self._retry_at = 0.0
         self._last_message: float | None = None
@@ -50,6 +53,9 @@ class EdithSession:
             self.status = AuthStatus("unlocked", "not_required", 0)
         elif not pins.has_valid_lock():
             self._lock_conversation_only("no_lock_file")
+        elif expiry is not None and expiry.is_valid():
+            self.status = AuthStatus("unlocked", "unlocked", 0)
+            self._last_message = self._monotonic()
         else:
             self.status = AuthStatus("locked", "start", 0)
 
@@ -69,6 +75,8 @@ class EdithSession:
             self._failures = 0
             self.conversation_only = False
             self.status = AuthStatus("unlocked", "unlocked", 0)
+            if self._expiry is not None:
+                self._expiry.refresh(self._auth.lock_after_min)
             return self.status
         self._failures += 1
         wait = wait_after(self._failures)
@@ -85,13 +93,19 @@ class EdithSession:
         previous, self._last_message = self._last_message, now
         idle = previous is not None and now - previous >= self._auth.lock_after_min * 60
         if not (idle and self._auth.pin_required and self.unlocked):
+            if self.unlocked and self._expiry is not None:
+                self._expiry.refresh(self._auth.lock_after_min)
             return None
         self.status = AuthStatus("locked", "idle", 0)
+        if self._expiry is not None:
+            self._expiry.clear()
         return self.status
 
     def _lock_conversation_only(self, reason: AuthReason) -> AuthStatus:
         self.conversation_only = True
         self.status = AuthStatus("locked", reason, 0)
+        if self._expiry is not None:
+            self._expiry.clear()
         return self.status
 
 

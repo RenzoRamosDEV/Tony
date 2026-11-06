@@ -35,6 +35,71 @@ def session(pin_required=True, valid_lock=True, lock_after_min=30):
     return edith, clock, pins
 
 
+class FakeExpiry:
+    def __init__(self, valid=False):
+        self.valid = valid
+        self.refreshed_with: list[int] = []
+        self.cleared = False
+
+    def is_valid(self):
+        return self.valid
+
+    def refresh(self, lock_after_min):
+        self.refreshed_with.append(lock_after_min)
+
+    def clear(self):
+        self.cleared = True
+
+
+def test_restart_unlocked_when_expiry_valid_and_lock_valid():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry(valid=True)
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+    assert edith.unlocked
+
+
+def test_restart_stays_locked_when_expiry_invalid():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry(valid=False)
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+    assert not edith.unlocked
+
+
+def test_restart_stays_locked_when_lock_file_invalid_even_if_expiry_valid():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=False), FakeExpiry(valid=True)
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+    assert not edith.unlocked
+
+
+def test_successful_attempt_refreshes_expiry():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry()
+    edith = EdithSession(Auth(pin_required=True, lock_after_min=30), pins, monotonic=clock, expiry=expiry)
+    edith.attempt(PIN)
+    assert expiry.refreshed_with == [30]
+
+
+def test_failed_attempt_does_not_touch_expiry():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry()
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+    edith.attempt("0000")
+    assert expiry.refreshed_with == [] and not expiry.cleared
+
+
+def test_idle_relock_clears_expiry():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry()
+    edith = EdithSession(Auth(pin_required=True, lock_after_min=1), pins, monotonic=clock, expiry=expiry)
+    edith.attempt(PIN)
+    edith.touch()
+    clock.now += 61
+    edith.touch()
+    assert expiry.cleared
+
+
+def test_cancel_clears_expiry():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry()
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+    edith.cancel()
+    assert expiry.cleared
+
+
 @pytest.mark.parametrize(
     ("pin_required", "valid_lock", "status", "conversation_only"),
     [
