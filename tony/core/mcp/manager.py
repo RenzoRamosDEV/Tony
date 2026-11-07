@@ -61,7 +61,7 @@ class McpManager:
         self._log_dir = log_dir
         self._stack = AsyncExitStack()
         self._sessions: dict[str, ClientSession] = {}
-        self._native = {name: (native or {})[name] for name in spec.native}
+        self._native = {name: tool for name, tool in (native or {}).items() if name in spec.native}
         self._on_status = on_status
 
     async def __aenter__(self) -> Self:

@@ -81,6 +81,22 @@ def test_loader_still_rejects_unknown_native():
     assert info.value.field == "native"
 
 
+async def test_declared_native_without_a_registry_is_skipped_not_a_keyerror(tmp_path):
+    """A connectivity probe passes no native registry; declared natives must not crash
+    construction, since the probe never calls them."""
+    spec = ToolSpec.model_validate({"mcpServers": {}, "native": ["read_skill", "run_subagent"]})
+    manager = McpManager(
+        spec,
+        variables=secret_variables({}),
+        masker=SecretMasker(),
+        sink=ListEventSink(),
+        log_dir=tmp_path,
+    )
+
+    async with manager:
+        assert manager.tools == []
+
+
 async def test_manager_defaults_to_no_natives(tmp_path):
     spec = ToolSpec.model_validate({"mcpServers": {}})
     manager = McpManager(
