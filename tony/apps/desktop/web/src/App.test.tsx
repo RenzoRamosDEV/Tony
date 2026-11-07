@@ -95,7 +95,7 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  it("lays out the orb, chat, microphone, reply mode and both panels", async () => {
+  it("lays out the orb, chat, microphone, reply mode and the activity panel", async () => {
     await mount();
 
     expect(stage()).not.toBeNull();
@@ -104,14 +104,6 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Micrófono" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Modo de respuesta" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Actividad/ })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: /Edith/ })).toHaveAttribute("aria-expanded", "true");
-  });
-
-  it("loads today's audit once after connecting", async () => {
-    const { bridge } = await mount();
-
-    expect(bridge.auditCalls).toBe(1);
-    expect(screen.getByText("shell.run")).toBeInTheDocument();
   });
 
   it("renders the audio settings trigger and forwards commands through the bridge", async () => {

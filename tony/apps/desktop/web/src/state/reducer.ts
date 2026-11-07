@@ -13,6 +13,7 @@ import type {
   Verdict,
   VoiceStateName,
 } from "../bridge/types";
+import { serverInfo, titleCase } from "../mcpServers";
 
 export const AGENT_COLOURS: Record<string, string> = {
   jarvis: "#2F6FED",
@@ -278,11 +279,12 @@ function onToolCall(state: UiState, event: ToolCallEvent): UiState {
 }
 
 function onServer(state: UiState, event: McpStatusEvent): UiState {
+  const status = event.up ? "Activo" : `Caído: ${event.reason}`;
   const row: ServerRow = {
     agent: event.agent,
     server: event.server,
     down: !event.up,
-    label: `${event.agent}/${event.server} — ${event.up ? "activo" : `caído: ${event.reason}`}`,
+    label: `Agente ${titleCase(event.agent)} - ${serverInfo(event.server).label} - ${status}`,
   };
   const same = (s: ServerRow) => s.agent === row.agent && s.server === row.server;
   const servers = state.servers.some(same)

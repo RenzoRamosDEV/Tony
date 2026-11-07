@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { connectBridge } from "./bridge/channel";
 import type { Command, CoreEvent, TonyBridge } from "./bridge/types";
@@ -6,14 +6,13 @@ import { ActivityPanel } from "./components/ActivityPanel";
 import { AudioSettingsOverlay } from "./components/AudioSettingsOverlay";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConfirmationCard } from "./components/ConfirmationCard";
-import { EdithPanel } from "./components/EdithPanel";
 import { MicButton } from "./components/MicButton";
 import { PinOverlay } from "./components/PinOverlay";
 import { ReplyModeSelector } from "./components/ReplyModeSelector";
 import type { OrbScene } from "./orb/scene";
 import { deriveOrbState, type OrbState } from "./orb/orbState";
 import { OrbStage } from "./orb/OrbStage";
-import { type AuditFilter, initialState, reduce, visibleAudit } from "./state/reducer";
+import { initialState, reduce } from "./state/reducer";
 
 /** The core publishes levels every 50 ms: an older one means the sound has stopped. */
 const LEVEL_STALE_MS = 150;
@@ -21,7 +20,6 @@ const ORB_REFRESH_MS = 100;
 
 const Chat = memo(ChatPanel);
 const Activity = memo(ActivityPanel);
-const Edith = memo(EdithPanel);
 
 interface Props {
   connect?: () => Promise<TonyBridge>;
@@ -83,7 +81,6 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
         bridge.current = connected;
         connected.onEvent(onEvent);
         connected.onFocusConfirmation(() => setFocusRequest((n) => n + 1));
-        void connected.auditToday().then((rows) => dispatch({ kind: "audit_loaded", rows }));
       },
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -122,9 +119,6 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
     },
     [send],
   );
-  const auditRows = useMemo(() => visibleAudit(state), [state.audit, state.auditFilter]);
-  const filterAudit = useCallback((filter: AuditFilter) => dispatch({ kind: "audit_filter", filter }), []);
-
   return (
     <>
       <OrbStage
@@ -140,7 +134,6 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
       <Chat messages={state.messages} onSend={sendText} />
       <div className="side-panels">
         <Activity tasks={state.tasks} servers={state.servers} />
-        <Edith rows={auditRows} filter={state.auditFilter} onFilter={filterAudit} />
       </div>
       {state.confirmation ? (
         <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} focusRequest={focusRequest} />

@@ -11,10 +11,10 @@ export function CollapsiblePanel({ title, className, children }: Props) {
   const [open, setOpen] = useState(true);
   const bodyId = useId();
   return (
-    <section className={`side-panel hud-panel ${className}`} aria-label={title}>
+    <section className={`side-panel holo-frame ${className}`} aria-label={title}>
       <button
         type="button"
-        className="side-panel-toggle holo"
+        className="side-panel-toggle holo-frame holo"
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={() => setOpen((value) => !value)}

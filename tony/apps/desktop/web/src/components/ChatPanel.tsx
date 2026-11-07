@@ -65,7 +65,7 @@ export function ChatPanel({ messages, onSend }: Props) {
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
-        <button type="submit" className="holo" disabled={text.trim() === ""}>
+        <button type="submit" className="holo-frame holo" disabled={text.trim() === ""}>
           Enviar
         </button>
       </form>

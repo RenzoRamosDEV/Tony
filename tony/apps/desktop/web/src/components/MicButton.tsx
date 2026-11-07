@@ -12,7 +12,7 @@ export function MicButton({ voice, onCommand }: Props) {
   return (
     <button
       type="button"
-      className="mic-toggle holo"
+      className="mic-toggle holo-frame holo"
       data-voice-state={voice.state}
       disabled={!view.enabled}
       title={view.tooltip}

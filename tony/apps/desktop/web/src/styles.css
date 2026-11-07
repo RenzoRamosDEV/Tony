@@ -11,6 +11,7 @@
   --glass-strong: rgb(8 11 16 / 0.9);
   --hairline: rgb(255 179 71 / 0.24);
   --glow: rgb(255 160 50 / 0.18);
+  --holo-ink: 255 157 46;
   --radius: 14px;
   --radius-sm: 8px;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -41,6 +42,40 @@ body {
   font-weight: 500;
   line-height: 1.45;
   overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--holo-ink) / 0.4);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--holo-ink) / 0.8);
+}
+
+/* Chromium ignores the ::-webkit-scrollbar rules once either standard property is set. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--holo-ink) / 0.4) transparent;
+  }
 }
 
 :focus-visible {
@@ -207,25 +242,19 @@ pre {
 
 /* Holographic HUD chrome: cut corners, no fill, accent-only ink. */
 
-.holo {
+.holo-frame {
   --cut: 8px;
   position: relative;
   background: rgb(5 7 10 / 0.3);
-  color: var(--accent);
   border: none;
   border-radius: 0;
-  font-family: var(--font-ui);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-size: 0.78rem;
-  font-weight: 600;
   clip-path: polygon(
     var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%,
     0 100%, 0 var(--cut)
   );
 }
 
-.holo::before {
+.holo-frame::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -236,8 +265,17 @@ pre {
     calc(100% - var(--cut) - 0.6px) calc(100% - var(--cut) - 0.6px), calc(100% - 1px) calc(100% - var(--cut) - 0.6px),
     calc(100% - 1px) 1px, calc(var(--cut) + 1px) 1px, var(--cut) 0
   );
-  background: rgb(255 157 46 / 0.55);
+  background: rgb(var(--holo-ink) / 0.55);
   pointer-events: none;
+}
+
+.holo {
+  color: var(--accent);
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
 .hud-corner {
@@ -330,16 +368,6 @@ pre {
   gap: 0.5rem;
   text-align: right;
   pointer-events: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(255 157 46 / 0.4) transparent;
-}
-
-.chat-lines::-webkit-scrollbar {
-  width: 6px;
-}
-
-.chat-lines::-webkit-scrollbar-thumb {
-  background: rgb(255 157 46 / 0.4);
 }
 
 .chat-line {
@@ -379,7 +407,7 @@ pre {
   color: var(--fg);
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgb(255 157 46 / 0.4);
+  border-bottom: 1px solid rgb(var(--holo-ink) / 0.4);
   border-radius: 0;
   padding: 0.3rem 0.1rem;
   text-align: right;
@@ -485,6 +513,8 @@ pre {
 }
 
 .side-panel {
+  --cut: 14px;
+  pointer-events: auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -505,7 +535,6 @@ pre {
   overflow: auto;
   margin-top: 0.4rem;
   font-size: 0.85rem;
-  scrollbar-width: thin;
 }
 
 .side-panel-body ul {
@@ -522,6 +551,28 @@ pre {
 .subagent-label,
 .panel-empty {
   color: var(--muted);
+}
+
+.activity-servers li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.info-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-style: italic;
+  line-height: 1;
+  cursor: help;
 }
 
 .edith-filter select {
@@ -562,6 +613,51 @@ pre {
   padding: 0.5rem 0.8rem;
 }
 
+.settings-trigger {
+  position: fixed;
+  z-index: 2;
+  top: 1.2rem;
+  right: 1.2rem;
+  padding: 0.5rem 0.8rem;
+}
+
+.audio-settings-overlay {
+  position: fixed;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(5 7 10 / 0.6);
+}
+
+.audio-settings-card {
+  --cut: 14px;
+  width: min(26rem, calc(100vw - 2rem));
+  padding: 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.audio-settings-card h2 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.audio-settings-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.audio-settings-card select {
+  font: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  padding: 0.3rem 0.5rem;
+}
+
 .pin-overlay {
   position: fixed;
   z-index: 4;
@@ -572,14 +668,14 @@ pre {
 }
 
 .pin-card {
+  --cut: 14px;
   width: min(26rem, calc(100vw - 2rem));
   padding: 1rem 1.2rem;
 }
 
 .pin-card h2 {
   margin: 0 0 0.5rem;
-  color: var(--agent-edith);
-  font-size: 1rem;
+  font-size: 0.85rem;
 }
 
 .pin-form label {

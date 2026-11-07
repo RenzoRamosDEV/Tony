@@ -1,3 +1,4 @@
+import { serverInfo } from "../mcpServers";
 import type { ServerRow, TaskNode, ToolNode } from "../state/reducer";
 import { CollapsiblePanel } from "./CollapsiblePanel";
 
@@ -41,12 +42,16 @@ export function ActivityPanel({ tasks, servers }: Props) {
       </ul>
       <ul className="activity-servers">
         {servers.map((server) => (
-          <li
-            key={`${server.agent}/${server.server}`}
-            data-down={server.down}
-            style={server.down ? { color: DOWN_COLOUR } : undefined}
-          >
-            {server.label}
+          <li key={`${server.agent}/${server.server}`} data-down={server.down}>
+            <span style={server.down ? { color: DOWN_COLOUR } : undefined}>{server.label}</span>
+            <button
+              type="button"
+              className="info-icon"
+              title={serverInfo(server.server).description}
+              aria-label={`Información de ${serverInfo(server.server).label}`}
+            >
+              i
+            </button>
           </li>
         ))}
       </ul>

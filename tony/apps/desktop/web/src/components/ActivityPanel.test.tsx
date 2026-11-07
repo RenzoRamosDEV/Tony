@@ -15,8 +15,8 @@ const TASK: TaskNode = {
   summary: "en curso",
 };
 const SERVERS: ServerRow[] = [
-  { agent: "viernes", server: "filesystem", down: false, label: "viernes/filesystem — activo" },
-  { agent: "viernes", server: "shell", down: true, label: "viernes/shell — caído: x" },
+  { agent: "viernes", server: "filesystem", down: false, label: "Agente Viernes - File System - Activo" },
+  { agent: "viernes", server: "shell", down: true, label: "Agente Viernes - Shell - Caído: x" },
 ];
 
 describe("ActivityPanel", () => {
@@ -33,8 +33,16 @@ describe("ActivityPanel", () => {
   it("shows a down MCP server in red", () => {
     render(<ActivityPanel tasks={[]} servers={SERVERS} />);
 
-    expect(screen.getByText("viernes/shell — caído: x")).toHaveStyle({ color: "#D93025" });
-    expect(screen.getByText("viernes/filesystem — activo")).not.toHaveStyle({ color: "#D93025" });
+    expect(screen.getByText("Agente Viernes - Shell - Caído: x")).toHaveStyle({ color: "#D93025" });
+    expect(screen.getByText("Agente Viernes - File System - Activo")).not.toHaveStyle({ color: "#D93025" });
+  });
+
+  it("shows an info button with a short tooltip of what the MCP server does", () => {
+    render(<ActivityPanel tasks={[]} servers={SERVERS} />);
+
+    expect(
+      screen.getByTitle("Lee y escribe archivos en las carpetas de notas permitidas."),
+    ).toBeVisible();
   });
 
   it("collapsing and expanding keeps the content", async () => {

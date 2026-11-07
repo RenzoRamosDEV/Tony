@@ -14,7 +14,7 @@ interface Props {
 
 export function ReplyModeSelector({ mode, onCommand }: Props) {
   return (
-    <label className="reply-mode hud-corner holo">
+    <label className="reply-mode hud-corner holo-frame holo">
       Respuesta{" "}
       <select
         aria-label="Modo de respuesta"

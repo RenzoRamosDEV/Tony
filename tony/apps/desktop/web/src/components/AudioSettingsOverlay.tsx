@@ -71,9 +71,11 @@ export function AudioSettingsOverlay({ devices, onCommand }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="audio-settings-title"
-        className="audio-settings-card hud-panel"
+        className="audio-settings-card holo-frame"
       >
-        <h2 id="audio-settings-title">Ajustes de audio</h2>
+        <h2 id="audio-settings-title" className="holo">
+          Ajustes de audio
+        </h2>
         <DeviceSelect
           id="audio-input-device"
           label="Micrófono"

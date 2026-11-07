@@ -107,3 +107,73 @@ describe("local resources only", () => {
     expect(css).not.toMatch(/url\(\s*["']?(?!data:)/);
   });
 });
+
+describe("holo frame shared by buttons and side cards", () => {
+  const frame = () => block(/\.holo-frame \{[^}]*\}/);
+  const holo = () => block(/\.holo \{[^}]*\}/);
+  const sidePanel = () => block(/\.side-panel \{[^}]*\}/);
+
+  it("owns the square, notched outline and the button background", () => {
+    expect(frame()).toContain("border-radius: 0");
+    expect(frame()).toContain("clip-path: polygon(");
+    expect(frame()).toContain("background: rgb(5 7 10 / 0.3)");
+    expect(frame()).toMatch(/--cut:\s*8px/);
+  });
+
+  it("defines the outline once, so the button only adds typography", () => {
+    expect(css.match(/clip-path: polygon\(/g)).toHaveLength(2);
+    expect(holo()).not.toContain("clip-path");
+    expect(css).not.toMatch(/\.holo::before/);
+  });
+
+  it("scales the notch up for the larger side cards and keeps them interactive", () => {
+    const cut = sidePanel().match(/--cut:\s*(\d+)px/);
+
+    expect(Number(cut?.[1])).toBeGreaterThan(8);
+    expect(sidePanel()).toContain("pointer-events: auto");
+  });
+});
+
+describe("HUD scrollbars", () => {
+  const rule = (selector: string) => block(new RegExp(`(^|\\n)${selector.replace(/[.*:()-]/g, "\\$&")} \\{[^}]*\\}`));
+
+  it("shares one amber ink token between frame edges and scrollbar thumbs", () => {
+    expect(theme).toMatch(/--holo-ink:\s*255 157 46;/);
+    expect(rule(".holo-frame::before")).toContain("background: rgb(var(--holo-ink) / 0.55)");
+    expect(css).not.toContain("255 157 46 /");
+  });
+
+  it("is thin, square and has a transparent track, no arrows and no corner on every scroller", () => {
+    const bar = rule("::-webkit-scrollbar");
+    expect(bar).toContain("width: 6px");
+    expect(bar).toContain("height: 6px");
+    expect(rule("::-webkit-scrollbar-track")).toContain("background: transparent");
+    expect(rule("::-webkit-scrollbar-corner")).toContain("background: transparent");
+    expect(rule("::-webkit-scrollbar-button")).toContain("display: none");
+    expect(rule("::-webkit-scrollbar-thumb")).toContain("border-radius: 0");
+  });
+
+  it("dims the thumb at rest and brightens it on hover", () => {
+    const alpha = (selector: string) =>
+      Number(rule(selector).match(/background: rgb\(var\(--holo-ink\) \/ ([\d.]+)\)/)?.[1]);
+    const rest = alpha("::-webkit-scrollbar-thumb");
+    const hover = alpha("::-webkit-scrollbar-thumb:hover");
+
+    expect(rest).toBeGreaterThan(0);
+    expect(rest).toBeLessThan(0.55);
+    expect(hover).toBeGreaterThan(rest);
+  });
+
+  it("styles scrollers globally, not per element", () => {
+    expect(css).not.toMatch(/[\w\]]::-webkit-scrollbar/);
+    expect(css.match(/scrollbar-width:/g)).toHaveLength(1);
+    expect(css.match(/scrollbar-color:/g)).toHaveLength(1);
+  });
+
+  it("keeps the standard properties out of Chromium so they do not override the webkit styling", () => {
+    const standard = block(/@supports not selector\(::-webkit-scrollbar\) \{[\s\S]*?\n\}/);
+
+    expect(standard).toContain("scrollbar-width: thin");
+    expect(standard).toContain("scrollbar-color: rgb(var(--holo-ink) / 0.4) transparent");
+  });
+});

@@ -213,15 +213,15 @@ describe("activity", () => {
     );
 
     expect(state.servers.map((s) => [s.label, s.down])).toEqual([
-      ["viernes/filesystem — caído: caído", true],
-      ["viernes/shell — caído: no arranca", true],
+      ["Agente Viernes - File System - Caído: caído", true],
+      ["Agente Viernes - Shell - Caído: no arranca", true],
     ]);
   });
 
   it("a server back up is not red", () => {
     const state = apply({ type: "mcp_status", ts: TS, agent: "a", server: "s", up: true, reason: null });
 
-    expect(state.servers.map((s) => [s.label, s.down])).toEqual([["a/s — activo", false]]);
+    expect(state.servers.map((s) => [s.label, s.down])).toEqual([["Agente A - S - Activo", false]]);
   });
 });
 

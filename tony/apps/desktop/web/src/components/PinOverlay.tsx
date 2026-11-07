@@ -94,15 +94,17 @@ function PinPrompt({ pin, onCommand, onHide }: Omit<Props, "onUnlockRequest">) {
 export function PinOverlay({ pin, onCommand, onHide, onUnlockRequest }: Props) {
   if (pin.mode === "hidden") {
     return pin.canUnlock ? (
-      <button type="button" className="unlock-control holo" onClick={onUnlockRequest}>
+      <button type="button" className="unlock-control holo-frame holo" onClick={onUnlockRequest}>
         Introducir PIN
       </button>
     ) : null;
   }
   return (
     <div className="pin-overlay">
-      <section role="dialog" aria-modal="true" aria-labelledby="pin-title" className="pin-card hud-panel">
-        <h2 id="pin-title">Edith · PIN</h2>
+      <section role="dialog" aria-modal="true" aria-labelledby="pin-title" className="pin-card holo-frame">
+        <h2 id="pin-title" className="holo">
+          Edith · PIN
+        </h2>
         <p>{pin.message}</p>
         {pin.mode === "prompt" ? (
           <PinPrompt pin={pin} onCommand={onCommand} onHide={onHide} />
