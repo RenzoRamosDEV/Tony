@@ -1,22 +1,17 @@
-# Tony global settings. Every key is optional; missing keys take these defaults.
-# Unknown keys are rejected.
-
-front: jarvis          # front agent folder (agents/<name>/)
-worker: viernes        # worker agent folder
-guard: edith           # guard agent folder
-reply_mode: auto       # auto | voice | text | both
-
-# Model aliases used by agents/<name>/agent.md (`model:`), resolved at run time.
+desktop:
+  hotkey: Super+J
+  theme: system
+  tray: true
+front: jarvis
+guard: edith
 models:
   claude-haiku: claude-haiku-5-5
   claude-sonnet: claude-sonnet-5-5
-
+reply_mode: auto
 voice:
+  input_device: null
+  output_device: null
   stt: faster-whisper/small
-  vad: silero
   tts_default: kokoro/em_alex
-
-desktop:
-  hotkey: "Super+J"
-  tray: true
-  theme: system
+  vad: silero
+worker: viernes
