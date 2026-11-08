@@ -8,6 +8,22 @@ const KNOWN_SERVERS: Record<string, McpServerInfo> = {
     label: "File System",
     description: "Lee y escribe archivos en las carpetas de notas permitidas.",
   },
+  "google-calendar": {
+    label: "Google Calendar",
+    description: "Consulta y gestiona eventos de Google Calendar.",
+  },
+  gmail: {
+    label: "Gmail",
+    description: "Lee, busca y gestiona el correo de Gmail.",
+  },
+  gdrive: {
+    label: "Google Drive",
+    description: "Busca y lee archivos de Google Drive.",
+  },
+  obsidian: {
+    label: "Obsidian",
+    description: "Busca, lee y edita notas del vault de Obsidian.",
+  },
 };
 
 function humanize(id: string): string {

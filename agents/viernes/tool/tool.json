@@ -2,8 +2,58 @@
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/notas"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "${HOME}/notas"
+      ]
+    },
+    "google-calendar": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cocal/google-calendar-mcp@2.8.1"
+      ],
+      "env": {
+        "GOOGLE_OAUTH_CREDENTIALS": "${HOME}/.config/tony/google-calendar-credentials.json"
+      }
+    },
+    "gmail": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gongrzhe/server-gmail-autoauth-mcp"
+      ],
+      "env": {
+        "GMAIL_OAUTH_PATH": "${HOME}/.gmail-mcp/gcp-oauth.keys.json",
+        "GMAIL_CREDENTIALS_PATH": "${HOME}/.gmail-mcp/credentials.json"
+      }
+    },
+    "gdrive": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@isaacphi/mcp-gdrive"
+      ],
+      "env": {
+        "GDRIVE_CREDS_DIR": "${HOME}/.config/tony/gdrive-mcp",
+        "CLIENT_ID": "${GDRIVE_CLIENT_ID}",
+        "CLIENT_SECRET": "${GDRIVE_CLIENT_SECRET}"
+      }
+    },
+    "obsidian": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "obsidian-mcp@2",
+        "serve",
+        "--vault",
+        "notas=${HOME}/Proyectos/Obsidian"
+      ]
     }
   },
-  "native": ["read_skill", "run_subagent"]
+  "native": [
+    "read_skill",
+    "run_subagent"
+  ]
 }

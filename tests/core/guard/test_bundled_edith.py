@@ -41,6 +41,18 @@ def test_bundled_policy_equals_the_shipped_example():
         "shell.run/confirm",
         "github.search_*/allow",
         "github.*/confirm",
+        "google-calendar.list-*/allow",
+        "google-calendar.create-event/confirm",
+        "google-calendar.*/confirm",
+        "gmail.read_email/allow",
+        "gmail.send_email/confirm",
+        "gmail.*/confirm",
+        "gdrive.gdrive_search/allow",
+        "gdrive.gsheets_update_cell/confirm",
+        "gdrive.*/confirm",
+        "obsidian.obsidian_list_vaults/allow",
+        "obsidian.obsidian_create_note/confirm",
+        "obsidian.*/confirm",
         "tony.read_skill/allow",
     ]
 

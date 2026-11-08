@@ -167,6 +167,30 @@ rules:
     verdict: allow
   - match: "github.*"
     verdict: confirm
+  - match: ["google-calendar.list-*", "google-calendar.search-events", "google-calendar.get-event", "google-calendar.free-busy"]
+    verdict: allow
+  - match: ["google-calendar.create-event", "google-calendar.update-event", "google-calendar.delete-event"]
+    verdict: confirm
+  - match: "google-calendar.*"
+    verdict: confirm
+  - match: ["gmail.read_email", "gmail.search_emails", "gmail.list_email_labels", "gmail.download_attachment", "gmail.list_filters", "gmail.get_filter"]
+    verdict: allow
+  - match: ["gmail.send_email", "gmail.draft_email", "gmail.delete_email", "gmail.delete_label", "gmail.batch_delete_emails", "gmail.delete_filter"]
+    verdict: confirm
+  - match: "gmail.*"
+    verdict: confirm
+  - match: ["gdrive.gdrive_search", "gdrive.gdrive_read_file", "gdrive.gsheets_read"]
+    verdict: allow
+  - match: "gdrive.gsheets_update_cell"
+    verdict: confirm
+  - match: "gdrive.*"
+    verdict: confirm
+  - match: ["obsidian.obsidian_list_vaults", "obsidian.obsidian_read_note", "obsidian.obsidian_search_vault"]
+    verdict: allow
+  - match: ["obsidian.obsidian_create_note", "obsidian.obsidian_edit_note", "obsidian.obsidian_delete_note", "obsidian.obsidian_move_note"]
+    verdict: confirm
+  - match: "obsidian.*"
+    verdict: confirm
   - match: ["tony.read_skill", "tony.run_subagent"]
     verdict: allow
 limits: {tool_timeout_s: 20, task_timeout_s: 300, confirm_timeout_s: 60, max_denied_retries: 3, token_alert: 50000, max_steps_per_agent: 30}
