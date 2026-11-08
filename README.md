@@ -41,31 +41,31 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
 ## Cómo está montado
 
 ```
-                         ┌─────────────────────────────┐
-                         │   App de escritorio (Qt)     │
-                         │   orbe · chat · actividad     │
-                         └───────────────┬───────────────┘
-                                         │ eventos / comandos JSON
-                                         │ (QWebChannel)
-                         ┌───────────────▼───────────────┐
-                         │          Núcleo (Python)       │
-                         │                                 │
-   tú escribes/hablas ─▶ │   Jarvis  ──delegate──▶ Viernes │
-                         │   (front)                (worker)│
-                         │                              │   │
-                         │                       cada tool  │
-                         │                              ▼   │
-                         │                           Edith  │
-                         │                          (guard) │
-                         │                     política.yaml│
-                         └───────┬──────────────────┬───────┘
-                                 │ allow/confirm      │ deny
-                                 ▼                     ▼
-                     ┌───────────────────┐     {"error": "blocked_by_policy"}
-                     │ servidores MCP     │
-                     │ filesystem, gmail, │
-                     │ gdrive, calendar…  │
-                     └───────────────────┘
+tú escribes o hablas
+        │
+        ▼
+ ┌─────────────┐
+ │   Jarvis    │
+ │   (front)   │
+ └─────────────┘
+        │  delegate(objetivo, contexto, restricciones)
+        ▼
+ ┌─────────────┐
+ │   Viernes   │
+ │  (worker)   │
+ └─────────────┘
+        │  antes de cada llamada a una tool
+        ▼
+ ┌─────────────┐
+ │    Edith    │
+ │   (guard)   │
+ └─────────────┘
+        │  decide con policy.yaml — allow / confirm / deny (sin modelo)
+        ▼
+ ┌──────────────────────────────────────────────────────┐
+ │                    servidores MCP                     │
+ │  filesystem · gmail · gdrive · calendar · obsidian…   │
+ └──────────────────────────────────────────────────────┘
 ```
 
 - **Jarvis** nunca toca una tool directamente: todo lo que requiere actuar en el mundo real pasa
@@ -82,40 +82,45 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
 ## El flujo de una tarea
 
 ```
- Tú: "Borra el archivo viejo de notas"
-   │
-   ▼
-┌────────┐  delegate(objetivo, contexto, restricciones)   ┌─────────┐
-│ Jarvis │ ───────────────────────────────────────────▶   │ Viernes │
-└────────┘                                                 └────┬────┘
-                                                                 │ filesystem.delete_file(...)
-                                                                 ▼
-                                                           ┌──────────┐
-                                                           │  Edith   │── evalúa policy.yaml
-                                                           └────┬─────┘   (primera regla que encaja gana)
-                     ┌───────────────────┬────────────────────┼─────────────────────┐
-                     ▼                   ▼                    ▼
-                  allow               confirm                deny
-                     │                   │                    │
-                     │         "Acción: borrar X.             │
-                     │          Regla: r. ¿Autoriza?"          │
-                     │                   │                    │
-                     │            tú: sí / no / timeout        │
-                     │                   │                    │
-                     ▼                   ▼                    ▼
-              se ejecuta          se ejecuta si           no se ejecuta
-              la tool             dijiste que sí           {"error": "blocked_by_policy"}
-                     │                   │                    │
-                     └─────────┬─────────┘                    │
-                                ▼                               │
-                      resultado de la tool                      │
-                                │                                │
-                                ▼                                ▼
-                    {resumen, datos, pasos, errores}  ◀──────────┘
-                                │
-                                ▼
-                         Jarvis te lo explica
+Tú: "Borra el archivo viejo de notas"
+        │
+        ▼
+ ┌─────────────┐
+ │   Jarvis    │
+ └─────────────┘
+        │  delegate(objetivo, contexto, restricciones)
+        ▼
+ ┌─────────────┐
+ │   Viernes   │
+ └─────────────┘
+        │  filesystem.delete_file(...)
+        ▼
+ ┌─────────────┐
+ │    Edith    │
+ └─────────────┘
+        │  evalúa policy.yaml: gana la primera regla que encaja
+        ▼
+ ┌──────────────────────────────┐
+ │    allow / confirm / deny    │
+ │      (ver tabla debajo)      │
+ └──────────────────────────────┘
+                 │
+                 ▼
+ ┌───────────────────────────────────┐
+ │ {resumen, datos, pasos, errores}  │
+ └───────────────────────────────────┘
+                   │
+                   ▼
+ ┌────────────────────────┐
+ │  Jarvis te lo explica  │
+ └────────────────────────┘
 ```
+
+| Veredicto | Qué pasa |
+|---|---|
+| `allow` | la tool se ejecuta directamente |
+| `confirm` | Edith pregunta «Acción: borrar X. Regla: r. ¿Autoriza?»; si dices que sí, se ejecuta — si no, o se agota el tiempo, no |
+| `deny` | no se ejecuta; Viernes recibe `{"error": "blocked_by_policy"}` |
 
 Cada veredicto queda en `logs/audit.jsonl` (`tony audit`), y cada tarea en
 `logs/tasks/<task_id>.jsonl`. Nada de esto usa el modelo para decidir: la política es un YAML que
@@ -129,23 +134,38 @@ En la app de escritorio, el orbe central siempre refleja un estado — no hace f
 saber qué está haciendo Tony:
 
 ```
-        voice_level (input) alto           turno/tarea en curso
-                 │                                   │
-                 ▼                                   ▼
-            ┌─────────┐    responde Jarvis     ┌───────────┐
-   ┌───────▶│ESCUCHANDO│ ───────────────────▶ │ PENSANDO  │
-   │        └─────────┘                        └─────┬─────┘
-   │                                                   │ llega audio (voice_level output)
-   │                                                   ▼
-   │        ┌─────────┐                         ┌───────────┐
-   │        │  IDLE   │ ◀──────────────────────│ HABLANDO  │
-   │        └────┬────┘   300ms sin audio nuevo  └───────────┘
-   │             │
-   │             │ Edith necesita confirmación
-   │             ▼
-   │        ┌─────────────┐
-   └────────│ CONFIRMANDO │  halo ámbar — espera tu "Permitir" / "Denegar"
-            └─────────────┘
+ ┌─────────────┐
+ │    IDLE     │
+ └─────────────┘
+        │  nivel de voz alto en el micrófono
+        ▼
+ ┌─────────────┐
+ │ ESCUCHANDO  │
+ └─────────────┘
+        │  Jarvis empieza a responder (turno/tarea en curso)
+        ▼
+ ┌─────────────┐
+ │  PENSANDO   │
+ └─────────────┘
+        │  llega audio de la respuesta (voice_level output)
+        ▼
+ ┌─────────────┐
+ │  HABLANDO   │
+ └─────────────┘
+        │  300 ms sin audio nuevo → vuelve a IDLE
+        ▼
+ ┌─────────────┐
+ │    IDLE     │
+ └─────────────┘
+```
+
+En cualquiera de esos estados, si Edith necesita que decidas algo, el ciclo se interrumpe:
+
+```
+ ┌─────────────┐
+ │ CONFIRMANDO │
+ └─────────────┘
+        │  halo ámbar — espera "Permitir" o "Denegar"
 ```
 
 `idle → listening → thinking → speaking → idle`, con `confirming` interrumpiendo el ciclo en
