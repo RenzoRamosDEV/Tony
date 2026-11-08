@@ -1,6 +1,6 @@
 <div align="center">
 
-# Tony
+<h1><img src="docs/assets/logo.png" alt="Tony" width="280"></h1>
 
 **Asistente personal local, con tres agentes de rol fijo y un guardián de permisos.**
 
