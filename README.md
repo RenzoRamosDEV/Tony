@@ -41,7 +41,7 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
 ## Cómo está montado
 
 <div align="center">
-<img src="docs/diagrams/architecture.png" alt="Diagrama: tú escribes o hablas a Jarvis (front), que delega en Viernes (worker), que antes de cada llamada a una tool pasa por Edith (guard), que decide con policy.yaml allow/confirm/deny sin modelo, hacia los servidores MCP" width="420">
+<img src="docs/diagrams/architecture.png" alt="Diagrama: tú le pides algo a Jarvis, que conversa contigo y encarga la tarea a Viernes; Viernes pide permiso a Edith antes de actuar y, si se permite, usa las herramientas (archivos, correo, calendario, notas)" width="430">
 </div>
 
 - **Jarvis** nunca toca una tool directamente: todo lo que requiere actuar en el mundo real pasa
@@ -53,12 +53,12 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
   política, determinista y sin modelo detrás (el modelo de Edith solo redacta la *pregunta* cuando
   hace falta confirmar — nunca decide el veredicto).
 
-Por dentro, eso vive en dos procesos de Qt separados por un hilo: la ventana (interfaz React sobre
-`QWebEngineView`) solo manda comandos y recibe eventos JSON; todo el trabajo real —agentes, voz,
-servidores MCP— corre en el hilo del núcleo, así que un fallo ahí nunca congela la ventana.
+Por dentro hay dos partes: la **interfaz**, que es lo que ves y solo envía tus órdenes, y el
+**núcleo**, donde trabajan los agentes. Si el núcleo falla, la interfaz sigue abierta y te lo
+muestra en el chat.
 
 <div align="center">
-<img src="docs/diagrams/system.png" alt="Diagrama: la ventana Qt (sin bordes del SO, interfaz React) envía comandos JSON y recibe eventos JSON por QWebChannel al hilo del núcleo, donde corre CoreRuntime orquestando a Jarvis, Viernes y Edith" width="420">
+<img src="docs/diagrams/system.png" alt="Diagrama: la interfaz (orbe, chat, actividad, ajustes) envía tus órdenes al núcleo (Jarvis, Viernes, Edith y voz) y recibe de vuelta lo que ocurre" width="780">
 </div>
 
 ---
@@ -66,7 +66,7 @@ servidores MCP— corre en el hilo del núcleo, así que un fallo ahí nunca con
 ## El flujo de una tarea
 
 <div align="center">
-<img src="docs/diagrams/task-flow.png" alt="Diagrama: el usuario pide borrar un archivo, Jarvis delega en Viernes con delegate, Viernes llama filesystem.delete_file, Edith evalúa policy.yaml y da allow/confirm/deny, el resultado estructurado vuelve y Jarvis lo explica" width="380">
+<img src="docs/diagrams/task-flow.png" alt="Diagrama: pides borrar un archivo; Jarvis encarga la tarea a Viernes, que pide permiso a Edith; Edith permite, pide confirmación o deniega, y Jarvis te explica el resultado" width="640">
 </div>
 
 | Veredicto | Qué pasa |
@@ -87,19 +87,20 @@ En la app de escritorio, el orbe central siempre refleja un estado — no hace f
 saber qué está haciendo Tony:
 
 <div align="center">
-<img src="docs/diagrams/orb-states.png" alt="Diagrama: ciclo idle, escuchando, pensando, hablando y de vuelta a idle; desde cualquier estado Edith puede interrumpir con confirmando, con halo ámbar hasta que el usuario permite o deniega" width="420">
+<img src="docs/diagrams/orb-states.png" alt="Diagrama: el orbe pasa de Reposo a Escuchando cuando hablas, a Pensando cuando terminas, a Hablando cuando responde y vuelve a Reposo; en cualquier momento puede pasar a Esperando tu respuesta cuando Edith necesita tu permiso" width="840">
 </div>
 
-`idle → listening → thinking → speaking → idle`, con `confirming` interrumpiendo el ciclo en
-cuanto Edith necesita que decidas algo. El tamaño del orbe sigue el nivel de voz; sin WebGL se ve
-una versión estática pero el estado se sigue notando por el halo y el color.
+El orbe pasa de **Reposo** a **Escuchando** cuando hablas, a **Pensando** mientras Jarvis y Viernes
+trabajan y a **Hablando** cuando responde. Si Edith necesita tu permiso, aparece **Esperando tu
+respuesta** con un halo ámbar. Su tamaño sigue el nivel de la voz; sin WebGL se ve una versión
+estática, pero el estado se nota igual por el halo y el color.
 
 ---
 
 ## Agentes, skills y subagentes
 
 <div align="center">
-<img src="docs/diagrams/agent-anatomy.png" alt="Diagrama: la carpeta agents/viernes/ contiene agent.md (persona y prompt de sistema), tool/tool.json (servidores MCP y tools nativas), skills/*/SKILL.md (procedimientos bajo demanda) y subagents/* (otros workers); Edith sigue la misma forma pero sin carpeta tool" width="480">
+<img src="docs/diagrams/agent-anatomy.png" alt="Diagrama: la carpeta de un agente contiene agent.md (quién es y cómo habla), tool.json (qué herramientas puede usar), skills (guías para tareas concretas) y subagents (ayudantes); Edith tiene policy.yaml en vez de herramientas" width="520">
 </div>
 
 - **`agent.md`**: frontmatter (`name`, `role`, `model`, `persona`, `voice.tts`) + el prompt de
@@ -115,7 +116,7 @@ una versión estática pero el estado se sigue notando por el halo y el color.
   padre, y Edith evalúa sus tools igual que las del agente principal.
 
 <div align="center">
-<img src="docs/diagrams/subagent.png" alt="Diagrama: dentro de una tarea con un task_id compartido, Viernes llama tony.run_subagent y el subagente Resumidor ejecuta sus propias tools pasando por Edith igual que el padre; el resultado estructurado vuelve a Viernes, que continúa su tarea" width="420">
+<img src="docs/diagrams/subagent.png" alt="Diagrama: Viernes encarga una parte de la tarea a un ayudante (subagente) y este le devuelve el resultado; Edith revisa lo que hacen los dos" width="700">
 </div>
 
 ## Edith: la política de permisos
@@ -363,7 +364,7 @@ con error sin tocar el fichero. El PIN nunca se escribe en claro en ficheros, lo
 salida.
 
 <div align="center">
-<img src="docs/diagrams/pin-states.png" alt="Diagrama: la sesión de Edith empieza BLOQUEADA, un PIN correcto la pasa a DESBLOQUEADA, y 30 minutos sin mensajes la vuelve a bloquear; los fallos seguidos de PIN añaden una espera creciente de 10, 30 y 60 segundos" width="400">
+<img src="docs/diagrams/pin-states.png" alt="Diagrama: la sesión de Edith pasa de Bloqueada a Desbloqueada con el PIN correcto, y vuelve a Bloqueada tras 30 minutos sin actividad" width="740">
 </div>
 
 - Al arrancar (`tony chat` o la app de escritorio) se pide el PIN; en la app aparece un diálogo con
@@ -527,7 +528,7 @@ español con faster-whisper (`voice.stt`, `faster-whisper/small` en `int8` sobre
 Kokoro a 24 kHz.
 
 <div align="center">
-<img src="docs/diagrams/voice-pipeline.png" alt="Diagrama: el micrófono pasa por Silero VAD, luego faster-whisper lo transcribe a texto que llega a Jarvis con origen voice; la respuesta se parte en frases, cada una pasa por Kokoro TTS a audio que anima el orbe (voice_level) y suena por el altavoz" width="520">
+<img src="docs/diagrams/voice-pipeline.png" alt="Diagrama: hablas al micrófono, se detecta tu voz, se pasa a texto, Jarvis responde y te lo dice en voz alta" width="840">
 </div>
 
 Se instala con el extra `voice` (torch solo CPU) y necesita la biblioteca del
