@@ -40,33 +40,9 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
 
 ## Cómo está montado
 
-```
-tú escribes o hablas
-        │
-        ▼
- ┌─────────────┐
- │   Jarvis    │
- │   (front)   │
- └─────────────┘
-        │  delegate(objetivo, contexto, restricciones)
-        ▼
- ┌─────────────┐
- │   Viernes   │
- │  (worker)   │
- └─────────────┘
-        │  antes de cada llamada a una tool
-        ▼
- ┌─────────────┐
- │    Edith    │
- │   (guard)   │
- └─────────────┘
-        │  decide con policy.yaml — allow / confirm / deny (sin modelo)
-        ▼
- ┌──────────────────────────────────────────────────────┐
- │                    servidores MCP                     │
- │  filesystem · gmail · gdrive · calendar · obsidian…   │
- └──────────────────────────────────────────────────────┘
-```
+<div align="center">
+<img src="docs/diagrams/architecture.png" alt="Diagrama: tú escribes o hablas a Jarvis (front), que delega en Viernes (worker), que antes de cada llamada a una tool pasa por Edith (guard), que decide con policy.yaml allow/confirm/deny sin modelo, hacia los servidores MCP" width="420">
+</div>
 
 - **Jarvis** nunca toca una tool directamente: todo lo que requiere actuar en el mundo real pasa
   por `delegate` a Viernes.
@@ -81,40 +57,9 @@ tú escribes o hablas
 
 ## El flujo de una tarea
 
-```
-Tú: "Borra el archivo viejo de notas"
-        │
-        ▼
- ┌─────────────┐
- │   Jarvis    │
- └─────────────┘
-        │  delegate(objetivo, contexto, restricciones)
-        ▼
- ┌─────────────┐
- │   Viernes   │
- └─────────────┘
-        │  filesystem.delete_file(...)
-        ▼
- ┌─────────────┐
- │    Edith    │
- └─────────────┘
-        │  evalúa policy.yaml: gana la primera regla que encaja
-        ▼
- ┌──────────────────────────────┐
- │    allow / confirm / deny    │
- │      (ver tabla debajo)      │
- └──────────────────────────────┘
-                 │
-                 ▼
- ┌───────────────────────────────────┐
- │ {resumen, datos, pasos, errores}  │
- └───────────────────────────────────┘
-                   │
-                   ▼
- ┌────────────────────────┐
- │  Jarvis te lo explica  │
- └────────────────────────┘
-```
+<div align="center">
+<img src="docs/diagrams/task-flow.png" alt="Diagrama: el usuario pide borrar un archivo, Jarvis delega en Viernes con delegate, Viernes llama filesystem.delete_file, Edith evalúa policy.yaml y da allow/confirm/deny, el resultado estructurado vuelve y Jarvis lo explica" width="380">
+</div>
 
 | Veredicto | Qué pasa |
 |---|---|
@@ -133,40 +78,9 @@ lees y editas tú.
 En la app de escritorio, el orbe central siempre refleja un estado — no hace falta leer logs para
 saber qué está haciendo Tony:
 
-```
- ┌─────────────┐
- │    IDLE     │
- └─────────────┘
-        │  nivel de voz alto en el micrófono
-        ▼
- ┌─────────────┐
- │ ESCUCHANDO  │
- └─────────────┘
-        │  Jarvis empieza a responder (turno/tarea en curso)
-        ▼
- ┌─────────────┐
- │  PENSANDO   │
- └─────────────┘
-        │  llega audio de la respuesta (voice_level output)
-        ▼
- ┌─────────────┐
- │  HABLANDO   │
- └─────────────┘
-        │  300 ms sin audio nuevo → vuelve a IDLE
-        ▼
- ┌─────────────┐
- │    IDLE     │
- └─────────────┘
-```
-
-En cualquiera de esos estados, si Edith necesita que decidas algo, el ciclo se interrumpe:
-
-```
- ┌─────────────┐
- │ CONFIRMANDO │
- └─────────────┘
-        │  halo ámbar — espera "Permitir" o "Denegar"
-```
+<div align="center">
+<img src="docs/diagrams/orb-states.png" alt="Diagrama: ciclo idle, escuchando, pensando, hablando y de vuelta a idle; desde cualquier estado Edith puede interrumpir con confirmando, con halo ámbar hasta que el usuario permite o deniega" width="420">
+</div>
 
 `idle → listening → thinking → speaking → idle`, con `confirming` interrumpiendo el ciclo en
 cuanto Edith necesita que decidas algo. El tamaño del orbe sigue el nivel de voz; sin WebGL se ve
