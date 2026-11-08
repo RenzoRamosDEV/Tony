@@ -26,6 +26,7 @@ class FakeBridge implements TonyBridge {
   focusHandlers: (() => void)[] = [];
   sent: Command[] = [];
   auditCalls = 0;
+  window = null;
 
   onEvent(handler: (event: CoreEvent) => void) {
     this.handlers.push(handler);
@@ -104,6 +105,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Micrófono" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Modo de respuesta" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Actividad/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /MCPs/ })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("renders the audio settings trigger and forwards commands through the bridge", async () => {

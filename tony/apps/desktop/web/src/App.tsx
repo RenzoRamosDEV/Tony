@@ -1,14 +1,17 @@
 import { memo, useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { connectBridge } from "./bridge/channel";
-import type { Command, CoreEvent, TonyBridge } from "./bridge/types";
+import type { Command, CoreEvent, TonyBridge, WindowBridge } from "./bridge/types";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { AudioSettingsOverlay } from "./components/AudioSettingsOverlay";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConfirmationCard } from "./components/ConfirmationCard";
+import { McpPanel } from "./components/McpPanel";
 import { MicButton } from "./components/MicButton";
 import { PinOverlay } from "./components/PinOverlay";
 import { ReplyModeSelector } from "./components/ReplyModeSelector";
+import { ResizeHandles } from "./components/ResizeHandles";
+import { TitleBar } from "./components/TitleBar";
 import type { OrbScene } from "./orb/scene";
 import { deriveOrbState, type OrbState } from "./orb/orbState";
 import { OrbStage } from "./orb/OrbStage";
@@ -20,6 +23,7 @@ const ORB_REFRESH_MS = 100;
 
 const Chat = memo(ChatPanel);
 const Activity = memo(ActivityPanel);
+const Mcp = memo(McpPanel);
 
 interface Props {
   connect?: () => Promise<TonyBridge>;
@@ -35,6 +39,7 @@ interface Level {
 export function App({ connect = connectBridge, createScene, webglAvailable }: Props) {
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const [focusRequest, setFocusRequest] = useState(0);
+  const [windowControls, setWindowControls] = useState<WindowBridge | null>(null);
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const bridge = useRef<TonyBridge | null>(null);
   const level = useRef<Level>({ value: 0, at: 0 });
@@ -81,6 +86,7 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
         bridge.current = connected;
         connected.onEvent(onEvent);
         connected.onFocusConfirmation(() => setFocusRequest((n) => n + 1));
+        setWindowControls(connected.window);
       },
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -121,6 +127,8 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
   );
   return (
     <>
+      <TitleBar window={windowControls} />
+      <ResizeHandles window={windowControls} />
       <OrbStage
         state={orbState}
         level={0}
@@ -133,7 +141,8 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
       <MicButton voice={state.voice} onCommand={send} />
       <Chat messages={state.messages} onSend={sendText} />
       <div className="side-panels">
-        <Activity tasks={state.tasks} servers={state.servers} />
+        <Activity tasks={state.tasks} />
+        <Mcp servers={state.servers} />
       </div>
       {state.confirmation ? (
         <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} focusRequest={focusRequest} />

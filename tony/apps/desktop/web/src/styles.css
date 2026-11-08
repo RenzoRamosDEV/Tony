@@ -144,6 +144,138 @@ pre {
   color: var(--warn);
 }
 
+/* Custom titlebar: the OS window is frameless, so the app draws its own drag/min/max/close. */
+
+.title-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  height: 2rem;
+  padding: 0 0.4rem 0 0.9rem;
+  background: rgb(5 7 10 / 0.55);
+  border-bottom: 1px solid var(--hairline);
+  user-select: none;
+}
+
+.title-bar-label {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.title-bar-buttons {
+  margin-left: auto;
+  display: flex;
+  gap: 0.15rem;
+}
+
+.title-bar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.6rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .title-bar-button:hover {
+    background: rgb(255 179 71 / 0.14);
+    color: var(--fg);
+  }
+
+  .title-bar-close:hover {
+    background: var(--warn);
+    color: var(--accent-fg);
+  }
+}
+
+/* Invisible edge strips so a frameless window can still be resized by dragging its border. */
+
+.resize-handles {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.resize-handle {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.resize-top {
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-bottom {
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-left {
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-right {
+  top: 12px;
+  bottom: 12px;
+  right: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-top-left {
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
+.resize-top-right {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+.resize-bottom-left {
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+.resize-bottom-right {
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
 /* Orb stage: the only thing on screen besides a pending confirmation. */
 
 .stage {
@@ -281,7 +413,7 @@ pre {
 .hud-corner {
   position: fixed;
   z-index: 2;
-  top: 1rem;
+  top: 3rem;
   left: 1rem;
   padding: 0.55rem 0.8rem;
 }
@@ -502,8 +634,8 @@ pre {
 .side-panels {
   position: fixed;
   z-index: 2;
-  top: 4.5rem;
-  bottom: 4.5rem;
+  top: 6.5rem;
+  bottom: 4.35rem;
   left: 1rem;
   width: min(22rem, calc(100vw - 25rem));
   display: flex;
@@ -547,7 +679,6 @@ pre {
   font-weight: 600;
 }
 
-.task-summary,
 .subagent-label,
 .panel-empty {
   color: var(--muted);
@@ -567,12 +698,15 @@ pre {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  border: 1px solid var(--hairline);
-  color: var(--accent);
-  font-size: 0.7rem;
-  font-style: italic;
+  border: none;
+  background: transparent;
+  color: var(--muted);
   line-height: 1;
   cursor: help;
+}
+
+.info-icon:hover {
+  color: var(--accent);
 }
 
 .edith-filter select {
@@ -616,7 +750,7 @@ pre {
 .settings-trigger {
   position: fixed;
   z-index: 2;
-  top: 1.2rem;
+  top: 3.2rem;
   right: 1.2rem;
   padding: 0.5rem 0.8rem;
 }

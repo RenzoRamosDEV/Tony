@@ -8,8 +8,8 @@ from PySide6.QtWidgets import QWidget
 class FakeWebView(QWidget):
     instances: list["FakeWebView"] = []
 
-    def __init__(self, home: QUrl, bridge: QObject) -> None:
+    def __init__(self, home: QUrl, bridge: QObject, controls: QObject) -> None:
         super().__init__()
         self.home = home
-        self.channel_objects = {"tony": bridge}
+        self.channel_objects = {"tony": bridge, "windowControls": controls}
         FakeWebView.instances.append(self)

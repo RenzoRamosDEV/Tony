@@ -32,16 +32,41 @@ function fakeTony() {
   };
 }
 
-function install(tony: ReturnType<typeof fakeTony>) {
+function fakeWindowControls() {
+  return {
+    minimized: 0,
+    toggledMaximize: 0,
+    closed: 0,
+    moved: 0,
+    resizedWith: [] as string[],
+    minimize() {
+      this.minimized += 1;
+    },
+    toggleMaximize() {
+      this.toggledMaximize += 1;
+    },
+    close() {
+      this.closed += 1;
+    },
+    startMove() {
+      this.moved += 1;
+    },
+    startResize(edge: string) {
+      this.resizedWith.push(edge);
+    },
+  };
+}
+
+function install(tony: ReturnType<typeof fakeTony>, windowControls?: ReturnType<typeof fakeWindowControls>) {
   const transport = { name: "transport" };
   const created: unknown[] = [];
   vi.stubGlobal("qt", { webChannelTransport: transport });
   vi.stubGlobal(
     "QWebChannel",
     class {
-      constructor(given: unknown, ready: (channel: { objects: { tony: unknown } }) => void) {
+      constructor(given: unknown, ready: (channel: { objects: { tony: unknown; windowControls?: unknown } }) => void) {
         created.push(given);
-        ready({ objects: { tony } });
+        ready({ objects: { tony, windowControls } });
       }
     },
   );
@@ -143,5 +168,30 @@ describe("connectBridge", () => {
 
   it("rejects when the page is not inside the desktop window", async () => {
     await expect(connectBridge()).rejects.toThrow(/QWebChannel/);
+  });
+
+  it("exposes window as null when the window controls object is absent", async () => {
+    install(fakeTony());
+    const bridge = await connectBridge();
+
+    expect(bridge.window).toBeNull();
+  });
+
+  it("forwards window control calls to the registered windowControls object", async () => {
+    const controls = fakeWindowControls();
+    install(fakeTony(), controls);
+    const bridge = await connectBridge();
+
+    bridge.window?.minimize();
+    bridge.window?.toggleMaximize();
+    bridge.window?.close();
+    bridge.window?.startMove();
+    bridge.window?.startResize("bottom-right");
+
+    expect(controls.minimized).toBe(1);
+    expect(controls.toggledMaximize).toBe(1);
+    expect(controls.closed).toBe(1);
+    expect(controls.moved).toBe(1);
+    expect(controls.resizedWith).toEqual(["bottom-right"]);
   });
 });

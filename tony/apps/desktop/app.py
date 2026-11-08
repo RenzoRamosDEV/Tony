@@ -19,13 +19,14 @@ from tony.apps.desktop.system.single_instance import InstanceServer, send_to_run
 from tony.apps.desktop.system.tray import create_tray
 from tony.apps.desktop.widgets.main_window import MainWindow
 from tony.apps.desktop.widgets.web_view import create_web_view
+from tony.apps.desktop.window_controls import WindowControls
 from tony.core.config.settings import DesktopSettings, load_config
 from tony.core.events import core_events
 from tony.core.events.core_events import Publisher
 
 RuntimeFactory = Callable[[Publisher], Runtime]
 EventLoop = Callable[[QApplication, MainWindow], int]
-ViewFactory = Callable[[QUrl, PageBridge], QWidget]
+ViewFactory = Callable[[QUrl, PageBridge, WindowControls], QWidget]
 
 
 def default_runtime_factory(root: Path) -> RuntimeFactory:
@@ -48,8 +49,8 @@ def default_runtime_factory(root: Path) -> RuntimeFactory:
     return factory
 
 
-def web_view(home: QUrl, bridge: PageBridge) -> QWidget:
-    view = create_web_view(home, bridge)
+def web_view(home: QUrl, bridge: PageBridge, controls: WindowControls) -> QWidget:
+    view = create_web_view(home, bridge, controls)
     view.load(home)
     return view
 
@@ -70,13 +71,16 @@ def open_desktop(
     events = QtEventBridge()
     core = CoreThread(runtime_factory, events)
     page = PageBridge(core.submit, lambda event: window.report(event), root, now=_local_now)
+    window = MainWindow(TrayPresenter(), page, QWidget(), on_close=core.stop)
+    controls = WindowControls(window, parent=window)
+    window.controls = controls
     index = (dist or web_dist()) / "index.html"
     if index.is_file():
-        content = view_factory(QUrl.fromLocalFile(str(index)), page)
+        content = view_factory(QUrl.fromLocalFile(str(index)), page, controls)
     else:
         content = QLabel(missing_build_message(index.parent))
         content.setWordWrap(True)
-    window = MainWindow(TrayPresenter(), page, content, on_close=core.stop)
+    window.setCentralWidget(content)
     events.event.connect(window.dispatch)
     window.show()
     core.start()

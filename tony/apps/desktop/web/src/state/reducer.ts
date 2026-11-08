@@ -279,12 +279,11 @@ function onToolCall(state: UiState, event: ToolCallEvent): UiState {
 }
 
 function onServer(state: UiState, event: McpStatusEvent): UiState {
-  const status = event.up ? "Activo" : `Caído: ${event.reason}`;
   const row: ServerRow = {
     agent: event.agent,
     server: event.server,
     down: !event.up,
-    label: `Agente ${titleCase(event.agent)} - ${serverInfo(event.server).label} - ${status}`,
+    label: `${titleCase(event.agent)} - ${serverInfo(event.server).label} - MCP`,
   };
   const same = (s: ServerRow) => s.agent === row.agent && s.server === row.server;
   const servers = state.servers.some(same)

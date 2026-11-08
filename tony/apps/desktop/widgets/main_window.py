@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QMainWindow, QWidget
 
@@ -26,6 +26,7 @@ class MainWindow(QMainWindow):
         self.bridge = bridge
         self._on_close = on_close
         self.setWindowTitle("Tony")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.resize(1100, 720)
         self.setCentralWidget(content)
 

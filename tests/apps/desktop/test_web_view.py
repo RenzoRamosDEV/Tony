@@ -1,6 +1,6 @@
 import pytest
 import shiboken6
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QObject, Qt, QUrl
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
     QWebEnginePermission,
@@ -128,5 +128,15 @@ def test_web_view_registers_the_bridge_and_disables_the_context_menu(qapp, tmp_p
         assert isinstance(view.page(), TonyPage)
         assert view.page().webChannel().registeredObjects() == {"tony": bridge}
         assert view.url().isEmpty()
+    finally:
+        shiboken6.delete(view)
+
+
+def test_web_view_also_registers_window_controls_when_given(qapp, tmp_path):
+    bridge = PageBridge(lambda command: None, lambda event: None, tmp_path, now=lambda: None)
+    controls = QObject()
+    view = create_web_view(HOME, bridge, controls)
+    try:
+        assert view.page().webChannel().registeredObjects() == {"tony": bridge, "windowControls": controls}
     finally:
         shiboken6.delete(view)

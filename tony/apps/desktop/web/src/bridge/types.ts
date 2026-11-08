@@ -177,6 +177,17 @@ export interface AuditRow {
   user_decision: UserDecision | null;
 }
 
+export type ResizeEdge = "top" | "bottom" | "left" | "right" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/** The window's own chrome, since the OS no longer draws a titlebar (see WindowControls). */
+export interface WindowBridge {
+  minimize(): void;
+  toggleMaximize(): void;
+  close(): void;
+  startMove(): void;
+  startResize(edge: ResizeEdge): void;
+}
+
 /** What the page needs from the desktop window. */
 export interface TonyBridge {
   /** Attach the event handler; the first call announces the page as ready. */
@@ -184,4 +195,6 @@ export interface TonyBridge {
   onFocusConfirmation(handler: () => void): void;
   send(command: Command): void;
   auditToday(): Promise<AuditRow[]>;
+  /** Present only inside the desktop window, never in a plain browser tab. */
+  window: WindowBridge | null;
 }

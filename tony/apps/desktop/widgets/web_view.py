@@ -69,13 +69,16 @@ class TonyPage(QWebEnginePage):
         return None
 
 
-def create_web_view(home: QUrl, bridge: QObject) -> QWebEngineView:
-    """A view on a `TonyPage` with `bridge` registered as `tony`; the caller loads `home`."""
+def create_web_view(home: QUrl, bridge: QObject, controls: QObject | None = None) -> QWebEngineView:
+    """A view on a `TonyPage` with `bridge` registered as `tony` and, if given, `controls`
+    registered as `windowControls`; the caller loads `home`."""
     view = QWebEngineView()
     view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
     page = TonyPage(home, parent=view)
     channel = QWebChannel(page)
     channel.registerObject("tony", bridge)
+    if controls is not None:
+        channel.registerObject("windowControls", controls)
     page.setWebChannel(channel)
     view.setPage(page)
     return view

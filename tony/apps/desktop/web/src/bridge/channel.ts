@@ -1,4 +1,4 @@
-import type { AuditRow, Command, CoreEvent, TonyBridge } from "./types";
+import type { AuditRow, Command, CoreEvent, ResizeEdge, TonyBridge } from "./types";
 
 interface QtSignal<T extends unknown[]> {
   connect(handler: (...args: T) => void): void;
@@ -13,8 +13,20 @@ interface ChannelObject {
   auditToday(callback: (result: string) => void): void;
 }
 
+/** The `windowControls` object Python registers, if any (tony/apps/desktop/window_controls.py). */
+interface WindowChannelObject {
+  minimize(): void;
+  toggleMaximize(): void;
+  close(): void;
+  startMove(): void;
+  startResize(edge: string): void;
+}
+
 interface QWebChannelConstructor {
-  new (transport: unknown, ready: (channel: { objects: { tony: ChannelObject } }) => void): unknown;
+  new (
+    transport: unknown,
+    ready: (channel: { objects: { tony: ChannelObject; windowControls?: WindowChannelObject } }) => void,
+  ): unknown;
 }
 
 declare global {
@@ -31,7 +43,17 @@ function parse<T>(text: string): T | undefined {
   }
 }
 
-function wrap(tony: ChannelObject): TonyBridge {
+function wrapWindow(controls: WindowChannelObject): TonyBridge["window"] {
+  return {
+    minimize: () => controls.minimize(),
+    toggleMaximize: () => controls.toggleMaximize(),
+    close: () => controls.close(),
+    startMove: () => controls.startMove(),
+    startResize: (edge: ResizeEdge) => controls.startResize(edge),
+  };
+}
+
+function wrap(tony: ChannelObject, windowControls: WindowChannelObject | undefined): TonyBridge {
   let announced = false;
   return {
     onEvent(handler) {
@@ -60,6 +82,7 @@ function wrap(tony: ChannelObject): TonyBridge {
         });
       });
     },
+    window: windowControls ? wrapWindow(windowControls) : null,
   };
 }
 
@@ -70,6 +93,6 @@ export function connectBridge(): Promise<TonyBridge> {
     return Promise.reject(new Error("QWebChannel is not available outside the desktop window"));
   }
   return new Promise((resolve) => {
-    new Channel(transport, (channel) => resolve(wrap(channel.objects.tony)));
+    new Channel(transport, (channel) => resolve(wrap(channel.objects.tony, channel.objects.windowControls)));
   });
 }

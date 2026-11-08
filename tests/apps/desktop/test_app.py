@@ -47,7 +47,8 @@ def test_the_built_page_is_loaded_from_a_file_url_with_the_tony_channel(qtbot, t
     assert isinstance(view, FakeWebView)
     assert view.home.isLocalFile()
     assert view.home.toLocalFile() == str(dist / "index.html")
-    assert view.channel_objects == {"tony": window.bridge}
+    assert view.channel_objects.keys() == {"tony", "windowControls"}
+    assert view.channel_objects["tony"] is window.bridge
     assert window.isVisible() and core.is_alive()
     window.close()
 

@@ -1,8 +1,5 @@
-import { serverInfo } from "../mcpServers";
-import type { ServerRow, TaskNode, ToolNode } from "../state/reducer";
+import type { TaskNode, ToolNode } from "../state/reducer";
 import { CollapsiblePanel } from "./CollapsiblePanel";
-
-export const DOWN_COLOUR = "#D93025";
 
 function Calls({ calls }: { calls: ToolNode[] }) {
   return (
@@ -16,15 +13,14 @@ function Calls({ calls }: { calls: ToolNode[] }) {
 
 interface Props {
   tasks: TaskNode[];
-  servers: ServerRow[];
 }
 
-export function ActivityPanel({ tasks, servers }: Props) {
+export function ActivityPanel({ tasks }: Props) {
   return (
     <CollapsiblePanel title="Actividad" className="activity-panel">
-      {tasks.length === 0 && servers.length === 0 ? <p className="panel-empty">Sin tareas delegadas.</p> : null}
+      {tasks.length === 0 ? <p className="panel-empty">Sin tareas delegadas.</p> : null}
       <ul className="activity-tasks">
-        {tasks.map((task) => (
+        {[...tasks].reverse().map((task) => (
           <li key={task.task_id}>
             <span className="task-label">{task.label}</span>
             <Calls calls={task.calls} />
@@ -36,22 +32,6 @@ export function ActivityPanel({ tasks, servers }: Props) {
                 </li>
               ))}
             </ul>
-            <span className="task-summary">{task.summary}</span>
-          </li>
-        ))}
-      </ul>
-      <ul className="activity-servers">
-        {servers.map((server) => (
-          <li key={`${server.agent}/${server.server}`} data-down={server.down}>
-            <span style={server.down ? { color: DOWN_COLOUR } : undefined}>{server.label}</span>
-            <button
-              type="button"
-              className="info-icon"
-              title={serverInfo(server.server).description}
-              aria-label={`Información de ${serverInfo(server.server).label}`}
-            >
-              i
-            </button>
           </li>
         ))}
       </ul>
