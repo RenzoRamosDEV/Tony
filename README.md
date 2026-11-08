@@ -53,6 +53,14 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
   política, determinista y sin modelo detrás (el modelo de Edith solo redacta la *pregunta* cuando
   hace falta confirmar — nunca decide el veredicto).
 
+Por dentro, eso vive en dos procesos de Qt separados por un hilo: la ventana (interfaz React sobre
+`QWebEngineView`) solo manda comandos y recibe eventos JSON; todo el trabajo real —agentes, voz,
+servidores MCP— corre en el hilo del núcleo, así que un fallo ahí nunca congela la ventana.
+
+<div align="center">
+<img src="docs/diagrams/system.png" alt="Diagrama: la ventana Qt (sin bordes del SO, interfaz React) envía comandos JSON y recibe eventos JSON por QWebChannel al hilo del núcleo, donde corre CoreRuntime orquestando a Jarvis, Viernes y Edith" width="420">
+</div>
+
 ---
 
 ## El flujo de una tarea
@@ -90,26 +98,9 @@ una versión estática pero el estado se sigue notando por el halo y el color.
 
 ## Agentes, skills y subagentes
 
-```
-agents/
-├── jarvis/
-│   └── agent.md             # role: front — conversa, delega con `delegate`
-├── viernes/
-│   ├── agent.md              # role: worker — ejecuta tareas
-│   ├── tool/tool.json        # qué servidores MCP y tools nativas tiene
-│   ├── skills/                # procedimientos que lee bajo demanda
-│   │   ├── correo/SKILL.md
-│   │   ├── calendario/SKILL.md
-│   │   ├── drive/SKILL.md
-│   │   └── obsidian/SKILL.md
-│   └── subagents/
-│       └── resumidor/        # un worker más, un nivel de profundidad
-│           ├── agent.md
-│           └── tool/tool.json
-└── edith/
-    ├── agent.md               # role: guard — solo redacta la pregunta de confirmación
-    └── policy.yaml            # la política real: allow / confirm / deny
-```
+<div align="center">
+<img src="docs/diagrams/agent-anatomy.png" alt="Diagrama: la carpeta agents/viernes/ contiene agent.md (persona y prompt de sistema), tool/tool.json (servidores MCP y tools nativas), skills/*/SKILL.md (procedimientos bajo demanda) y subagents/* (otros workers); Edith sigue la misma forma pero sin carpeta tool" width="480">
+</div>
 
 - **`agent.md`**: frontmatter (`name`, `role`, `model`, `persona`, `voice.tts`) + el prompt de
   sistema en Markdown.
@@ -122,6 +113,10 @@ agents/
 - **Subagentes** (`subagents/<nombre>/`): un worker más, con su propio `tool.json`, invocado con
   `tony.run_subagent`; comparte el id de tarea, el log y el presupuesto de tiempo de la tarea
   padre, y Edith evalúa sus tools igual que las del agente principal.
+
+<div align="center">
+<img src="docs/diagrams/subagent.png" alt="Diagrama: dentro de una tarea con un task_id compartido, Viernes llama tony.run_subagent y el subagente Resumidor ejecuta sus propias tools pasando por Edith igual que el padre; el resultado estructurado vuelve a Viernes, que continúa su tarea" width="420">
+</div>
 
 ## Edith: la política de permisos
 
@@ -367,6 +362,10 @@ ignorado por git) y sustituye el anterior; si las dos entradas no coinciden o el
 con error sin tocar el fichero. El PIN nunca se escribe en claro en ficheros, logs, eventos ni
 salida.
 
+<div align="center">
+<img src="docs/diagrams/pin-states.png" alt="Diagrama: la sesión de Edith empieza BLOQUEADA, un PIN correcto la pasa a DESBLOQUEADA, y 30 minutos sin mensajes la vuelve a bloquear; los fallos seguidos de PIN añaden una espera creciente de 10, 30 y 60 segundos" width="400">
+</div>
+
 - Al arrancar (`tony chat` o la app de escritorio) se pide el PIN; en la app aparece un diálogo con
   el campo oculto y un botón de cancelar.
 - Tras el 3.er PIN erróneo seguido hay que esperar 10 s, tras el 4.º 30 s y a partir del 5.º 60 s;
@@ -525,7 +524,13 @@ Cree un atajo personalizado del escritorio que ejecute `tony --focus` (con el Fl
 
 La voz es local: micrófono a 16 kHz mono, detección de voz con Silero VAD, transcripción en
 español con faster-whisper (`voice.stt`, `faster-whisper/small` en `int8` sobre CPU) y síntesis con
-Kokoro a 24 kHz. Se instala con el extra `voice` (torch solo CPU) y necesita la biblioteca del
+Kokoro a 24 kHz.
+
+<div align="center">
+<img src="docs/diagrams/voice-pipeline.png" alt="Diagrama: el micrófono pasa por Silero VAD, luego faster-whisper lo transcribe a texto que llega a Jarvis con origen voice; la respuesta se parte en frases, cada una pasa por Kokoro TTS a audio que anima el orbe (voice_level) y suena por el altavoz" width="520">
+</div>
+
+Se instala con el extra `voice` (torch solo CPU) y necesita la biblioteca del
 sistema PortAudio (`portaudio` en Fedora, `libportaudio2` en Debian/Ubuntu):
 
 ```bash
