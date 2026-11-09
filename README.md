@@ -67,9 +67,17 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
 
 ## Cómo está montado
 
-<div align="center">
-<img src="docs/diagrams/architecture.png" alt="Diagrama: tú le pides algo a Jarvis, que conversa contigo y encarga la tarea a Viernes; Viernes pide permiso a Edith antes de actuar y, si se permite, usa las herramientas (archivos, correo, calendario, notas)" width="430">
-</div>
+```mermaid
+flowchart TD
+    classDef jarvis fill:#2F6FED,stroke:#1c4db3,color:#ffffff
+    classDef viernes fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef edith fill:#E0A100,stroke:#a97800,color:#1a1200
+
+    U(["Tú"]) -->|"le pides algo"| J["<b>JARVIS</b><br/>conversa contigo"]:::jarvis
+    J -->|"encarga la tarea"| V["<b>VIERNES</b><br/>ejecuta la tarea"]:::viernes
+    V -->|"pide permiso antes de actuar"| E["<b>EDITH</b><br/>decide qué se permite"]:::edith
+    E -->|"si se permite"| T["<b>HERRAMIENTAS</b><br/>archivos · correo · calendario · notas"]
+```
 
 - **Jarvis** nunca toca una tool directamente: todo lo que requiere actuar en el mundo real pasa
   por `delegate` a Viernes.
@@ -84,9 +92,31 @@ Por dentro hay dos partes: la **interfaz**, que es lo que ves y solo envía tus 
 **núcleo**, donde trabajan los agentes. Si el núcleo falla, la interfaz sigue abierta y te lo
 muestra en el chat.
 
-<div align="center">
-<img src="docs/diagrams/system.png" alt="Diagrama: la interfaz (orbe, chat, actividad, ajustes) envía tus órdenes al núcleo (Jarvis, Viernes, Edith y voz) y recibe de vuelta lo que ocurre" width="780">
-</div>
+```mermaid
+flowchart LR
+    classDef jarvis fill:#2F6FED,stroke:#1c4db3,color:#ffffff
+    classDef viernes fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef edith fill:#E0A100,stroke:#a97800,color:#1a1200
+
+    subgraph UI["<b>INTERFAZ</b><br/>lo que ves"]
+        direction TB
+        O1["Orbe"]
+        O2["Chat"]
+        O3["Actividad"]
+        O4["Ajustes"]
+    end
+
+    subgraph CORE["<b>NÚCLEO</b><br/>lo que piensa y actúa"]
+        direction TB
+        N1["Jarvis"]:::jarvis
+        N2["Viernes"]:::viernes
+        N3["Edith"]:::edith
+        N4["Voz"]
+    end
+
+    UI -->|"tus órdenes"| CORE
+    CORE -->|"lo que ocurre"| UI
+```
 
 ### El mapa completo
 
@@ -155,9 +185,25 @@ flowchart LR
 
 ### El flujo de una tarea
 
-<div align="center">
-<img src="docs/diagrams/task-flow.png" alt="Diagrama: pides borrar un archivo; Jarvis encarga la tarea a Viernes, que pide permiso a Edith; Edith permite, pide confirmación o deniega, y Jarvis te explica el resultado" width="640">
-</div>
+```mermaid
+flowchart TD
+    classDef jarvis fill:#2F6FED,stroke:#1c4db3,color:#ffffff
+    classDef viernes fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef edith fill:#E0A100,stroke:#a97800,color:#1a1200
+    classDef allow fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef ask fill:#E0A100,stroke:#a97800,color:#1a1200
+    classDef deny fill:#E5645A,stroke:#a8403a,color:#ffffff
+
+    U(["«Borra el archivo viejo de mis notas»"]) -->|"se lo pides"| J1["<b>JARVIS</b><br/>entiende lo que quieres"]:::jarvis
+    J1 -->|"encarga la tarea"| V["<b>VIERNES</b><br/>intenta borrar el archivo"]:::viernes
+    V -->|"pide permiso antes de actuar"| E["<b>EDITH</b><br/>consulta las reglas"]:::edith
+    E --> A["<b>PERMITIR</b><br/>se ejecuta sin más"]:::allow
+    E --> C["<b>CONFIRMAR</b><br/>te pregunta antes"]:::ask
+    E --> D["<b>DENEGAR</b><br/>se bloquea"]:::deny
+    A -->|"resultado"| J2["<b>JARVIS</b><br/>te explica qué ha pasado"]:::jarvis
+    C -->|"resultado"| J2
+    D -->|"resultado"| J2
+```
 
 | Veredicto | Qué pasa |
 |---|---|
@@ -424,9 +470,12 @@ ejecuta el usuario desde la CLI: no son tools del modelo.
 
 ### La voz
 
-<div align="center">
-<img src="docs/diagrams/voice-pipeline.png" alt="Diagrama: hablas al micrófono, se detecta tu voz, se pasa a texto, Jarvis responde y te lo dice en voz alta" width="840">
-</div>
+```mermaid
+flowchart LR
+    classDef jarvis fill:#2F6FED,stroke:#1c4db3,color:#ffffff
+
+    S1["① Hablas al micrófono"] --> S2["② Detecta tu voz"] --> S3["③ La pasa a texto"] --> S4["④ Jarvis responde"]:::jarvis --> S5["⑤ Te lo dice en voz alta"]
+```
 
 La voz es local (detalle en [Voz](#voz)). Si quieres medirla, un registrador de etapas opcional
 anota solo marcas de tiempo, nunca audio ni texto, y la prueba de latencia imprime p50 y p95 en
@@ -467,9 +516,18 @@ flowchart LR
 En la app de escritorio, el orbe central siempre refleja un estado — no hace falta leer logs para
 saber qué está haciendo Tony, sea cual sea el tema:
 
-<div align="center">
-<img src="docs/diagrams/orb-states.png" alt="Diagrama: el orbe pasa de Reposo a Escuchando cuando hablas, a Pensando cuando terminas, a Hablando cuando responde y vuelve a Reposo; en cualquier momento puede pasar a Esperando tu respuesta cuando Edith necesita tu permiso" width="840">
-</div>
+```mermaid
+flowchart LR
+    classDef listen fill:#2F6FED,stroke:#1c4db3,color:#ffffff
+    classDef speak fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef wait fill:#E0A100,stroke:#a97800,color:#1a1200
+
+    R["REPOSO"] -->|"hablas"| L["ESCUCHANDO"]:::listen
+    L -->|"terminas"| P["PENSANDO"]
+    P -->|"responde"| H["HABLANDO"]:::speak
+    H -.->|"al terminar de hablar, vuelve a Reposo"| R
+    W["ESPERANDO TU RESPUESTA<br/>puede aparecer en cualquier momento,<br/>cuando Edith necesita tu permiso"]:::wait
+```
 
 El orbe pasa de **Reposo** a **Escuchando** cuando hablas, a **Pensando** mientras Jarvis y Viernes
 trabajan y a **Hablando** cuando responde. Si Edith necesita tu permiso, aparece **Esperando tu
@@ -481,9 +539,23 @@ estado se nota igual por el halo y el color.
 
 ## Agentes, skills y subagentes
 
-<div align="center">
-<img src="docs/diagrams/agent-anatomy.png" alt="Diagrama: la carpeta de un agente contiene agent.md (quién es y cómo habla), tool.json (qué herramientas puede usar), skills (guías para tareas concretas) y subagents (ayudantes); Edith tiene policy.yaml en vez de herramientas" width="520">
-</div>
+```mermaid
+flowchart TD
+    classDef viernes fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+
+    V["<b>VIERNES</b><br/>un agente"]:::viernes -->|"su carpeta contiene"| F
+
+    subgraph F["agents/viernes/"]
+        direction TB
+        F1["<b>agent.md</b> · quién es y cómo habla"]
+        F2["<b>tool.json</b> · qué herramientas puede usar"]
+        F3["<b>skills</b> · guías para tareas concretas"]
+        F4["<b>subagents</b> · ayudantes para tareas más pequeñas"]
+    end
+
+    N["Edith es igual, pero en vez de herramientas tiene <b>policy.yaml</b>: sus reglas"]
+    F ~~~ N
+```
 
 - **`agent.md`**: frontmatter (`name`, `role`, `model`, `persona`, `voice.tts`) + el prompt de
   sistema en Markdown.
@@ -497,9 +569,17 @@ estado se nota igual por el halo y el color.
   `tony.run_subagent`; comparte el id de tarea, el log y el presupuesto de tiempo de la tarea
   padre, y Edith evalúa sus tools igual que las del agente principal.
 
-<div align="center">
-<img src="docs/diagrams/subagent.png" alt="Diagrama: Viernes encarga una parte de la tarea a un ayudante (subagente) y este le devuelve el resultado; Edith revisa lo que hacen los dos" width="700">
-</div>
+```mermaid
+flowchart TD
+    classDef viernes fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef edith fill:#E0A100,stroke:#a97800,color:#1a1200
+
+    V["<b>VIERNES</b><br/>tarea principal"]:::viernes -->|"encarga una parte"| A["<b>AYUDANTE</b><br/>subagente"]:::viernes
+    A -->|"devuelve el resultado"| V
+    E["<b>EDITH</b><br/>revisa lo que hacen los dos"]:::edith
+    V -.- E
+    A -.- E
+```
 
 ## Edith: la política de permisos
 
@@ -794,9 +874,17 @@ ignorado por git) y sustituye el anterior; si las dos entradas no coinciden o el
 con error sin tocar el fichero. El PIN nunca se escribe en claro en ficheros, logs, eventos ni
 salida.
 
-<div align="center">
-<img src="docs/diagrams/pin-states.png" alt="Diagrama: la sesión de Edith pasa de Bloqueada a Desbloqueada con el PIN correcto, y vuelve a Bloqueada tras 30 minutos sin actividad" width="740">
-</div>
+```mermaid
+flowchart LR
+    classDef locked fill:#E5645A,stroke:#a8403a,color:#ffffff
+    classDef open fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+
+    B["<b>BLOQUEADA</b><br/>no puede encargar tareas"]:::locked -->|"PIN correcto"| D["<b>DESBLOQUEADA</b><br/>puede encargar tareas"]:::open
+    D -->|"30 min sin actividad"| B
+```
+
+*Si fallas el PIN varias veces seguidas, tendrás que esperar un poco antes de volver a
+intentarlo.*
 
 - Al arrancar (`tony chat` o la app de escritorio) se pide el PIN; en la app aparece un diálogo con
   el campo oculto y un botón de cancelar.
