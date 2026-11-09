@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mejoras de Tony</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Concepto: plano técnico de ingeniería; cada mejora tiene una letra fija (A–I) que aparece en el mapa, en los diagramas y en la tabla. */
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --fg: #14202b; --muted: #55657a; --line: #d5dce6;
+  --accent: #1b5fd6; --accent-soft: #e3ecfc;
+  --ok: #0d8a5f; --ok-soft: #dff3ea;
+  --warn: #b86a00; --warn-soft: #fbeed8;
+  --bad: #c0392b; --bad-soft: #f9e1de;
+  --f-display: "Manrope", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1620; --surface: #17212d; --fg: #e6edf5; --muted: #9db0c5; --line: #2a3a4d;
+    --accent: #6ea3ff; --accent-soft: #1b2c4a;
+    --ok: #3dd29b; --ok-soft: #12362b;
+    --warn: #f0a640; --warn-soft: #3b2a10;
+    --bad: #ff7b6b; --bad-soft: #43201c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1620; --surface: #17212d; --fg: #e6edf5; --muted: #9db0c5; --line: #2a3a4d;
+  --accent: #6ea3ff; --accent-soft: #1b2c4a;
+  --ok: #3dd29b; --ok-soft: #12362b;
+  --warn: #f0a640; --warn-soft: #3b2a10;
+  --bad: #ff7b6b; --bad-soft: #43201c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 400 16px/1.6 var(--f-body);
+  padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); margin: 0; }
+.wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+.lead { font-size: 1.15rem; color: var(--muted); max-width: 62ch; }
+.eyebrow { font: 500 0.78rem var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+section { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { border-top: 3px solid var(--accent); background: var(--surface); padding: 12px 14px; }
+.stat b { display: block; font: 800 1.9rem var(--f-display); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 0.9rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.scroll { overflow-x: auto; }
+.scroll svg { display: block; min-width: 620px; width: 100%; height: auto; }
+.tag { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; background: var(--accent); color: var(--bg);
+  font: 500 0.85rem var(--f-mono); flex: none; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols > * { min-width: 0; }
+.chip { font: 500 0.78rem var(--f-mono); padding: 2px 8px; }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.note { font-size: 0.9rem; color: var(--muted); }
+code { font: 500 0.88em var(--f-mono); background: var(--accent-soft); padding: 1px 5px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.93rem; }
+th { text-align: left; font: 500 0.75rem var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { white-space: nowrap; }
+/* SVG */
+svg text { font-family: var(--f-body); fill: var(--fg); font-size: 13px; }
+svg .mono { font-family: var(--f-mono); font-size: 11.5px; }
+svg .muted { fill: var(--muted); }
+svg .bold { font-weight: 700; }
+.s-box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.s-acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.s-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.5; }
+.s-bad { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.5; }
+.s-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.5; }
+.s-bar-bad { fill: var(--bad); } .s-bar-ok { fill: var(--ok); } .s-bar-acc { fill: var(--accent); } .s-bar-warn { fill: var(--warn); }
+.s-line { stroke: var(--line); stroke-width: 1; fill: none; }
+.s-arrow { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+.s-dash { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; fill: none; }
+.s-badge { fill: var(--accent); }
+svg text.badge { fill: var(--bg); font-family: var(--f-mono); font-weight: 500; font-size: 12px; text-anchor: middle; }
+.s-arrowhead { fill: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .panel { transition: border-color .2s; } .panel:hover { border-color: var(--accent); } }
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:16px">
+  <span class="eyebrow">Revisión con Codex · 3 cambios OpenSpec</span>
+  <h1>Mejoras de Tony: qué se propuso y por qué</h1>
+  <p class="lead">Tony escucha, piensa y habla en tiempo real, así que cualquier espera inútil se nota. Una revisión estática del código encontró nueve puntos donde Tony esperaba, repetía trabajo o avisaba poco. Se corrigieron sin quitar ni renombrar nada de lo que ya existía.</p>
+  <div class="stats">
+    <div class="stat"><b>9</b><span>mejoras (A–I)</span></div>
+    <div class="stat"><b>3</b><span>cambios OpenSpec</span></div>
+    <div class="stat"><b>2056</b><span>pruebas pasadas</span></div>
+    <div class="stat"><b>0</b><span>funciones quitadas</span></div>
+  </div>
+</header>
+
+<section>
+  <span class="eyebrow">Mapa general</span>
+  <h2>Dónde toca cada mejora</h2>
+  <p>Así viaja una frase por Tony. Cada insignia con letra marca la etapa que se mejoró; las mismas letras se repiten más abajo y en la tabla final.</p>
+  <div class="panel">
+    <div class="scroll">
+    <svg viewBox="0 0 900 360" role="img" aria-label="Flujo de voz de Tony con las mejoras A a I ubicadas en cada etapa">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker></defs>
+      <!-- fila principal -->
+      <rect class="s-box" x="10" y="40" width="110" height="56"/><text x="65" y="73" text-anchor="middle" class="bold">Micrófono</text>
+      <rect class="s-box" x="160" y="40" width="110" height="56"/><text x="215" y="73" text-anchor="middle" class="bold">Detector VAD</text>
+      <rect class="s-acc" x="310" y="40" width="110" height="56"/><text x="365" y="73" text-anchor="middle" class="bold">Voz → texto</text>
+      <rect class="s-acc" x="460" y="40" width="130" height="56"/><text x="525" y="73" text-anchor="middle" class="bold">Cerebro Claude</text>
+      <rect class="s-box" x="630" y="40" width="110" height="56"/><text x="685" y="73" text-anchor="middle" class="bold">Texto → voz</text>
+      <rect class="s-box" x="780" y="40" width="110" height="56"/><text x="835" y="73" text-anchor="middle" class="bold">Altavoz</text>
+      <path class="s-arrow" d="M120 68H156" marker-end="url(#ah)"/><path class="s-arrow" d="M270 68H306" marker-end="url(#ah)"/>
+      <path class="s-arrow" d="M420 68H456" marker-end="url(#ah)"/><path class="s-arrow" d="M590 68H626" marker-end="url(#ah)"/><path class="s-arrow" d="M740 68H776" marker-end="url(#ah)"/>
+      <!-- insignias fila principal -->
+      <circle class="s-badge" cx="365" cy="28" r="12"/><text class="badge" x="365" y="32">B</text>
+      <circle class="s-badge" cx="525" cy="28" r="12"/><text class="badge" x="525" y="32">C</text>
+      <circle class="s-badge" cx="545" cy="28" r="12"/><text class="badge" x="545" y="32">D</text>
+      <circle class="s-badge" cx="215" cy="28" r="12"/><text class="badge" x="215" y="32">I</text>
+      <circle class="s-badge" cx="685" cy="28" r="12"/><text class="badge" x="685" y="32">I</text>
+      <!-- núcleo -->
+      <rect class="s-box" x="10" y="150" width="880" height="64" stroke-dasharray="6 4"/>
+      <text x="24" y="172" class="mono muted">NÚCLEO · bucle de eventos (asyncio)</text>
+      <rect class="s-acc" x="24" y="180" width="190" height="26"/><text x="119" y="198" text-anchor="middle" class="mono">buscar dispositivos de audio</text>
+      <circle class="s-badge" cx="224" cy="180" r="12"/><text class="badge" x="224" y="184">A</text>
+      <rect class="s-box" x="260" y="180" width="170" height="26"/><text x="345" y="198" text-anchor="middle" class="mono">elegir dispositivo</text>
+      <circle class="s-badge" cx="440" cy="180" r="12"/><text class="badge" x="440" y="184">H</text>
+      <path class="s-arrow" d="M525 100V148" marker-end="url(#ah)"/>
+      <!-- fila inferior -->
+      <rect class="s-box" x="10" y="256" width="200" height="60"/><text x="110" y="282" text-anchor="middle" class="bold">Servidores MCP</text><text x="110" y="302" text-anchor="middle" class="muted">herramientas externas</text>
+      <circle class="s-badge" cx="40" cy="256" r="12"/><text class="badge" x="40" y="260">E</text>
+      <circle class="s-badge" cx="70" cy="256" r="12"/><text class="badge" x="70" y="260">F</text>
+      <rect class="s-box" x="250" y="256" width="200" height="60"/><text x="350" y="282" text-anchor="middle" class="bold">Música</text><text x="350" y="302" text-anchor="middle" class="muted">buscar y reproducir</text>
+      <circle class="s-badge" cx="280" cy="256" r="12"/><text class="badge" x="280" y="260">G</text>
+      <rect class="s-box" x="490" y="256" width="200" height="60"/><text x="590" y="282" text-anchor="middle" class="bold">Skills de agentes</text><text x="590" y="302" text-anchor="middle" class="muted">instrucciones en disco</text>
+      <circle class="s-badge" cx="520" cy="256" r="12"/><text class="badge" x="520" y="260">D</text>
+      <path class="s-arrow" d="M110 256V216" marker-end="url(#ah)"/><path class="s-arrow" d="M350 256V216" marker-end="url(#ah)"/><path class="s-arrow" d="M590 256V216" marker-end="url(#ah)"/>
+      <text x="760" y="286" class="mono muted">I = medir latencia</text>
+      <text x="760" y="304" class="mono muted">en toda la cadena de voz</text>
+    </svg>
+    </div>
+    <p class="note">La letra D aparece dos veces: en el cerebro (acumular la respuesta sin guardarlo todo) y en las skills (leer solo la que se pide).</p>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Cambio 1 · core-loop-fluidity</span>
+  <h2>Que el bucle principal nunca espere de más</h2>
+  <p>Cuatro mejoras sobre los caminos que se ejecutan en cada frase. El comportamiento visible no cambia; solo desaparece la espera.</p>
+
+  <div class="panel">
+    <div class="row"><span class="tag">A</span><h3>Buscar dispositivos de audio sin congelar a Tony</h3></div>
+    <p>Antes, pedir la lista de micrófonos y altavoces ejecutaba <code>pw-dump</code> dentro del bucle principal, con hasta 5 segundos de espera. Mientras tanto no salían palabras de la respuesta ni se atendían confirmaciones o cancelaciones. Ahora la búsqueda corre aparte y varias peticiones comparten una sola consulta.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 900 250" role="img" aria-label="Línea de tiempo del bucle principal antes y después, escala de 0 a 6 segundos">
+      <text x="10" y="18" class="bold">Antes</text> <text x="70" y="18" class="muted">el bucle queda bloqueado mientras dura la consulta</text>
+      <line class="s-line" x1="150" x2="150" y1="28" y2="108"/>
+      <text x="10" y="55" class="mono muted">bucle</text>
+      <rect class="s-ok" x="150" y="38" width="60" height="26"/><text x="180" y="55" text-anchor="middle" class="mono">tokens</text>
+      <rect class="s-bad" x="210" y="38" width="500" height="26"/><text x="460" y="55" text-anchor="middle" class="mono bold">BLOQUEADO 5 s</text>
+      <rect class="s-ok" x="710" y="38" width="130" height="26"/><text x="775" y="55" text-anchor="middle" class="mono">tokens</text>
+      <text x="10" y="92" class="mono muted">pw-dump</text>
+      <rect class="s-bar-bad" x="210" y="80" width="500" height="10"/>
+
+      <text x="10" y="140" class="bold">Ahora</text> <text x="70" y="140" class="muted">la consulta corre en su propio hilo</text>
+      <text x="10" y="177" class="mono muted">bucle</text>
+      <rect class="s-ok" x="150" y="160" width="690" height="26"/><text x="495" y="177" text-anchor="middle" class="mono">tokens, confirmaciones y cancelación fluyen sin pausa</text>
+      <text x="10" y="214" class="mono muted">hilo aparte</text>
+      <rect class="s-bar-acc" x="210" y="202" width="500" height="10"/>
+      <circle class="s-badge" cx="710" cy="207" r="5"/>
+      <text x="722" y="211" class="mono">publica el resultado</text>
+
+      <line class="s-line" x1="150" x2="840" y1="232" y2="232"/>
+      <text x="150" y="246" class="mono muted">0 s</text><text x="395" y="246" class="mono muted">2,5 s</text><text x="600" y="246" class="mono muted">4,5 s</text><text x="825" y="246" class="mono muted">6 s</text>
+    </svg>
+    </div>
+    <div class="row"><span class="chip bad">Antes: hasta 5 s de bloqueo</span><span class="chip ok">Ahora: hueco máximo de 100 ms</span><span class="chip warn">Si Tony se apaga, el resultado tardío se descarta</span></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="row"><span class="tag">B</span><h3>No transcribir lo que ya se canceló</h3></div>
+      <p>La voz que llegaba después de cancelar igualmente pasaba por el motor de voz a texto, ocupando el único hilo disponible. Ahora se comprueba la sesión <em>antes</em> de transcribir y se descarta.</p>
+      <div class="scroll"><svg viewBox="0 0 420 150" role="img" aria-label="Cola de frases con una cancelada: antes se procesa, ahora se salta" style="min-width:380px">
+        <text x="6" y="18" class="bold">Antes</text>
+        <rect class="s-ok" x="6" y="26" width="96" height="30"/><text x="54" y="46" text-anchor="middle" class="mono">frase 1</text>
+        <rect class="s-bad" x="108" y="26" width="150" height="30"/><text x="183" y="46" text-anchor="middle" class="mono">cancelada: se transcribe</text>
+        <rect class="s-ok" x="264" y="26" width="96" height="30"/><text x="312" y="46" text-anchor="middle" class="mono">frase 3</text>
+        <text x="6" y="92" class="bold">Ahora</text>
+        <rect class="s-ok" x="6" y="100" width="96" height="30"/><text x="54" y="120" text-anchor="middle" class="mono">frase 1</text>
+        <rect class="s-box" x="108" y="100" width="60" height="30" stroke-dasharray="4 3"/><text x="138" y="120" text-anchor="middle" class="mono muted">salta</text>
+        <rect class="s-ok" x="174" y="100" width="96" height="30"/><text x="222" y="120" text-anchor="middle" class="mono">frase 3</text>
+        <text x="280" y="120" class="mono" style="fill:var(--ok)">← llega antes</text>
+      </svg></div>
+      <p class="note">La sesión termina exactamente una vez; si la transcripción ya estaba en marcha, se descarta el texto al final.</p>
+    </div>
+    <div class="panel">
+      <div class="row"><span class="tag">C</span><h3>Acumular la respuesta sin guardarlo todo</h3></div>
+      <p>El motor guardaba en una lista cada mensaje que llegaba del modelo para luego buscar solo el último texto y el resultado final. Ahora lo va resumiendo sobre la marcha.</p>
+      <div class="scroll"><svg viewBox="0 0 420 150" role="img" aria-label="Memoria usada: antes crece con cada mensaje, ahora es constante" style="min-width:380px">
+        <line class="s-line" x1="40" x2="40" y1="14" y2="120"/><line class="s-line" x1="40" x2="410" y1="120" y2="120"/>
+        <text x="46" y="26" class="mono muted">mensajes guardados</text>
+        <polyline points="40,118 120,98 200,76 280,54 360,32" fill="none" style="stroke:var(--bad);stroke-width:2.5"/>
+        <text x="300" y="26" class="mono" style="fill:var(--bad)">antes</text>
+        <polyline points="40,112 120,112 200,112 280,112 360,112" fill="none" style="stroke:var(--ok);stroke-width:2.5"/>
+        <text x="300" y="136" class="mono" style="fill:var(--ok)">ahora: constante</text>
+        <text x="40" y="142" class="mono muted">inicio</text><text x="364" y="142" class="mono muted">fin</text>
+      </svg></div>
+      <p class="note">Esquema ilustrativo. Los errores, el uso de tokens y el resultado estructurado se calculan igual que antes.</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row"><span class="tag">D</span><h3>Leer una sola skill</h3></div>
+    <p>Para leer las instrucciones de una skill, Tony analizaba la carpeta de <em>todas</em> las skills y luego escogía una. Ahora va directo a <code>skills/&lt;nombre&gt;/SKILL.md</code>. Los nombres con barras o <code>..</code> se rechazan, y el archivo se sigue leyendo fresco desde disco en cada uso.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 900 120" role="img" aria-label="Archivos leídos antes y ahora al pedir una skill">
+      <text x="6" y="22" class="bold">Antes</text>
+      <g><rect class="s-bad" x="80" y="8" width="90" height="22"/><rect class="s-bad" x="176" y="8" width="90" height="22"/><rect class="s-bad" x="272" y="8" width="90" height="22"/><rect class="s-bad" x="368" y="8" width="90" height="22"/><rect class="s-bad" x="464" y="8" width="90" height="22"/><rect class="s-bad" x="560" y="8" width="90" height="22"/></g>
+      <text x="665" y="24" class="mono muted">se leen todas</text>
+      <text x="6" y="82" class="bold">Ahora</text>
+      <rect class="s-box" x="80" y="68" width="90" height="22" stroke-dasharray="4 3"/><rect class="s-ok" x="176" y="68" width="90" height="22"/><rect class="s-box" x="272" y="68" width="90" height="22" stroke-dasharray="4 3"/><rect class="s-box" x="368" y="68" width="90" height="22" stroke-dasharray="4 3"/>
+      <text x="221" y="83" text-anchor="middle" class="mono">pedida</text>
+      <text x="480" y="84" class="mono muted">solo se lee la pedida</text>
+    </svg>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Cambio 2 · mcp-music-device-reliability</span>
+  <h2>Fiabilidad: servidores, música y dispositivos</h2>
+  <p>Cuatro mejoras para que Tony se recupere solo, arranque más rápido, ponga la canción que aprobaste y diga la verdad sobre qué dispositivo usa.</p>
+
+  <div class="panel">
+    <div class="row"><span class="tag">E</span><h3>Arrancar los servidores MCP a la vez</h3></div>
+    <p>Los servidores externos se conectaban uno tras otro, y cada uno puede tardar hasta 30 s en rendirse. Con cuatro servidores caídos, Tony tardaba 2 minutos en arrancar. Ahora conectan en paralelo (máximo 4 a la vez), cada conexión la abre y la cierra su propia tarea, y el catálogo de herramientas conserva el orden en que se declararon.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 900 270" role="img" aria-label="Arranque con cuatro servidores caídos, escala de 0 a 120 segundos">
+      <text x="10" y="16" class="bold">Antes · secuencial</text>
+      <text x="10" y="44" class="mono muted">servidor 1</text><rect class="s-bar-bad" x="120" y="32" width="195" height="16"/>
+      <text x="10" y="68" class="mono muted">servidor 2</text><rect class="s-bar-bad" x="315" y="56" width="195" height="16"/>
+      <text x="10" y="92" class="mono muted">servidor 3</text><rect class="s-bar-bad" x="510" y="80" width="195" height="16"/>
+      <text x="10" y="116" class="mono muted">servidor 4</text><rect class="s-bar-bad" x="705" y="104" width="195" height="16"/>
+      <text x="800" y="140" text-anchor="end" class="mono bold" style="fill:var(--bad)">≈ 120 s</text>
+      <text x="10" y="168" class="bold">Ahora · concurrente</text>
+      <text x="10" y="196" class="mono muted">servidor 1</text><rect class="s-bar-ok" x="120" y="184" width="195" height="16"/>
+      <text x="10" y="220" class="mono muted">servidor 2</text><rect class="s-bar-ok" x="120" y="208" width="195" height="16"/>
+      <text x="10" y="244" class="mono muted">servidor 3</text><rect class="s-bar-ok" x="120" y="232" width="195" height="16"/>
+      <text x="10" y="268" class="mono muted">servidor 4</text><rect class="s-bar-ok" x="120" y="256" width="195" height="14"/>
+      <text x="335" y="228" class="mono bold" style="fill:var(--ok)">≈ 30 s (el objetivo es menos de 40 s)</text>
+    </svg>
+    </div>
+    <div class="row"><span class="chip ok">120 s → 30 s con 4 servidores caídos</span><span class="chip warn">Si uno falla, los demás siguen conectando</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="row"><span class="tag">F</span><h3>Que la recuperación en segundo plano funcione de verdad</h3></div>
+    <p>Tony promete reintentar un servidor caído a los 5, 15 y 30 s. Pero la comprobación de arranque y la de recarga de configuración cerraban el gestor justo después del primer intento, y eso cancelaba los reintentos. Ahora esperan hasta que el servidor se recupera, se agotan los intentos, llega una comprobación más nueva o Tony se apaga.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 900 190" role="img" aria-label="Línea de tiempo de reintentos antes y ahora">
+      <text x="6" y="18" class="bold">Antes</text>
+      <line class="s-line" x1="120" x2="880" y1="40" y2="40"/>
+      <circle cx="140" cy="40" r="8" style="fill:var(--bad)"/><text x="154" y="44" class="mono">intento 1: falla</text>
+      <rect class="s-box" x="330" y="26" width="190" height="28" stroke-dasharray="4 3"/><text x="425" y="44" text-anchor="middle" class="mono muted">se cierra: sin reintentos</text>
+      <text x="6" y="108" class="bold">Ahora</text>
+      <line class="s-line" x1="120" x2="880" y1="130" y2="130"/>
+      <circle cx="140" cy="130" r="8" style="fill:var(--bad)"/><text x="125" y="156" class="mono muted">0 s</text>
+      <circle cx="300" cy="130" r="8" style="fill:var(--bad)"/><text x="276" y="156" class="mono muted">+5 s</text>
+      <circle cx="560" cy="130" r="8" style="fill:var(--ok)"/><text x="530" y="156" class="mono muted">+20 s</text>
+      <text x="580" y="134" class="mono" style="fill:var(--ok)">recuperado: publica «arriba» una vez</text>
+      <text x="120" y="182" class="note" style="font-size:12px">Ejemplo: el servidor vuelve a estar accesible a los 10 s; el segundo reintento lo conecta.</text>
+    </svg>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="row"><span class="tag">G</span><h3>Poner la canción que aprobaste</h3></div>
+      <p>Tony buscaba la canción para decirte el título y volvía a buscarla para reproducirla. Esa segunda búsqueda duplicaba trabajo de red y podía traer otra grabación. Ahora se recuerda la pista encontrada y se reutiliza si pides exactamente ese título.</p>
+      <div class="scroll"><svg viewBox="0 0 420 180" role="img" aria-label="Búsquedas antes y ahora al reproducir una canción" style="min-width:380px">
+        <text x="6" y="16" class="bold">Antes</text>
+        <rect class="s-box" x="6" y="24" width="120" height="30"/><text x="66" y="44" text-anchor="middle" class="mono">buscar → título</text>
+        <rect class="s-bad" x="140" y="24" width="150" height="30"/><text x="215" y="44" text-anchor="middle" class="mono">buscar otra vez</text>
+        <rect class="s-box" x="304" y="24" width="100" height="30"/><text x="354" y="44" text-anchor="middle" class="mono">reproducir</text>
+        <text x="6" y="92" class="bold">Ahora</text>
+        <rect class="s-box" x="6" y="100" width="120" height="30"/><text x="66" y="120" text-anchor="middle" class="mono">buscar → título</text>
+        <rect class="s-ok" x="140" y="100" width="150" height="30"/><text x="215" y="120" text-anchor="middle" class="mono">pista recordada</text>
+        <rect class="s-box" x="304" y="100" width="100" height="30"/><text x="354" y="120" text-anchor="middle" class="mono">reproducir</text>
+        <text x="6" y="162" class="mono muted">válida 10 min · hasta 20 pistas</text>
+      </svg></div>
+      <p class="note">Si pasan 10 minutos, la dirección del audio puede haber caducado: se vuelve a buscar y solo se acepta si el título es idéntico; si no, Tony avisa del error y no reproduce nada.</p>
+    </div>
+    <div class="panel">
+      <div class="row"><span class="tag">H</span><h3>Elegir dispositivo con honestidad</h3></div>
+      <p>Si elegías un altavoz que no existía, Tony usaba el predeterminado sin decir nada. Ahora solo busca entre dispositivos del tipo correcto, tolera mayúsculas y espacios, y avisa cuando cae al predeterminado.</p>
+      <div class="scroll"><svg viewBox="0 0 420 260" role="img" aria-label="Decisión al elegir un dispositivo de audio" style="min-width:380px">
+        <rect class="s-box" x="110" y="6" width="200" height="30"/><text x="210" y="26" text-anchor="middle" class="mono">eliges «Foo» como salida</text>
+        <path class="s-arrow" d="M210 36V56" marker-end="url(#ah)"/>
+        <rect class="s-acc" x="60" y="58" width="300" height="34"/><text x="210" y="79" text-anchor="middle" class="mono">¿hay una salida llamada igual?</text>
+        <path class="s-arrow" d="M120 92V130" marker-end="url(#ah)"/><text x="40" y="118" class="mono" style="fill:var(--ok)">sí</text>
+        <path class="s-arrow" d="M300 92V130" marker-end="url(#ah)"/><text x="310" y="118" class="mono" style="fill:var(--bad)">no</text>
+        <rect class="s-ok" x="20" y="132" width="200" height="48"/><text x="120" y="152" text-anchor="middle" class="mono">se usa; sin aviso</text><text x="120" y="168" text-anchor="middle" class="mono muted">(exacto o sin mayúsculas)</text>
+        <rect class="s-warn" x="230" y="132" width="180" height="48"/><text x="320" y="152" text-anchor="middle" class="mono">predeterminado</text><text x="320" y="168" text-anchor="middle" class="mono">+ aviso con «Foo»</text>
+        <text x="20" y="214" class="mono muted">Un micrófono nunca cuenta como salida,</text>
+        <text x="20" y="232" class="mono muted">ni al revés.</text>
+      </svg></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Cambio 3 · voice-latency-metrics</span>
+  <h2>Medir antes de optimizar</h2>
+  <div class="panel">
+    <div class="row"><span class="tag">I</span><h3>Latencia de voz por etapas</h3></div>
+    <p>Hasta ahora solo se medía desde que el micrófono se cierra hasta el primer sonido, con 5 ejecuciones y una mediana. Eso oculta lo que tarda en decidir que terminaste de hablar y las peores esperas. Se añade un registro opcional que anota ocho momentos de cada turno. Guarda solo nombres y tiempos, nunca audio ni texto, y si no se activa Tony funciona igual que antes.</p>
+    <div class="scroll">
+    <svg viewBox="0 0 900 250" role="img" aria-label="Ocho marcas de tiempo a lo largo de un turno de voz y los cinco intervalos del informe">
+      <line class="s-line" x1="30" x2="870" y1="70" y2="70" style="stroke-width:2"/>
+      <g class="mono">
+        <circle cx="40" cy="70" r="6" class="s-badge"/><text x="40" y="52" text-anchor="middle">fin del habla</text>
+        <circle cx="150" cy="70" r="6" class="s-badge"/><text x="150" y="94" text-anchor="middle">micro cerrado</text>
+        <circle cx="260" cy="70" r="6" class="s-badge"/><text x="260" y="52" text-anchor="middle">inicio STT</text>
+        <circle cx="390" cy="70" r="6" class="s-badge"/><text x="390" y="94" text-anchor="middle">fin STT</text>
+        <circle cx="560" cy="70" r="6" class="s-badge"/><text x="560" y="52" text-anchor="middle">primer token</text>
+        <circle cx="660" cy="70" r="6" class="s-badge"/><text x="660" y="94" text-anchor="middle">inicio síntesis</text>
+        <circle cx="760" cy="70" r="6" class="s-badge"/><text x="760" y="52" text-anchor="middle">fin síntesis</text>
+        <circle cx="850" cy="70" r="6" class="s-badge"/><text x="850" y="94" text-anchor="middle">suena el audio</text>
+      </g>
+      <text x="30" y="130" class="bold">Intervalos del informe</text>
+      <rect class="s-bar-warn" x="40" y="142" width="110" height="14"/><text x="160" y="154" class="mono">endpointing · cuánto tarda en decidir que acabaste</text>
+      <rect class="s-bar-acc" x="150" y="164" width="240" height="14" /><text x="400" y="176" class="mono">transcripción · del micro cerrado al texto</text>
+      <rect class="s-bar-ok" x="390" y="186" width="170" height="14"/><text x="570" y="198" class="mono">arranque de respuesta · del texto al primer token</text>
+      <rect class="s-bar-bad" x="560" y="208" width="290" height="14"/><text x="545" y="220" text-anchor="end" class="mono">del primer token al audio</text>
+      <text x="30" y="244" class="mono muted">Más «extremo a extremo»: del fin del habla al primer sonido. Esquema ilustrativo, no son mediciones.</text>
+    </svg>
+    </div>
+    <div class="cols">
+      <div>
+        <h3>Informe</h3>
+        <p>Para cada intervalo, la mediana (p50) y el p95 (el peor 5 % de los casos). Se separan el primer turno tras cargar los motores («frío») y los siguientes («caliente»). Con menos de 20 turnos calientes no se afirma ningún p95 y solo se indica cuántas muestras hay.</p>
+      </div>
+      <div>
+        <h3>Retraso del bucle</h3>
+        <p>Un cronómetro de 10 ms mide cuánto se retrasa el bucle principal. Si algo lo bloquea 200 ms, el informe lo muestra. Es la prueba de que mejoras como la A funcionan.</p>
+      </div>
+    </div>
+    <p class="note">El benchmark corre 20 turnos: el primero es frío y quedan 19 calientes, así que mostrará «p95 n/a». Con 21 turnos saldría el p95.</p>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Resumen</span>
+  <h2>Las nueve mejoras en una tabla</h2>
+  <div class="panel">
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Mejora</th><th>Qué cambia</th><th>Beneficio</th><th>Riesgo vigilado</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag">A</span> Dispositivos</td><td>Búsqueda en hilo aparte y compartida</td><td>Sin bloqueos de hasta 5 s</td><td>Resultados tardíos tras apagar</td></tr>
+        <tr><td><span class="tag">B</span> Voz cancelada</td><td>Se comprueba la sesión antes de transcribir</td><td>Menos cola de espera tras cancelar</td><td>Terminar cada sesión una sola vez</td></tr>
+        <tr><td><span class="tag">C</span> Respuesta</td><td>Se acumula sin guardar todos los mensajes</td><td>Menos memoria en respuestas largas</td><td>Errores y resultado final iguales</td></tr>
+        <tr><td><span class="tag">D</span> Skills</td><td>Se lee solo la skill pedida</td><td>Menos archivos analizados</td><td>Rutas con <code>..</code> o barras</td></tr>
+        <tr><td><span class="tag">E</span> Arranque MCP</td><td>Conexión paralela, máximo 4</td><td>120 s → 30 s con 4 caídos</td><td>Cada tarea cierra su propia conexión</td></tr>
+        <tr><td><span class="tag">F</span> Recuperación</td><td>Las comprobaciones esperan a los reintentos</td><td>Los servidores caídos se recuperan solos</td><td>Conexiones sin cerrar</td></tr>
+        <tr><td><span class="tag">G</span> Música</td><td>Se reutiliza la pista aprobada</td><td>Misma canción, una búsqueda menos</td><td>Direcciones caducadas</td></tr>
+        <tr><td><span class="tag">H</span> Selección</td><td>Filtra por tipo y avisa del predeterminado</td><td>Tony dice qué dispositivo usa</td><td>Nombres duplicados</td></tr>
+        <tr><td><span class="tag">I</span> Latencia</td><td>Registro opcional de ocho marcas</td><td>Decisiones con datos reales</td><td>Coste mínimo; sin audio ni texto</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Estado</span>
+  <h2>Qué está hecho, qué queda y qué no se tocó</h2>
+  <div class="cols">
+    <div class="panel">
+      <h3>Hecho</h3>
+      <div class="row"><span class="chip ok">3 cambios implementados</span><span class="chip ok">2056 pruebas pasan</span></div>
+      <p>Cada mejora se hizo con pruebas escritas primero. Ningún evento, herramienta ni clave de configuración cambió de nombre.</p>
+    </div>
+    <div class="panel">
+      <h3>Pendiente tuyo</h3>
+      <div class="row"><span class="chip warn">Formato accidental</span><span class="chip warn">Sin commit</span></div>
+      <p>Un <code>ruff format</code> accidental reformateó 6 archivos que estaban limpios. Revertirlos con <code>git checkout</code> te toca a ti. Nada se ha confirmado en git.</p>
+    </div>
+    <div class="panel">
+      <h3>Sigue fallando</h3>
+      <div class="row"><span class="chip bad">1 prueba</span></div>
+      <p><code>test_bundled_policy_equals_the_shipped_example</code> ya fallaba antes por tus cambios sin confirmar en la política de Edith.</p>
+    </div>
+    <div class="panel">
+      <h3>Se dejó fuera a propósito</h3>
+      <div class="row"><span class="chip">Voz por trozos</span></div>
+      <p>Reproducir el audio mientras se sintetiza una frase tiene valor alto pero es grande y arriesgado. La medición I dirá si compensa.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+</html>
