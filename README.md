@@ -257,6 +257,13 @@ nombre de servidor `tony` está reservado para las tools nativas (`tony.<nombre>
 de servidor solo admiten letras y dígitos separados por un único `-` o `_` (sin `.` ni `__`). Las
 tools nativas disponibles son `read_skill` y `run_subagent`.
 
+Un servidor stdio puede declarar `"isolation": {"env_allow": ["GITHUB_TOKEN"]}` para limitar su
+entorno (solo POSIX): el proceso recibe únicamente las variables de `env_allow` presentes en el
+host, su `env` declarado (que prevalece sobre el valor del host) y `PATH`, `HOME`, `LANG` y
+`LC_ALL`; `USER`, `SHELL`, `TERM`, `LOGNAME` y el resto no existen. Sin `isolation` nada cambia.
+No es un sandbox ni concede permisos: la confirmación y el PIN siguen aplicándose. `tony doctor`
+avisa (`warn`) si una variable de `env_allow` no está definida en el host.
+
 #### Skills: `agents/<agente>/skills/<nombre>/SKILL.md`
 
 Una skill es una carpeta con un `SKILL.md`: frontmatter con exactamente `name` (igual a la
@@ -658,6 +665,41 @@ tarea, imprime la tabla `agent server state tools` (`ok` o `error: <motivo enmas
 número de tools) y cierra todas las conexiones. Sale con 0 aunque haya servidores caídos; un
 `--agent` inexistente o un `tool.json` inválido (que se nombra en stderr mientras se listan los
 demás) dan un código distinto de 0.
+
+### Recuperación y rutinas: `tony recover` y `tony routines`
+
+Nada de esto concede permisos: reanudar, deshacer y programar pasan por Edith como cualquier otra
+llamada (confirmaciones y PIN incluidos) y no reutilizan aprobaciones antiguas.
+
+```bash
+uv run tony recover list
+uv run tony recover resume <TASK_ID>
+uv run tony recover undo <CALL_ID>
+```
+
+- `recover list` muestra las tareas canceladas, con timeout o interrumpidas (sin evento final y con
+  más de 15 minutos sin escribir), con sus acciones `succeeded` etiquetadas `undoable` o
+  `not undoable`. `--limit N` (20 por defecto).
+- `recover resume` lanza la petición original como tarea NUEVA (otro id), con una nota al inicio de
+  `contexto` que lista las acciones ya hechas y pide no repetirlas.
+- `recover undo` restaura un `filesystem.write_file` con una escritura nueva y guardada, solo si el
+  fichero sigue igual que tras la acción; si no, responde `file changed since the action`. Los
+  contenidos previos (hasta 1 MB, UTF-8) están en `memory/undo/<call_id>`.
+
+```bash
+uv run tony routines add manana --time 08:30 --prompt "resume mis tareas" --weekdays mon,tue,wed,thu,fri --tz Europe/Madrid
+uv run tony routines list
+uv run tony routines inbox --limit 10
+uv run tony routines disable 1   # también: enable, remove
+```
+
+Una rutina ejecuta su `--prompt` cada día a la hora local indicada (por defecto todos los días y la
+zona del sistema) como tarea de un worker con origen `routine`. **Las rutinas solo se ejecutan
+mientras `tony chat` o la app de escritorio están en marcha**; los comandos `tony routines` solo
+editan definiciones y leen registros (`memory/routines.sqlite`). El planificador revisa cada 30 s,
+ejecuta una vez cada ocurrencia, guarda como `skipped` las que llevan más de 12 h de retraso y las
+deja en `queued` mientras la sesión de Edith está bloqueada (nunca pide el PIN). Una confirmación
+sin respuesta se deniega por el timeout habitual. El resultado se lee con `routines inbox`.
 
 ### Música
 

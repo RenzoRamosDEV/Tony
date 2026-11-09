@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Novedades de Tony</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Concepto: plano técnico de ingeniería; cada mejora tiene una letra fija (A–I) que aparece en el mapa, en los diagramas y en la tabla. */
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --fg: #14202b; --muted: #55657a; --line: #d5dce6;
+  --accent: #1b5fd6; --accent-soft: #e3ecfc;
+  --ok: #0d8a5f; --ok-soft: #dff3ea;
+  --warn: #b86a00; --warn-soft: #fbeed8;
+  --bad: #c0392b; --bad-soft: #f9e1de;
+  --f-display: "Manrope", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1620; --surface: #17212d; --fg: #e6edf5; --muted: #9db0c5; --line: #2a3a4d;
+    --accent: #6ea3ff; --accent-soft: #1b2c4a;
+    --ok: #3dd29b; --ok-soft: #12362b;
+    --warn: #f0a640; --warn-soft: #3b2a10;
+    --bad: #ff7b6b; --bad-soft: #43201c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1620; --surface: #17212d; --fg: #e6edf5; --muted: #9db0c5; --line: #2a3a4d;
+  --accent: #6ea3ff; --accent-soft: #1b2c4a;
+  --ok: #3dd29b; --ok-soft: #12362b;
+  --warn: #f0a640; --warn-soft: #3b2a10;
+  --bad: #ff7b6b; --bad-soft: #43201c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 400 16px/1.6 var(--f-body);
+  padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); margin: 0; }
+.wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+.lead { font-size: 1.15rem; color: var(--muted); max-width: 62ch; }
+.eyebrow { font: 500 0.78rem var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+section { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { border-top: 3px solid var(--accent); background: var(--surface); padding: 12px 14px; }
+.stat b { display: block; font: 800 1.9rem var(--f-display); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 0.9rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.scroll { overflow-x: auto; }
+.scroll svg { display: block; min-width: 620px; width: 100%; height: auto; }
+.tag { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; background: var(--accent); color: var(--bg);
+  font: 500 0.85rem var(--f-mono); flex: none; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols > * { min-width: 0; }
+.chip { font: 500 0.78rem var(--f-mono); padding: 2px 8px; }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.note { font-size: 0.9rem; color: var(--muted); }
+code { font: 500 0.88em var(--f-mono); background: var(--accent-soft); padding: 1px 5px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.93rem; }
+th { text-align: left; font: 500 0.75rem var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { white-space: nowrap; }
+/* SVG */
+svg text { font-family: var(--f-body); fill: var(--fg); font-size: 13px; }
+svg .mono { font-family: var(--f-mono); font-size: 11.5px; }
+svg .muted { fill: var(--muted); }
+svg .bold { font-weight: 700; }
+.s-box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.s-acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.s-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.5; }
+.s-bad { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.5; }
+.s-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.5; }
+.s-bar-bad { fill: var(--bad); } .s-bar-ok { fill: var(--ok); } .s-bar-acc { fill: var(--accent); } .s-bar-warn { fill: var(--warn); }
+.s-line { stroke: var(--line); stroke-width: 1; fill: none; }
+.s-arrow { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+.s-dash { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; fill: none; }
+.s-badge { fill: var(--accent); }
+svg text.badge { fill: var(--bg); font-family: var(--f-mono); font-weight: 500; font-size: 12px; text-anchor: middle; }
+.s-arrowhead { fill: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .panel { transition: border-color .2s; } .panel:hover { border-color: var(--accent); } }
+
+.item { border-left: 4px solid var(--accent); }
+.item.f1 { border-left-color: var(--ok); } .item.f2 { border-left-color: var(--accent); } .item.f3 { border-left-color: var(--warn); }
+dl { margin: 0; display: grid; grid-template-columns: 8.5rem 1fr; gap: 6px 14px; }
+dt { font: 500 0.75rem var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+dd { margin: 0; min-width: 0; }
+@media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { padding-top: 8px; } }
+.chip.arq { background: var(--accent-soft); color: var(--accent); }
+.chip.fea { background: var(--ok-soft); color: var(--ok); }
+.nono { border-left: 4px solid var(--bad); }
+
+pre{margin:0;padding:12px 14px;background:var(--accent-soft);color:var(--fg);font:400 .85rem/1.5 var(--f-mono);overflow-x:auto;white-space:pre}
+.chipset{display:flex;flex-wrap:wrap;gap:6px}
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:16px">
+  <span class="eyebrow">Hoja de ruta implementada · rama feat/roadmap-implementation</span>
+  <h1>Todo lo nuevo de Tony</h1>
+  <p class="lead">Las diez piezas de la hoja de ruta ya existen, en versión mínima, repartidas en cinco cambios. Tony ahora retoma conversaciones, se diagnostica solo, explica sus permisos, enseña exactamente qué vas a aprobar, recuerda qué hizo, pregunta cuando duda, cita sus fuentes, se recupera de fallos, ejecuta rutinas y aísla el entorno de los conectores.</p>
+  <div class="stats">
+    <div class="stat"><b>10</b><span>piezas implementadas</span></div>
+    <div class="stat"><b>5</b><span>cambios OpenSpec</span></div>
+    <div class="stat"><b>2708</b><span>pruebas pasadas</span></div>
+    <div class="stat"><b>0</b><span>fallos al cierre</span></div>
+  </div>
+  <p class="note">El código está en la rama <code>feat/roadmap-implementation</code>, todavía sin commit ni subir. En todos los grupos pasa la prueba de seguridad central: nada de esto concede permisos ni se salta la confirmación o el PIN.</p>
+</header>
+
+<section>
+  <span class="eyebrow">Mapa</span>
+  <h2>Qué se añadió y dónde</h2>
+  <div class="panel"><div class="scroll">
+  <svg viewBox="0 0 900 330" role="img" aria-label="Cinco grupos de novedades alrededor del núcleo de Tony">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker></defs>
+    <rect class="s-acc" x="330" y="120" width="240" height="90"/><text x="450" y="158" text-anchor="middle" class="bold">Núcleo de Tony</text><text x="450" y="178" text-anchor="middle" class="muted">guardián Edith · proxy · registro</text><text x="450" y="196" text-anchor="middle" class="muted">siempre manda el guardián</text>
+    <rect class="s-ok" x="20" y="20" width="250" height="80"/><text x="145" y="46" text-anchor="middle" class="bold">1 · Uso diario</text><text x="145" y="66" text-anchor="middle" class="muted">conversaciones · doctor</text><text x="145" y="84" text-anchor="middle" class="muted">inspector de permisos</text>
+    <rect class="s-acc" x="630" y="20" width="250" height="80"/><text x="755" y="46" text-anchor="middle" class="bold">2 · Aprobaciones y diario</text><text x="755" y="66" text-anchor="middle" class="muted">vista previa exacta</text><text x="755" y="84" text-anchor="middle" class="muted">estados de cada acción</text>
+    <rect class="s-acc" x="20" y="230" width="250" height="80"/><text x="145" y="256" text-anchor="middle" class="bold">3 · Preguntar y citar</text><text x="145" y="276" text-anchor="middle" class="muted">tony.ask_user</text><text x="145" y="294" text-anchor="middle" class="muted">respuestas con fuentes</text>
+    <rect class="s-warn" x="630" y="230" width="250" height="80"/><text x="755" y="256" text-anchor="middle" class="bold">4 · Recuperar y programar</text><text x="755" y="276" text-anchor="middle" class="muted">reanudar · deshacer</text><text x="755" y="294" text-anchor="middle" class="muted">rutinas</text>
+    <rect class="s-warn" x="330" y="262" width="240" height="56"/><text x="450" y="286" text-anchor="middle" class="bold">5 · Conectores aislados</text><text x="450" y="304" text-anchor="middle" class="muted">solo las variables permitidas</text>
+    <path class="s-arrow" d="M270 80 L330 130" marker-end="url(#ah)"/><path class="s-arrow" d="M630 80 L570 130" marker-end="url(#ah)"/>
+    <path class="s-arrow" d="M270 250 L330 200" marker-end="url(#ah)"/><path class="s-arrow" d="M630 250 L570 200" marker-end="url(#ah)"/><path class="s-arrow" d="M450 262 V212" marker-end="url(#ah)"/>
+  </svg></div></div>
+</section>
+
+<section>
+  <span class="eyebrow">Grupo 1 · phase1-conversations-doctor-policy</span>
+  <h2>Uso diario: retomar, diagnosticar, entender permisos</h2>
+  <div class="cols">
+    <div class="panel"><h3>Retomar conversaciones</h3>
+      <p>Cada arranque creaba una conversación nueva. Ahora puedes listarlas, buscar texto (sin distinguir mayúsculas), borrarlas y retomar la última o una concreta. Retomar solo recupera los mensajes: jamás permisos ni aprobaciones pendientes.</p>
+      <pre>tony conversations list
+tony conversations search factura
+tony chat --resume          # la más reciente
+tony chat --resume 7f3a…    # una concreta</pre></div>
+    <div class="panel"><h3>tony doctor</h3>
+      <p>Revisa en local, sin ejecutar nada ni abrir red, si la configuración carga, si existen los ejecutables de cada conector, si están definidas las variables que usa cada uno (solo muestra nombres) y si hay dependencias de voz, <code>yt-dlp</code> y <code>mpv</code>.</p>
+      <div class="chipset"><span class="chip ok">ok</span><span class="chip warn">warn</span><span class="chip bad">fail</span></div>
+      <p class="note">Código de salida 1 solo si algo falla; los avisos no lo cambian.</p></div>
+  </div>
+  <div class="panel"><h3>Inspector y simulador de permisos</h3>
+    <p>Para responder «¿por qué se bloqueó esto?» sin leer YAML. Usa el mismo evaluador que el guardián, así que nunca da una respuesta distinta de la real.</p>
+    <pre>tony policy explain gmail.send_email --args '{"to":"a@b.c"}'
+→ confirm · regla gmail.send_email/confirm · posición 14
+
+tony policy grants               # permisos «siempre» actuales
+tony policy revoke filesystem.write_file
+tony policy simulate casos.json  # lista de {tool, args, expect}</pre></div>
+</section>
+
+<section>
+  <span class="eyebrow">Grupo 2 · approvals-and-action-journal</span>
+  <h2>Aprobar lo que ves, y recordar lo que se hizo</h2>
+  <div class="panel"><h3>Aprobaciones atadas a los argumentos</h3>
+    <p>Antes, la respuesta se asociaba solo a la tarea y la vista previa se cortaba a 200 caracteres. Ahora cada confirmación lleva un identificador único, una vista previa con los campos reales (destinatario, asunto, cuerpo, ruta…), una huella de los argumentos, la versión de la política y una caducidad. Si algo cambia entre preguntar y ejecutar, la acción no se ejecuta.</p>
+    <div class="scroll"><svg viewBox="0 0 900 230" role="img" aria-label="Cadena de comprobaciones antes de ejecutar una acción aprobada">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker></defs>
+      <rect class="s-box" x="10" y="20" width="150" height="56"/><text x="85" y="44" text-anchor="middle" class="bold">Pregunta</text><text x="85" y="62" text-anchor="middle" class="muted">+ vista previa</text>
+      <rect class="s-box" x="190" y="20" width="150" height="56"/><text x="265" y="44" text-anchor="middle" class="bold">Respuesta</text><text x="265" y="62" text-anchor="middle" class="muted">con approval_id</text>
+      <rect class="s-acc" x="370" y="20" width="150" height="56"/><text x="445" y="44" text-anchor="middle" class="bold">¿Id válido?</text><text x="445" y="62" text-anchor="middle" class="muted">y sin caducar</text>
+      <rect class="s-acc" x="550" y="20" width="150" height="56"/><text x="625" y="44" text-anchor="middle" class="bold">¿Mismos args?</text><text x="625" y="62" text-anchor="middle" class="muted">misma huella</text>
+      <rect class="s-ok" x="730" y="20" width="150" height="56"/><text x="805" y="44" text-anchor="middle" class="bold">Ejecuta</text><text x="805" y="62" text-anchor="middle" class="muted">si la política es la misma</text>
+      <path class="s-arrow" d="M160 48H188" marker-end="url(#ah)"/><path class="s-arrow" d="M340 48H368" marker-end="url(#ah)"/><path class="s-arrow" d="M520 48H548" marker-end="url(#ah)"/><path class="s-arrow" d="M700 48H728" marker-end="url(#ah)"/>
+      <path class="s-arrow" d="M445 76V120" marker-end="url(#ah)"/><rect class="s-bad" x="370" y="124" width="150" height="40"/><text x="445" y="148" text-anchor="middle" class="mono">se rechaza la respuesta</text>
+      <path class="s-arrow" d="M625 76V120" marker-end="url(#ah)"/><rect class="s-bad" x="550" y="124" width="150" height="40"/><text x="625" y="142" text-anchor="middle" class="mono">no se ejecuta:</text><text x="625" y="156" text-anchor="middle" class="mono">argumentos cambiaron</text>
+      <path class="s-arrow" d="M805 76V120" marker-end="url(#ah)"/><rect class="s-warn" x="730" y="124" width="150" height="40"/><text x="805" y="142" text-anchor="middle" class="mono">política distinta:</text><text x="805" y="156" text-anchor="middle" class="mono">se reevalúa (máx. 2)</text>
+      <text x="10" y="206" class="mono muted">Una respuesta sin approval_id sigue valiendo si solo hay una aprobación pendiente en la tarea (comportamiento anterior).</text>
+    </svg></div></div>
+  <div class="panel"><h3>Diario de acciones</h3>
+    <p>Cada llamada permitida queda registrada en <code>memory/actions.sqlite</code> con su estado. Tras un tiempo de espera ya no queda la duda: el estado dice <em>resultado desconocido</em> y nunca se repite sola. Se guarda la huella de los argumentos, no los argumentos.</p>
+    <div class="scroll"><svg viewBox="0 0 900 200" role="img" aria-label="Estados de una acción en el diario">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker></defs>
+      <rect class="s-box" x="20" y="70" width="170" height="50"/><text x="105" y="100" text-anchor="middle" class="bold">preparada</text>
+      <rect class="s-acc" x="260" y="70" width="170" height="50"/><text x="345" y="100" text-anchor="middle" class="bold">enviada</text>
+      <rect class="s-ok" x="520" y="10" width="190" height="44"/><text x="615" y="38" text-anchor="middle" class="bold">correcta</text>
+      <rect class="s-bad" x="520" y="78" width="190" height="44"/><text x="615" y="106" text-anchor="middle" class="bold">fallida</text>
+      <rect class="s-warn" x="520" y="146" width="190" height="44"/><text x="615" y="174" text-anchor="middle" class="bold">resultado desconocido</text>
+      <path class="s-arrow" d="M190 95H258" marker-end="url(#ah)"/><path class="s-arrow" d="M430 85 C470 60 480 40 518 34" marker-end="url(#ah)"/><path class="s-arrow" d="M430 95H518" marker-end="url(#ah)"/><path class="s-arrow" d="M430 105 C470 130 480 160 518 166" marker-end="url(#ah)"/>
+      <text x="730" y="168" class="mono muted">tiempo agotado, o «enviada» sin cerrar</text><text x="730" y="184" class="mono muted">al arrancar de nuevo</text>
+      <text x="20" y="40" class="mono muted">tony actions list --state outcome_unknown</text>
+    </svg></div></div>
+</section>
+
+<section>
+  <span class="eyebrow">Grupo 3 · clarification-and-evidence</span>
+  <h2>Preguntar cuando hay duda, citar lo que se sabe</h2>
+  <div class="cols">
+    <div class="panel"><h3>tony.ask_user</h3>
+      <p>Viernes puede preguntar «¿qué Ana?» a mitad de tarea sin perder lo hecho. Va por un canal y unos eventos distintos de los de confirmación, así que elegir un destinatario nunca aprueba el envío. Espera como máximo 60 s; si no hay respuesta, la herramienta devuelve el error «no answer from the user».</p>
+      <div class="scroll"><svg viewBox="0 0 420 170" role="img" aria-label="Dos canales separados: aclaración y confirmación" style="min-width:380px">
+        <text x="6" y="18" class="bold">Aclaración</text>
+        <rect class="s-ok" x="6" y="26" width="190" height="34"/><text x="101" y="48" text-anchor="middle" class="mono">pregunta → respuesta</text>
+        <text x="6" y="100" class="bold">Confirmación</text>
+        <rect class="s-acc" x="6" y="108" width="190" height="34"/><text x="101" y="130" text-anchor="middle" class="mono">vista previa → «sí»</text>
+        <text x="215" y="48" class="mono muted">elige datos</text><text x="215" y="130" class="mono muted">autoriza la acción</text>
+        <text x="215" y="90" class="mono" style="fill:var(--bad)">una no resuelve la otra</text>
+      </svg></div></div>
+    <div class="panel"><h3>Respuestas con evidencia</h3>
+      <p>El worker puede devolver <code>datos.fuentes</code>: conector, id, título, hora y un extracto de hasta 300 caracteres. Tony solo conserva las fuentes cuyo extracto aparece de verdad en un resultado de herramienta de esa tarea. Las demás se descartan con un aviso. El contenido leído se trata como dato, nunca como instrucción.</p>
+      <pre>Fuentes:
+  gmail · Factura 123
+  drive · Presupuesto Q4
+pasos: fuente descartada: «Informe» — el
+extracto no aparece en ningún resultado</pre></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Grupo 4 · recovery-and-routines</span>
+  <h2>Recuperarse de fallos y trabajar según horario</h2>
+  <div class="cols">
+    <div class="panel"><h3>Reanudar</h3>
+      <p><code>tony recover list</code> muestra tareas canceladas, con tiempo agotado o sin cierre (pasados 15 min). <code>resume</code> las lanza de nuevo como tarea <em>nueva</em>, con una nota de lo que ya salió bien para no repetirlo. Pasa por el guardián como cualquier otra.</p></div>
+    <div class="panel"><h3>Deshacer escrituras</h3>
+      <p>Antes de escribir un archivo (hasta 1 MB), Tony guarda su contenido anterior. <code>undo</code> lo restaura solo si el archivo no ha cambiado desde la acción; si cambió, se niega con «file changed since the action». El deshacer es otra llamada guardada y también se puede deshacer.</p></div>
+  </div>
+  <div class="panel"><h3>Rutinas programadas</h3>
+    <p>Una rutina tiene hora, días de la semana y zona horaria. Cada ejecución tiene un identificador único por fecha y hora local, así que nunca corre dos veces. Si Tony estaba cerrado, la ejecución perdida se hace si llega con menos de 12 horas de retraso; si no, se marca como omitida. Con la sesión bloqueada se queda en cola. Programar no autoriza nada.</p>
+    <div class="scroll"><svg viewBox="0 0 900 180" role="img" aria-label="Rutina de las 08:30 con ventana de recuperación de 12 horas">
+      <line class="s-line" x1="40" x2="856" y1="70" y2="70" style="stroke-width:2"/>
+      <rect class="s-bar-ok" x="329" y="62" width="408" height="16" opacity=".85"/><rect class="s-bar-bad" x="737" y="62" width="119" height="16" opacity=".85"/>
+      <circle class="s-badge" cx="329" cy="70" r="6"/><text x="329" y="48" text-anchor="middle" class="mono">08:30 hora de la rutina</text>
+      <path class="s-arrow" d="M352 112 V80" marker-end="url(#ah)"/><text x="352" y="128" text-anchor="middle" class="mono" style="fill:var(--ok)">Tony se abre a las 09:10</text><text x="352" y="144" text-anchor="middle" class="mono" style="fill:var(--ok)">→ se ejecuta</text>
+      <path class="s-arrow" d="M754 112 V80" marker-end="url(#ah)"/><text x="754" y="128" text-anchor="middle" class="mono" style="fill:var(--bad)">Tony se abre a las 21:00</text><text x="754" y="144" text-anchor="middle" class="mono" style="fill:var(--bad)">→ se omite</text>
+      <text x="533" y="100" text-anchor="middle" class="mono muted">ventana de 12 h</text><text x="40" y="170" class="mono muted">00:00</text><text x="840" y="170" class="mono muted">24:00</text>
+    </svg></div>
+    <pre>tony routines add resumen --time 08:30 --weekdays mon,tue,wed,thu,fri --tz Europe/Madrid --prompt "Prepárame el resumen"
+tony routines inbox</pre></div>
+</section>
+
+<section>
+  <span class="eyebrow">Grupo 5 · connector-env-isolation</span>
+  <h2>Cada conector recibe solo lo que necesita</h2>
+  <p>Hasta ahora un conector heredaba, además de lo declarado, un conjunto por defecto de variables del sistema (<code>USER</code>, <code>SHELL</code>, <code>TERM</code>, <code>LOGNAME</code>…). Con <code>isolation.env_allow</code> en su entrada de <code>tool.json</code>, el proceso del conector recibe únicamente lo que se lista. Un pequeño lanzador sin dependencias arranca el conector con exactamente ese entorno, y los valores no viajan en los argumentos.</p>
+  <div class="cols">
+    <div class="panel"><h3>Sin aislamiento (como antes)</h3><div class="chipset"><span class="chip warn">HOME</span><span class="chip warn">PATH</span><span class="chip warn">USER</span><span class="chip warn">SHELL</span><span class="chip warn">TERM</span><span class="chip warn">LOGNAME</span><span class="chip warn">env declarado</span></div><p class="note">Comportamiento intacto para todo servidor que no declare <code>isolation</code>.</p></div>
+    <div class="panel"><h3>Con isolation.env_allow</h3><div class="chipset"><span class="chip ok">PATH</span><span class="chip ok">HOME</span><span class="chip ok">LANG</span><span class="chip ok">LC_ALL</span><span class="chip ok">env_allow</span><span class="chip ok">env declarado</span></div><p class="note">Una variable permitida que no existe en el sistema se omite, y <code>tony doctor</code> avisa. Solo Linux/POSIX.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Referencia</span>
+  <h2>Comandos y opciones nuevos</h2>
+  <div class="panel"><div class="scroll"><table><thead><tr><th>Comando</th><th>Qué hace</th></tr></thead><tbody><tr><td><code>tony chat --resume [ID]</code></td><td>Retoma la conversación indicada, o la más reciente.</td></tr><tr><td><code>tony conversations list | search TEXTO | delete ID</code></td><td>Lista, busca y borra conversaciones guardadas.</td></tr><tr><td><code>tony doctor</code></td><td>Diagnóstico local de configuración, conectores, secretos y voz. No ejecuta nada.</td></tr><tr><td><code>tony policy explain | grants | revoke | simulate</code></td><td>Explica un veredicto, lista y revoca permisos «siempre», simula casos.</td></tr><tr><td><code>tony actions list | show</code></td><td>Consulta el diario de acciones y sus estados.</td></tr><tr><td><code>tony recover list | resume | undo</code></td><td>Ve tareas interrumpidas, relánzalas o deshaz una escritura de archivo.</td></tr><tr><td><code>tony routines add | list | remove | enable | disable | inbox</code></td><td>Rutinas programadas y su bandeja de resultados.</td></tr><tr><td><code>tony.ask_user (herramienta de Viernes)</code></td><td>Pregunta al usuario a mitad de tarea.</td></tr><tr><td><code>isolation.env_allow (en tool.json)</code></td><td>Limita las variables de entorno que recibe un conector.</td></tr></tbody></table></div></div>
+</section>
+
+<section>
+  <span class="eyebrow">Estado</span>
+  <h2>Qué está hecho y qué queda</h2>
+  <div class="cols">
+    <div class="panel"><h3>Hecho</h3><div class="row"><span class="chip ok">5 cambios</span><span class="chip ok">2708 pruebas</span></div><p>Cada grupo se hizo con pruebas primero y mutantes manuales sobre el diff (entre el 97 % y el 100 % detectados).</p></div>
+    <div class="panel"><h3>Pendiente tuyo</h3><div class="row"><span class="chip warn">Sin commit</span><span class="chip warn">Sin subir</span></div><p>Son unos 110 archivos en la rama <code>feat/roadmap-implementation</code>.</p></div>
+    <div class="panel"><h3>Límites de esta versión</h3><div class="row"><span class="chip">Mínima</span></div><p>Sin interfaz de escritorio nueva, sin sandbox del sistema, deshacer solo de archivos, rutinas solo con Tony abierto y sin copia de recuperación del historial de conversaciones.</p></div>
+    <div class="panel"><h3>Siguiente</h3><div class="row"><span class="chip">Pantallas</span></div><p>Selector de conversaciones, panel de diagnóstico, tarjetas de fuentes y bandeja de rutinas en la app de escritorio.</p></div>
+  </div>
+</section>
+</div>
+</html>

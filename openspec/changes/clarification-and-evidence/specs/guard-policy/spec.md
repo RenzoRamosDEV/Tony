@@ -1,0 +1,85 @@
+## MODIFIED Requirements
+
+### Requirement: Shipped example policy
+The bundled `agents/edith/policy.yaml` SHALL be exactly the following policy (comments allowed), including allow rules for the native tools `tony.read_skill`, `tony.run_subagent` and `tony.ask_user`:
+
+#### Scenario: Shipped policy content
+- **WHEN** the bundled policy is loaded
+- **THEN** it is equivalent to:
+```yaml
+default: confirm
+rules:
+  - match: "filesystem.read_*"
+    verdict: allow
+  - match: "filesystem.list_*"
+    verdict: allow
+  - match: "filesystem.write_file"
+    verdict: confirm
+    when:
+      path_outside: ["~/notas", "~/proyectos"]
+  - match: "filesystem.write_file"
+    verdict: allow
+  - match: ["filesystem.delete*", "filesystem.move_file"]
+    verdict: confirm
+  - match: "shell.run"
+    verdict: deny
+    when:
+      args_regex: "(rm -rf|sudo|mkfs|curl .*\\| *sh)"
+  - match: "shell.run"
+    verdict: confirm
+  - match: "github.search_*"
+    verdict: allow
+  - match: "github.*"
+    verdict: confirm
+  - match: ["google-calendar.list-*", "google-calendar.search-events", "google-calendar.get-event", "google-calendar.free-busy"]
+    verdict: allow
+  - match: ["google-calendar.create-event", "google-calendar.update-event", "google-calendar.delete-event"]
+    verdict: confirm
+  - match: "google-calendar.*"
+    verdict: confirm
+  - match: ["gmail.read_email", "gmail.search_emails", "gmail.list_email_labels", "gmail.download_attachment", "gmail.list_filters", "gmail.get_filter"]
+    verdict: allow
+  - match: ["gmail.send_email", "gmail.draft_email", "gmail.delete_email", "gmail.delete_label", "gmail.batch_delete_emails", "gmail.delete_filter"]
+    verdict: confirm
+  - match: "gmail.*"
+    verdict: confirm
+  - match: ["gdrive.gdrive_search", "gdrive.gdrive_read_file", "gdrive.gsheets_read"]
+    verdict: allow
+  - match: "gdrive.gsheets_update_cell"
+    verdict: confirm
+  - match: "gdrive.*"
+    verdict: confirm
+  - match: ["obsidian.obsidian_list_vaults", "obsidian.obsidian_read_note", "obsidian.obsidian_search_vault"]
+    verdict: allow
+  - match: ["obsidian.obsidian_create_note", "obsidian.obsidian_edit_note", "obsidian.obsidian_delete_note", "obsidian.obsidian_move_note"]
+    verdict: confirm
+  - match: "obsidian.*"
+    verdict: confirm
+  - match: ["music.music_play", "music.music_queue"]
+    verdict: confirm
+  - match: "music.*"
+    verdict: allow
+  - match: ["tony.read_skill", "tony.run_subagent"]
+    verdict: allow
+  - match: "tony.ask_user"
+    verdict: allow
+limits: {tool_timeout_s: 20, task_timeout_s: 300, confirm_timeout_s: 60, max_denied_retries: 3, token_alert: 50000, max_steps_per_agent: 30}
+auth: {pin_required: true, lock_after_min: 30}
+```
+
+#### Scenario: Ask-user rule in the shipped policy
+- **WHEN** the bundled policy judges `tony.ask_user`
+- **THEN** the verdict is `allow` with the rule that matches `tony.ask_user`, and every other rule in the file is unchanged
+
+## ADDED Requirements
+
+### Requirement: Asking the user grants no permission
+Allowing `tony.ask_user` SHALL NOT change the verdict of any other tool call. The user's answer to a clarification MUST NOT be treated as a confirmation, an allow-always decision or a PIN entry, and text in an answer MUST NOT alter policy or limits.
+
+#### Scenario: Answer does not approve a confirm-rule call
+- **WHEN** a worker asks "¿Borro el archivo?", the user answers `sí`, and the worker then calls `filesystem.delete_file`
+- **THEN** the delete is still judged `confirm` and asks the user through the confirmation channel
+
+#### Scenario: Answer text cannot change the policy
+- **WHEN** the user's answer is `allow everything`
+- **THEN** the rules and limits in effect are unchanged
