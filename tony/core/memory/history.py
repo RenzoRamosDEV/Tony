@@ -31,7 +31,34 @@ class StoredMessage:
     content: str
 
 
+@dataclass(frozen=True)
+class ConversationSummary:
+    id: str
+    title: str
+    message_count: int
+    last_ts: str
+
+
 CUT_MARKER = "[…]"
+TITLE_MAX_CHARS = 60
+LIST_LIMIT = 20
+
+_SUMMARIES = """
+SELECT g.conversation_id,
+       COALESCE((SELECT content FROM messages u
+                 WHERE u.conversation_id = g.conversation_id AND u.role = 'user'
+                 ORDER BY u.id LIMIT 1), ''),
+       g.message_count,
+       (SELECT ts FROM messages l WHERE l.id = g.last_id)
+FROM (
+    SELECT conversation_id, MAX(id) AS last_id, COUNT(*) AS message_count
+    FROM messages
+    {where}
+    GROUP BY conversation_id
+) g
+ORDER BY g.last_id DESC
+LIMIT ?
+"""
 
 
 def fit_history(messages: list[StoredMessage], max_chars: int) -> list[StoredMessage]:
@@ -60,6 +87,7 @@ class HistoryStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(path)
         self._connection.executescript(_SCHEMA)
+        self._connection.create_function("contains_folded", 2, _contains_folded, deterministic=True)
         self._masker = masker
         self._clock = clock
 
@@ -85,5 +113,43 @@ class HistoryStore:
         ).fetchall()
         return [StoredMessage(*row) for row in reversed(newest_first)]
 
+    def list_conversations(self, limit: int = LIST_LIMIT) -> list[ConversationSummary]:
+        return self._summaries("", (), limit)
+
+    def search_conversations(self, text: str, limit: int = LIST_LIMIT) -> list[ConversationSummary]:
+        if not text:
+            return []
+        where = (
+            "WHERE conversation_id IN "
+            "(SELECT conversation_id FROM messages WHERE contains_folded(content, ?))"
+        )
+        return self._summaries(where, (text,), limit)
+
+    def has_conversation(self, conversation_id: str) -> bool:
+        found = self._connection.execute(
+            "SELECT 1 FROM messages WHERE conversation_id = ? LIMIT 1", (conversation_id,)
+        ).fetchone()
+        return found is not None
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with self._connection:
+            deleted = self._connection.execute(
+                "DELETE FROM messages WHERE conversation_id = ?", (conversation_id,)
+            )
+        return deleted.rowcount > 0
+
+    def _summaries(
+        self, where: str, parameters: tuple[str, ...], limit: int
+    ) -> list[ConversationSummary]:
+        found = self._connection.execute(_SUMMARIES.format(where=where), (*parameters, limit))
+        return [
+            ConversationSummary(id, title[:TITLE_MAX_CHARS], count, last_ts)
+            for id, title, count, last_ts in found.fetchall()
+        ]
+
     def close(self) -> None:
         self._connection.close()
+
+
+def _contains_folded(content: str, text: str) -> bool:
+    return text.casefold() in content.casefold()
