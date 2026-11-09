@@ -9,7 +9,7 @@ from tony.core.events.core_events import MaskingPublisher, Origin, ReplyMode
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.guard.session import SessionGate
 from tony.core.loader.agent import AgentDefinition
-from tony.core.memory.history import HistoryStore, StoredMessage
+from tony.core.memory.history import HistoryStore, StoredMessage, fit_history
 from tony.core.memory.preferences import PreferencesFile
 from tony.core.orchestrator.agents import AgentSlots
 from tony.core.orchestrator.front_tools import WAITING_AFTER_S, FrontTools
@@ -126,6 +126,7 @@ class Conversation:
 
     def _prompt(self, message: str, earlier: list[StoredMessage]) -> str:
         current = f"<mensaje>\n{message}\n</mensaje>"
+        earlier = fit_history(earlier, self._config.history_max_chars)
         if not earlier:
             return current
         lines = "\n".join(

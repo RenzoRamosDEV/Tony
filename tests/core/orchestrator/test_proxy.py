@@ -11,7 +11,7 @@ from tony.core.events.messages import Ruling, ToolCall
 from tony.core.guard.policy import Limits
 from tony.core.mcp.manager import CatalogTool
 from tony.core.orchestrator.ports import ToolReply
-from tony.core.orchestrator.proxy import ToolProxy
+from tony.core.orchestrator.proxy import ToolProxy, cap_text
 from tony.core.orchestrator.supervisor import TaskSupervisor
 
 CONTENT = ToolReply(text="contenido")
@@ -218,3 +218,73 @@ async def test_wraps_catalog_tools_as_proxied_tools():
     assert reply == ToolReply(text="contenido")
     assert [call.tool for call in guard.calls] == ["fs.read_file"]
     assert caller.calls == [("fs.read_file", {"path": "a.md"})]
+
+
+@pytest.mark.parametrize(
+    ("text", "limit", "expected"),
+    [
+        ("abcd", 5, "abcd"),
+        ("abcde", 5, "abcde"),
+        ("abcdef", 5, "abcde\n[truncated: showing first 5 of 6 characters]"),
+        ("abcdef", 0, "abcdef"),
+        ("", 5, ""),
+    ],
+)
+def test_cap_text_boundaries(text, limit, expected):
+    assert cap_text(text, limit) == expected
+
+
+async def test_large_result_is_capped_for_the_model_but_logged_in_full():
+    full = "x" * 50
+    proxy, _, _, sink, _ = make_proxy(reply=ToolReply(text=full), tool_result_max_chars=20)
+
+    reply = await proxy.call("filesystem.read_file", {})
+
+    assert reply == ToolReply(text="x" * 20 + "\n[truncated: showing first 20 of 50 characters]")
+    logged = [e for e in sink.events if e["type"] == "tool_result"]
+    assert logged[0]["content"] == full
+
+
+async def test_result_at_the_limit_is_unchanged():
+    proxy, *_ = make_proxy(reply=ToolReply(text="y" * 20), tool_result_max_chars=20)
+
+    reply = await proxy.call("filesystem.read_file", {})
+
+    assert reply.text == "y" * 20
+
+
+async def test_error_result_is_never_capped():
+    error = ToolReply(text="e" * 50, is_error=True)
+    proxy, *_ = make_proxy(reply=error, tool_result_max_chars=20)
+
+    reply = await proxy.call("filesystem.read_file", {})
+
+    assert reply == error
+
+
+async def test_cap_disabled_returns_everything():
+    proxy, *_ = make_proxy(reply=ToolReply(text="z" * 50), tool_result_max_chars=0)
+
+    reply = await proxy.call("filesystem.read_file", {})
+
+    assert reply.text == "z" * 50
+
+
+async def test_cap_applies_after_masking():
+    sink, supervisor = (
+        ListEventSink(),
+        TaskSupervisor(Limits(tool_result_max_chars=8), ListEventSink()),
+    )
+    proxy = ToolProxy(
+        task_id="abc",
+        agent="viernes",
+        guard=RecordingGuard(ALLOW),
+        caller=FakeToolCaller(ToolReply(text="s3cr3t-and-more")),
+        sink=sink,
+        masker=SecretMasker({"s3cr3t"}),
+        supervisor=supervisor,
+    )
+
+    reply = await proxy.call("filesystem.read_file", {})
+
+    assert reply.text == "***-and-" + "\n[truncated: showing first 8 of 12 characters]"

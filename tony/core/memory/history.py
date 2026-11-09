@@ -1,5 +1,5 @@
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC
 from pathlib import Path
 from typing import Literal
@@ -29,6 +29,27 @@ class StoredMessage:
     role: Role
     agent: str
     content: str
+
+
+CUT_MARKER = "[…]"
+
+
+def fit_history(messages: list[StoredMessage], max_chars: int) -> list[StoredMessage]:
+    """Newest suffix of messages within max_chars; an oversized newest one is cut. 0 disables."""
+    if max_chars <= 0:
+        return messages
+    kept: list[StoredMessage] = []
+    used = 0
+    for message in reversed(messages):
+        if used + len(message.content) > max_chars:
+            break
+        kept.append(message)
+        used += len(message.content)
+    if not kept and messages:
+        newest = messages[-1]
+        room = max(0, max_chars - len(CUT_MARKER))
+        return [replace(newest, content=newest.content[:room] + CUT_MARKER)]
+    return kept[::-1]
 
 
 class HistoryStore:

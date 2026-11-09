@@ -25,6 +25,7 @@ def test_only_default_takes_every_other_default():
         max_denied_retries=3,
         token_alert=50000,
         max_steps_per_agent=30,
+        tool_result_max_chars=20000,
     )
     assert policy.auth == Auth(pin_required=True, lock_after_min=30)
 
@@ -74,3 +75,11 @@ def test_limits_values_can_be_overridden():
 )
 def test_unknown_keys_and_invalid_values_name_dotted_field(data, field):
     assert field_of(data) == field
+
+
+def test_tool_result_max_chars_defaults_and_can_be_overridden():
+    default = Policy.model_validate({"default": "deny"})
+    custom = Policy.model_validate({"default": "deny", "limits": {"tool_result_max_chars": 5}})
+
+    assert default.limits.tool_result_max_chars == 20000
+    assert custom.limits.tool_result_max_chars == 5

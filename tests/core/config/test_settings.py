@@ -17,6 +17,7 @@ DEFAULTS = {
         "output_device": None,
     },
     "desktop": {"hotkey": "Super+J", "tray": True, "theme": "system"},
+    "history_max_chars": 12000,
 }
 
 
@@ -148,3 +149,18 @@ class TestModelAlias:
 
         assert (info.value.file, info.value.field) == ("config/tony.yaml", "models")
         assert f"'{alias}'" in info.value.message
+
+
+def test_history_max_chars_can_be_set_and_zero_disables(tmp_path):
+    write_config(tmp_path, "history_max_chars: 0\n")
+
+    assert load_config(tmp_path).history_max_chars == 0
+
+
+def test_negative_history_max_chars_is_rejected(tmp_path):
+    write_config(tmp_path, "history_max_chars: -1\n")
+
+    with pytest.raises(DefinitionError) as info:
+        load_config(tmp_path)
+
+    assert info.value.field == "history_max_chars"

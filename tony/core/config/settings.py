@@ -42,6 +42,7 @@ class TonyConfig(_Strict):
     )
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
     desktop: DesktopSettings = Field(default_factory=DesktopSettings)
+    history_max_chars: int = Field(default=12000, ge=0)
 
     def resolve_model(self, alias: str) -> str:
         try:

@@ -56,6 +56,7 @@ class Limits(_Strict):
     max_denied_retries: int = 3
     token_alert: int = 50000
     max_steps_per_agent: int = 30
+    tool_result_max_chars: int = 20000
 
 
 class Auth(_Strict):

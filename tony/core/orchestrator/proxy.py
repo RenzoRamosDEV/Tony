@@ -65,7 +65,10 @@ class ToolProxy:
         self._sink.emit(
             log_events.tool_result(self._agent, tool_id, ok=not reply.is_error, content=reply.text)
         )
-        return reply
+        if reply.is_error:
+            return reply
+        limit = self._supervisor.limits.tool_result_max_chars
+        return ToolReply(text=cap_text(reply.text, limit))
 
     async def _judge_and_execute(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
         if not self._supervisor.step(self._agent):
@@ -101,6 +104,13 @@ class ToolProxy:
             return await self.call(tool_id, args)
 
         return handler
+
+
+def cap_text(text: str, limit: int) -> str:
+    """Cut text to `limit` characters plus a marker with both sizes; 0 disables the cap."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n[truncated: showing first {limit} of {len(text)} characters]"
 
 
 def _blocked(ruling: Ruling) -> ToolReply:

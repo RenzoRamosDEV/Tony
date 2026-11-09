@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from tony.core.config.placeholders import SecretMasker
-from tony.core.memory.history import HISTORY_FILE, HistoryStore, StoredMessage
+from tony.core.memory.history import HISTORY_FILE, HistoryStore, StoredMessage, fit_history
 
 NOW = datetime(2026, 11, 1, 10, 0, tzinfo=timezone(timedelta(hours=1)))
 
@@ -81,3 +81,63 @@ def test_default_clock_is_utc(tmp_path):
     ts = datetime.fromisoformat(rows(tmp_path)[0][4])
     assert ts.utcoffset() == timedelta(0)
     assert abs(datetime.now(UTC) - ts) < timedelta(minutes=1)
+
+
+def msgs(*sizes):
+    return [StoredMessage("user", "jarvis", chr(97 + n) * size) for n, size in enumerate(sizes)]
+
+
+def test_fit_history_under_budget_is_unchanged():
+    messages = msgs(3, 4)
+
+    assert fit_history(messages, 10) == messages
+
+
+def test_fit_history_exactly_at_budget_is_unchanged():
+    messages = msgs(3, 4)
+
+    assert fit_history(messages, 7) == messages
+
+
+def test_fit_history_drops_oldest_first_and_keeps_order():
+    messages = msgs(5, 4, 3)
+
+    assert fit_history(messages, 7) == messages[1:]
+    assert fit_history(messages, 6) == messages[2:]
+
+
+def test_fit_history_keeps_a_suffix_not_a_subset():
+    messages = msgs(2, 9, 2)
+
+    assert fit_history(messages, 5) == messages[2:]
+
+
+def test_fit_history_cuts_a_single_huge_message_to_the_budget():
+    [only] = msgs(50)
+
+    [fitted] = fit_history([only], 10)
+
+    assert fitted.content == "a" * 7 + "[…]"
+    assert (fitted.role, fitted.agent) == (only.role, only.agent)
+
+
+def test_fit_history_cuts_the_newest_when_it_alone_exceeds_the_budget():
+    older, newest = msgs(2, 50)
+
+    assert [m.content for m in fit_history([older, newest], 10)] == ["b" * 7 + "[…]"]
+
+
+def test_fit_history_zero_disables():
+    messages = msgs(500, 500)
+
+    assert fit_history(messages, 0) == messages
+
+
+def test_fit_history_empty_input():
+    assert fit_history([], 10) == []
+
+
+def test_fit_history_budget_smaller_than_the_marker_keeps_only_the_marker():
+    [only] = msgs(50)
+
+    assert [m.content for m in fit_history([only], 1)] == ["[…]"]

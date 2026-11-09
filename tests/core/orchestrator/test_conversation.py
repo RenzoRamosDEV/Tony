@@ -156,6 +156,33 @@ async def test_prompt_carries_the_last_20_messages_oldest_first(home):
     assert chat.prompts == [f"<historial>\n{expected}\n</historial>\n<mensaje>\nnuevo\n</mensaje>"]
 
 
+async def test_prompt_is_built_from_the_history_that_fits_the_budget(home):
+    set_config(home, "history_max_chars: 6\n")
+    chat = FakeChatEngine()
+    conversation, _, history, _ = make(home, chat)
+    history.add("c1", "user", "jarvis", "aaaa")
+    history.add("c1", "assistant", "jarvis", "bbbb")
+    history.add("c1", "user", "jarvis", "cc")
+
+    await conversation.handle("nuevo")
+
+    assert chat.prompts == [
+        "<historial>\njarvis: bbbb\nusuario: cc\n</historial>\n<mensaje>\nnuevo\n</mensaje>"
+    ]
+    assert [m.content for m in history.recent("c1")][:3] == ["aaaa", "bbbb", "cc"]
+
+
+async def test_zero_history_budget_replays_everything(home):
+    set_config(home, "history_max_chars: 0\n")
+    chat = FakeChatEngine()
+    conversation, _, history, _ = make(home, chat)
+    history.add("c1", "user", "jarvis", "a" * 20000)
+
+    await conversation.handle("nuevo")
+
+    assert "a" * 20000 in chat.prompts[0]
+
+
 async def test_user_and_assistant_rows_stored(home):
     conversation, _, history, _ = make(home, FakeChatEngine([Say("Buenas tardes, señor.")]))
 
