@@ -2,6 +2,12 @@ import { TAU, alpha, fillRadial } from "./canvasDraw";
 import type { OrbDrawing } from "./canvasScene";
 
 const OUTLINE_POINTS = 96;
+const WOBBLE_REST_AMPLITUDE = 0.05;
+/** Radial deformation per unit of displacement; keeps full voice under 2x the resting deformation. */
+const WOBBLE_DISPLACEMENT_GAIN = 0.3;
+const CONIC_SPIN_RATIO = 0.6;
+const BLOB_ORBIT_BASE_RATIO = 0.5;
+const BLOB_ORBIT_STEP_RATIO = 0.2;
 const BLOB_COLORS = ["rgba(167,255,120,.75)", "rgba(76,201,240,.7)", "rgba(244,114,182,.6)", "rgba(94,242,196,.75)"];
 const CONIC_STOPS: [number, string][] = [
   [0, "#5ef2c4"],
@@ -16,10 +22,9 @@ export const drawAuroraOrb: OrbDrawing = (ctx, width, height, params, clock, sca
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.min(width, height) * 0.28 * params.shellScale;
-  const { t } = clock;
+  const { t, wobble: phase } = clock;
   const glow = params.glow;
-  const wobble = 0.05 + params.displacement * 1.1;
-  const speed = 1 + params.agitation * 2;
+  const wobble = WOBBLE_REST_AMPLITUDE + params.displacement * WOBBLE_DISPLACEMENT_GAIN;
 
   const traceDrop = () => {
     ctx.beginPath();
@@ -29,8 +34,8 @@ export const drawAuroraOrb: OrbDrawing = (ctx, width, height, params, clock, sca
         radius *
         (1 +
           wobble *
-            (0.5 * Math.sin(3 * theta + t * 1.1 * speed) +
-              0.35 * Math.sin(5 * theta - t * 1.7 * speed) +
+            (0.5 * Math.sin(3 * theta + phase * 1.1) +
+              0.35 * Math.sin(5 * theta - phase * 1.7) +
               0.25 * Math.sin(2 * theta + t * 0.6)));
       const x = cx + Math.cos(theta) * r;
       const y = cy + Math.sin(theta) * r;
@@ -59,7 +64,7 @@ export const drawAuroraOrb: OrbDrawing = (ctx, width, height, params, clock, sca
   ctx.fillStyle = body;
   ctx.fillRect(cx - radius * 1.6, cy - radius * 1.6, span, span);
   if (ctx.createConicGradient) {
-    const conic = ctx.createConicGradient(clock.rot * 1.5, cx, cy);
+    const conic = ctx.createConicGradient(clock.rot * CONIC_SPIN_RATIO, cx, cy);
     for (const [offset, color] of CONIC_STOPS) {
       conic.addColorStop(offset, color);
     }
@@ -70,7 +75,7 @@ export const drawAuroraOrb: OrbDrawing = (ctx, width, height, params, clock, sca
   }
   ctx.globalCompositeOperation = "screen";
   BLOB_COLORS.forEach((color, k) => {
-    const angle = clock.rot * (1.2 + k * 0.5) + k * 1.7;
+    const angle = clock.rot * (BLOB_ORBIT_BASE_RATIO + k * BLOB_ORBIT_STEP_RATIO) + k * 1.7;
     const distance = radius * (0.35 + 0.15 * Math.sin(t * 0.8 + k));
     fillRadial(ctx, cx + Math.cos(angle) * distance, cy + Math.sin(angle) * distance, radius * 0.8, [
       [0, color],
