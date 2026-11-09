@@ -30,11 +30,14 @@ ViewFactory = Callable[[QUrl, PageBridge, WindowControls], QWidget]
 
 
 def default_runtime_factory(root: Path) -> RuntimeFactory:
+    from tony.core.guard.caching_wording import cached_wording_factory
     from tony.core.guard.claude_wording import ClaudeWording
     from tony.core.orchestrator.claude_engine import ClaudeEngine
     from tony.core.orchestrator.runtime import CoreRuntime
     from tony.core.voice.engines.loader import load_engines
     from tony.core.voice.service import VoiceService
+
+    wording = cached_wording_factory(ClaudeWording)
 
     def factory(publish: Publisher) -> Runtime:
         return CoreRuntime(
@@ -42,7 +45,7 @@ def default_runtime_factory(root: Path) -> RuntimeFactory:
             publish,
             chat_engine=ClaudeEngine(),
             engine=ClaudeEngine(),
-            wording=ClaudeWording,
+            wording=wording,
             voice=VoiceService(load_engines),
         )
 

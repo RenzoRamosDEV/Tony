@@ -31,8 +31,22 @@ def subagent_finished(agent: str, outcome: Outcome, result: TaskResult) -> Event
     }
 
 
-def token_usage(*, input_tokens: int, output_tokens: int) -> Event:
-    return {"type": "token_usage", "input_tokens": input_tokens, "output_tokens": output_tokens}
+def token_usage(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+    cost_usd: float | None = None,
+) -> Event:
+    return {
+        "type": "token_usage",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "cache_creation_tokens": cache_creation_tokens,
+        "cost_usd": cost_usd,
+    }
 
 
 def token_alert(*, total_tokens: int, limit: int) -> Event:

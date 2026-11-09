@@ -109,3 +109,64 @@ def test_set_reply_mode_rejects_invalid_modes(tmp_path):
         prefs(tmp_path, "- a\n").set_reply_mode("loud")
 
     assert text(tmp_path) == "- a\n"
+
+
+def test_exact_duplicate_leaves_the_file_byte_identical(tmp_path):
+    original = "- Prefiero respuestas cortas\n"
+    preferences = prefs(tmp_path, original)
+
+    preferences.append_line("Prefiero respuestas cortas")
+
+    assert text(tmp_path) == original
+
+
+def test_duplicate_after_whitespace_normalisation_is_ignored(tmp_path):
+    preferences = prefs(tmp_path, "- Prefiero respuestas cortas\n")
+
+    preferences.append_line("  Prefiero   respuestas\tcortas ")
+
+    assert text(tmp_path) == "- Prefiero respuestas cortas\n"
+
+
+def test_different_case_is_appended(tmp_path):
+    prefs(tmp_path, "- Prefiero respuestas cortas\n").append_line("prefiero respuestas cortas")
+
+    assert text(tmp_path) == "- Prefiero respuestas cortas\n- prefiero respuestas cortas\n"
+
+
+def test_different_text_is_appended(tmp_path):
+    prefs(tmp_path, "- Prefiero respuestas cortas\n").append_line("Prefiero respuestas largas")
+
+    assert text(tmp_path).splitlines()[-1] == "- Prefiero respuestas largas"
+
+
+def test_secrets_are_compared_after_masking(tmp_path):
+    preferences = prefs(tmp_path, "- mi clave es ***\n")
+
+    preferences.append_line("mi clave es s3cr3t")
+
+    assert text(tmp_path) == "- mi clave es ***\n"
+
+
+def test_duplicate_of_a_line_without_trailing_newline_does_not_rewrite(tmp_path):
+    preferences = prefs(tmp_path, "- uno")
+
+    preferences.append_line("uno")
+
+    assert text(tmp_path) == "- uno"
+
+
+def test_existing_duplicates_are_left_untouched(tmp_path):
+    preferences = prefs(tmp_path, "- uno\n- uno\n")
+
+    preferences.append_line("dos")
+
+    assert text(tmp_path) == "- uno\n- uno\n- dos\n"
+
+
+def test_reply_mode_line_is_not_a_preference_duplicate(tmp_path):
+    preferences = prefs(tmp_path, "reply_mode: voice\n")
+
+    preferences.append_line("reply_mode: voice")
+
+    assert text(tmp_path) == "reply_mode: voice\n- reply_mode: voice\n"

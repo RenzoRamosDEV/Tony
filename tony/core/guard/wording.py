@@ -14,6 +14,10 @@ def template_question(tool: str, preview: str, rule: str) -> str:
     return f"Acción: {tool} {preview}. Regla: {rule}. ¿Autoriza?"
 
 
+def is_valid_question(text: str, rule: str) -> bool:
+    return re.fullmatch(rf"Acción: .+\. Regla: {re.escape(rule)}\. ¿Autoriza\?", text) is not None
+
+
 async def worded_question(
     wording: QuestionWording | None,
     tool: str,
@@ -27,6 +31,6 @@ async def worded_question(
             text = (await asyncio.wait_for(wording.word(tool, preview, rule), timeout)).strip()
         except Exception:
             text = ""
-        if re.fullmatch(rf"Acción: .+\. Regla: {re.escape(rule)}\. ¿Autoriza\?", text):
+        if is_valid_question(text, rule):
             return text
     return template_question(tool, preview, rule)

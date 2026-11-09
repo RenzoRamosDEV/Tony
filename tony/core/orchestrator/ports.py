@@ -27,6 +27,9 @@ class ProxiedTool:
 class Usage:
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cost_usd: float | None = None
 
 
 @dataclass(frozen=True)

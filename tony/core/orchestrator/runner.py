@@ -182,7 +182,11 @@ def _engine_result(run: _TaskRun, outcome: EngineOutcome) -> tuple[Outcome, Task
     for usage in outcome.usage:
         run.log.emit(
             log_events.token_usage(
-                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                cache_read_tokens=usage.cache_read_tokens,
+                cache_creation_tokens=usage.cache_creation_tokens,
+                cost_usd=usage.cost_usd,
             )
         )
         run.supervisor.record_usage(

@@ -46,7 +46,14 @@ def test_tool_result():
 def test_token_usage():
     event = log_events.token_usage(input_tokens=12, output_tokens=3)
 
-    assert roundtrip(event) == {"type": "token_usage", "input_tokens": 12, "output_tokens": 3}
+    assert (
+        roundtrip(event).items()
+        >= {
+            "type": "token_usage",
+            "input_tokens": 12,
+            "output_tokens": 3,
+        }.items()
+    )
 
 
 def test_task_finished():
@@ -110,3 +117,30 @@ def test_subagent_finished():
         "outcome": "ok",
         "result": {"resumen": "r", "datos": None, "pasos": [], "errores": []},
     }
+
+
+def test_token_usage_carries_cache_and_cost():
+    event = log_events.token_usage(
+        input_tokens=12,
+        output_tokens=3,
+        cache_read_tokens=900,
+        cache_creation_tokens=100,
+        cost_usd=0.012,
+    )
+
+    assert roundtrip(event) == {
+        "type": "token_usage",
+        "input_tokens": 12,
+        "output_tokens": 3,
+        "cache_read_tokens": 900,
+        "cache_creation_tokens": 100,
+        "cost_usd": 0.012,
+    }
+
+
+def test_token_usage_defaults_report_no_cache_and_null_cost():
+    event = roundtrip(log_events.token_usage(input_tokens=1, output_tokens=2))
+
+    assert event["cache_read_tokens"] == 0
+    assert event["cache_creation_tokens"] == 0
+    assert event["cost_usd"] is None

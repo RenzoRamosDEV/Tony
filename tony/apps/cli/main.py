@@ -21,6 +21,7 @@ from tony.core.config.settings import load_config
 from tony.core.config.watcher import watch_config
 from tony.core.events.messages import TaskRequest
 from tony.core.guard.audit import AUDIT_FILE, AuditLine, read_audit, select_lines
+from tony.core.guard.caching_wording import cached_wording_factory
 from tony.core.guard.claude_wording import ClaudeWording
 from tony.core.guard.confirm import CliConfirmer, ConsoleLines, thread_line_reader
 from tony.core.guard.pin import LOCK_FILE, MIN_PIN_LENGTH, PinStore
@@ -48,13 +49,16 @@ class VerdictFilter(StrEnum):
     deny = "deny"
 
 
+CACHED_CLAUDE_WORDING = cached_wording_factory(ClaudeWording)
+
+
 def stdin_readline() -> Callable[[], str]:
     return sys.stdin.readline
 
 
 def create_app(
     engine_factory: Callable[[], ModelEngine] = ClaudeEngine,
-    wording_factory: WordingFactory | None = ClaudeWording,
+    wording_factory: WordingFactory | None = CACHED_CLAUDE_WORDING,
     readline_factory: Callable[[], Callable[[], str | None]] = stdin_readline,
     now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
     getpass: Callable[[str], str] = getpass_module.getpass,

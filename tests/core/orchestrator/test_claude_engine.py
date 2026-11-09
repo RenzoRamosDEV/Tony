@@ -77,7 +77,7 @@ class TestOutcomeFromMessages:
         outcome = outcome_from_messages([assistant("pensando"), result_message()])
 
         assert outcome == EngineOutcome(
-            text="texto final", structured=STRUCTURED, usage=[Usage(120, 30)]
+            text="texto final", structured=STRUCTURED, usage=[Usage(120, 30, 5)]
         )
 
     def test_falls_back_to_last_assistant_text(self):

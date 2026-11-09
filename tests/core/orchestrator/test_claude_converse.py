@@ -69,7 +69,7 @@ async def test_streams_text_deltas_in_order_and_returns_the_final_text():
     outcome, chunks, client = await converse(messages)
 
     assert chunks == ["Buenas", " tardes, señor."]
-    assert outcome == ChatOutcome(text="Buenas tardes, señor.", usage=[Usage(120, 30)])
+    assert outcome == ChatOutcome(text="Buenas tardes, señor.", usage=[Usage(120, 30, 5)])
     assert client.queries == ["<mensaje>Hola</mensaje>"]
     assert client.entered and client.exited
 

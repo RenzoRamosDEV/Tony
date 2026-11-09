@@ -30,7 +30,7 @@ async def test_viernes_uses_two_tools_offline(tmp_path):
         [
             CallTool("filesystem.list_directory", {"path": "."}),
             CallTool("filesystem.read_file", {"path": "a.md"}),
-            Final(structured=summarize, usage=Usage(200, 40)),
+            Final(structured=summarize, usage=Usage(200, 40, 900, 100, 0.012)),
         ]
     )
     deps = RunDeps(root=home, engine=engine, environ={}, task_id_factory=lambda: TASK_ID)
@@ -63,6 +63,9 @@ async def test_viernes_uses_two_tools_offline(tmp_path):
         "type": "token_usage",
         "input_tokens": 200,
         "output_tokens": 40,
+        "cache_read_tokens": 900,
+        "cache_creation_tokens": 100,
+        "cost_usd": 0.012,
     }
     assert events[-1]["outcome"] == "ok"
     assert events[-1]["result"] == result.model_dump(mode="json")

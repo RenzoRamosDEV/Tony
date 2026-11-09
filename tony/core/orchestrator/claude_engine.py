@@ -168,7 +168,15 @@ class OutcomeAccumulator:
         return EngineOutcome(
             text=final.result or self._last_text,
             structured=final.structured_output,
-            usage=[Usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))],
+            usage=[
+                Usage(
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    usage.get("cache_read_input_tokens", 0),
+                    usage.get("cache_creation_input_tokens", 0),
+                    final.total_cost_usd,
+                )
+            ],
         )
 
 

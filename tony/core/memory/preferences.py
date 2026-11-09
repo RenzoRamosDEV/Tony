@@ -24,7 +24,10 @@ class PreferencesFile:
         line = " ".join(text.split())
         if not line:
             raise ValueError("text must not be empty")
-        self._write([*self._lines(), f"- {self._masker.mask(line)}"])
+        entry = f"- {self._masker.mask(line)}"
+        lines = self._lines()
+        if entry not in lines:
+            self._write([*lines, entry])
 
     def reply_mode(self) -> ReplyMode | None:
         modes = [mode for line in self._lines() if (mode := _mode_of(line)) in REPLY_MODES]

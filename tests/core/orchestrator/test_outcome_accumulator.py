@@ -43,7 +43,7 @@ def test_result_gives_text_structured_output_and_usage():
     accumulator.add(result_message())
 
     assert accumulator.outcome() == EngineOutcome(
-        text="texto final", structured=STRUCTURED, usage=[Usage(120, 30)]
+        text="texto final", structured=STRUCTURED, usage=[Usage(120, 30, 5)]
     )
 
 
@@ -111,3 +111,42 @@ async def test_converse_does_not_retain_streamed_messages():
     gc.collect()
     assert outcome.text == "texto final"
     assert [probe() for probe in probes] == [None, None]
+
+
+def test_usage_defaults_keep_two_argument_construction_working():
+    usage = Usage(1, 2)
+
+    assert (usage.cache_read_tokens, usage.cache_creation_tokens, usage.cost_usd) == (0, 0, None)
+
+
+def test_result_fills_cache_tokens_and_cost():
+    accumulator = OutcomeAccumulator()
+    accumulator.add(
+        result_message(
+            usage={
+                "input_tokens": 7,
+                "output_tokens": 3,
+                "cache_read_input_tokens": 900,
+                "cache_creation_input_tokens": 100,
+            },
+            total_cost_usd=0.012,
+        )
+    )
+
+    assert accumulator.outcome().usage == [Usage(7, 3, 900, 100, 0.012)]
+
+
+def test_result_without_cost_or_cache_keys_reports_zero_cache_and_unknown_cost():
+    accumulator = OutcomeAccumulator()
+    accumulator.add(result_message(usage={"input_tokens": 7, "output_tokens": 3}))
+
+    [usage] = accumulator.outcome().usage
+    assert (usage.cache_read_tokens, usage.cache_creation_tokens) == (0, 0)
+    assert usage.cost_usd is None
+
+
+def test_zero_cost_is_kept_as_zero():
+    accumulator = OutcomeAccumulator()
+    accumulator.add(result_message(total_cost_usd=0.0))
+
+    assert accumulator.outcome().usage[0].cost_usd == 0.0
