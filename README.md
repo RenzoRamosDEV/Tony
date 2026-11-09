@@ -1,6 +1,10 @@
 <div align="center">
 
-<h1><img src="docs/assets/logo.png" alt="Tony" width="280"></h1>
+<h1>
+  <img src="docs/assets/logo.png" alt="Tony" width="280">
+  <img src="docs/assets/logo-hud.png" alt="Tony, emblema HUD" width="280">
+  <img src="docs/assets/logo-orbe.png" alt="Tony, orbe neón iridiscente" width="280">
+</h1>
 
 **Asistente personal local, con tres agentes de rol fijo y un guardián de permisos.**
 
