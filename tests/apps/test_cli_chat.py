@@ -5,6 +5,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tests.core.guard.shipped_policy import SHIPPED_POLICY_YAML
+from tests.core.orchestrator.skills_home import set_native
 from tests.core.orchestrator.tony_home import make_tony_home
 from tests.fakes.changes import FakeChanges
 from tests.fakes.fake_chat import Fail, FakeChatEngine, Say
@@ -293,3 +294,88 @@ def test_invalid_edits_keep_the_previous_config_in_chat(tmp_path):
     assert "tony.read_skill" in worker.offered
     assert "tony: warning: agents/edith/policy.yaml" in result.stderr
     assert "tony: agents/viernes/tool/tool.json: confirm" in result.stderr
+
+
+ASK = CallTool("tony.ask_user", {"question": "¿Qué cuenta?", "options": ["Personal", "Trabajo"]})
+READ = CallTool("filesystem.read_file", {"path": "a.md"})
+NOTE_SOURCE = {
+    "connector": "filesystem",
+    "id": "a.md",
+    "title": "Nota A",
+    "retrieved_at": "2026-11-01T09:00:00Z",
+    "excerpt": "Comprar pan.",
+}
+
+
+def asking_home(tmp_path, policy=NO_PIN_POLICY):
+    home, _ = make_tony_home(tmp_path, policy=policy)
+    set_native(home, "viernes", ["ask_user"])
+    return home
+
+
+def delegating(*replies):
+    return FakeChatEngine([CallTool("tony.delegate", {"objetivo": "Manda"}), *replies])
+
+
+def test_delegated_task_asks_and_a_number_selects_the_option(tmp_path):
+    home = asking_home(tmp_path)
+    worker = FakeModelEngine([ASK, Final(structured=DONE)])
+
+    result, _ = invoke(home, paced("Manda", 0.5, "2"), delegating(Say("Listo.")), worker)
+
+    assert result.exit_code == 0
+    assert worker.replies[0].text == "Trabajo"
+    assert "Viernes: ¿Qué cuenta?\n1) Personal\n2) Trabajo\n" in result.stderr
+    assert "Viernes: ¿Qué cuenta?" not in result.stdout
+
+
+def test_free_text_answer_reaches_the_tool_verbatim(tmp_path):
+    home = asking_home(tmp_path)
+    worker = FakeModelEngine([ASK, Final(structured=DONE)])
+
+    invoke(home, paced("Manda", 0.5, "la de casa"), delegating(Say("Listo.")), worker)
+
+    assert worker.replies[0].text == "la de casa"
+
+
+def test_line_after_a_question_timeout_goes_to_the_front_agent(tmp_path):
+    policy = NO_PIN_POLICY.replace("confirm_timeout_s: 60", "confirm_timeout_s: 0.2")
+    home = asking_home(tmp_path, policy)
+    worker = FakeModelEngine([ASK, Final(structured=DONE)])
+    chat = delegating(Say("Sin respuesta."))
+
+    audited = (home / "logs" / "audit.jsonl").exists
+
+    result, _ = invoke(home, paced("Manda", audited, 0.5, "Hola"), chat, worker)
+
+    assert worker.replies[0].text == "no answer from the user"
+    assert chat.prompts[1].endswith("<mensaje>\nHola\n</mensaje>")
+    assert result.exit_code == 0
+
+
+def test_task_result_sources_are_printed_after_the_result(tmp_path):
+    home = asking_home(tmp_path)
+    cited = {**DONE, "datos": {"fuentes": [NOTE_SOURCE]}}
+    worker = FakeModelEngine([READ, Final(structured=cited)])
+
+    result, _ = invoke(home, paced("Manda"), delegating(Say("Listo.")), worker)
+
+    assert "Fuentes:\n- filesystem · Nota A\n" in result.stdout
+
+
+def test_invented_sources_are_not_printed(tmp_path):
+    home = asking_home(tmp_path)
+    invented = {**NOTE_SOURCE, "excerpt": "Comprar vino."}
+    worker = FakeModelEngine([READ, Final(structured={**DONE, "datos": {"fuentes": [invented]}})])
+
+    result, _ = invoke(home, paced("Manda"), delegating(Say("Listo.")), worker)
+
+    assert "Fuentes:" not in result.stdout
+
+
+def test_result_without_sources_prints_no_sources_block(tmp_path):
+    home = asking_home(tmp_path)
+
+    result, _ = invoke(home, paced("Manda"), delegating(Say("Listo.")))
+
+    assert "Fuentes:" not in result.stdout and "Fuentes:" not in result.stderr

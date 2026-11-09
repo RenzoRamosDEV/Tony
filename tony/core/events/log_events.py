@@ -4,10 +4,22 @@ from tony.core.events.messages import TaskRequest, TaskResult
 
 Event = dict[str, Any]
 Outcome = Literal["ok", "error", "timeout", "cancelled"]
+TaskOrigin = Literal["routine"]
 
 
-def task_started(agent: str, task: TaskRequest) -> Event:
-    return {"type": "task_started", "agent": agent, "task": task.model_dump(mode="json")}
+def task_started(
+    agent: str,
+    task: TaskRequest,
+    *,
+    origin: TaskOrigin | None = None,
+    resumed_from: str | None = None,
+) -> Event:
+    event: Event = {"type": "task_started", "agent": agent, "task": task.model_dump(mode="json")}
+    if origin is not None:
+        event["origin"] = origin
+    if resumed_from is not None:
+        event["resumed_from"] = resumed_from
+    return event
 
 
 def tool_call(agent: str, tool: str, args: dict[str, Any]) -> Event:

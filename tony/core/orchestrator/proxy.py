@@ -1,20 +1,43 @@
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from tony.core.config.placeholders import SecretMasker
 from tony.core.events import core_events, log_events
 from tony.core.events.core_events import Publisher
 from tony.core.events.messages import Ruling, ToolCall
-from tony.core.guard.audit import args_preview
+from tony.core.evidence.observed import ObservedTexts
+from tony.core.guard.audit import args_hash, args_preview
 from tony.core.guard.port import Guard
 from tony.core.logging.task_log import Clock, utc_now
 from tony.core.mcp.manager import CatalogTool
-from tony.core.orchestrator.ports import EventSink, ProxiedTool, ToolReply
+from tony.core.memory.actions import ActionState
+from tony.core.orchestrator.ports import (
+    ActionRecorder,
+    ActionSnapshots,
+    EventSink,
+    ProxiedTool,
+    ToolReply,
+)
 from tony.core.orchestrator.supervisor import TaskSupervisor
 
-UNTIMED_TOOLS = frozenset({"tony.run_subagent"})
-"""Bounded by the parent task's timeout and cancellation instead of the per-call timeout."""
+UNTIMED_TOOLS = frozenset({"tony.run_subagent", "tony.ask_user"})
+"""Bounded by the parent task's timeout and cancellation (or their own wait) instead of the
+per-call timeout."""
+
+NATIVE_PREFIX = "tony."
+
+
+JOURNAL_SOURCE = "journal"
+UNDO_SOURCE = "undo"
+
+
+@dataclass(frozen=True)
+class _Execution:
+    reply: ToolReply
+    state: ActionState
+    detail: str = ""
 
 
 class ToolCaller(Protocol):
@@ -36,7 +59,15 @@ class ToolProxy:
         supervisor: TaskSupervisor,
         publish: Publisher = core_events.no_op,
         clock: Clock = utc_now,
+        journal: ActionRecorder | None = None,
+        snapshots: ActionSnapshots | None = None,
+        observed: ObservedTexts | None = None,
     ) -> None:
+        self._observed = observed
+        self._journal = journal
+        self._journal_failure_reported = False
+        self._snapshots = snapshots
+        self._snapshot_failure_reported = False
         self._task_id = task_id
         self._agent = agent
         self._guard = guard
@@ -68,11 +99,20 @@ class ToolProxy:
         if reply.is_error:
             return reply
         limit = self._supervisor.limits.tool_result_max_chars
-        return ToolReply(text=cap_text(reply.text, limit))
+        capped = ToolReply(text=cap_text(reply.text, limit))
+        self._observe(tool_id, capped)
+        return capped
+
+    def _observe(self, tool_id: str, reply: ToolReply) -> None:
+        # Native results (skill bodies, user answers, model-written subagent results) are not
+        # evidence: recording them would let the model launder its own text into sources.
+        if self._observed is not None and not tool_id.startswith(NATIVE_PREFIX):
+            self._observed.add(reply.text)
 
     async def _judge_and_execute(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
         if not self._supervisor.step(self._agent):
             return _not_executed(tool_id, self._supervisor.reason)
+        digest = args_hash(args)
         envelope = ToolCall(task_id=self._task_id, agent=self._agent, tool=tool_id, args=args)
         ruling = await self._guard.decide(envelope)
         preview = args_preview(args, self._masker)
@@ -88,16 +128,75 @@ class ToolProxy:
             self._supervisor.unconfirmed(tool_id, ruling.rule, ruling.user_decision)
             decision = ruling.user_decision or "deny"
             return _not_executed(tool_id, f"not confirmed by the user ({decision})")
-        return await self._execute(tool_id, args)
+        if args_hash(args) != digest:
+            self._supervisor.unconfirmed(tool_id, ruling.rule, "deny")
+            return _not_executed(tool_id, "not confirmed by the user (arguments changed)")
+        call_id = self._record(
+            lambda journal: journal.prepared(self._task_id, self._agent, tool_id, digest)
+        )
+        self._snapshot_before_write(call_id, tool_id, args)
+        self._transition(call_id, "dispatched")
+        execution = await self._execute(tool_id, args)
+        detail = execution.detail or self._written_digest(execution, tool_id, args)
+        self._transition(call_id, execution.state, detail)
+        return execution.reply
 
-    async def _execute(self, tool_id: str, args: dict[str, Any]) -> ToolReply:
+    def _snapshot_before_write(self, call_id: str | None, tool_id: str, args: dict[str, Any]):
+        if call_id is not None and self._snapshots is not None:
+            self._best_effort_undo(lambda snapshots: snapshots.keep(call_id, tool_id, args))
+
+    def _written_digest(self, execution: _Execution, tool_id: str, args: dict[str, Any]) -> str:
+        if execution.state != "succeeded" or self._snapshots is None:
+            return ""
+        return (
+            self._best_effort_undo(lambda snapshots: snapshots.written_digest(tool_id, args)) or ""
+        )
+
+    def _best_effort_undo(self, work):
+        """Undo bookkeeping never gates a call: a failure is reported once and ignored."""
+        try:
+            return work(self._snapshots)
+        except Exception as error:
+            if not self._snapshot_failure_reported:
+                self._snapshot_failure_reported = True
+                message = f"undo snapshot failed: {error}"
+                self._publish(core_events.error(UNDO_SOURCE, message, clock=self._clock))
+            return None
+
+    async def _execute(self, tool_id: str, args: dict[str, Any]) -> _Execution:
         timeout = None if tool_id in UNTIMED_TOOLS else self._supervisor.limits.tool_timeout_s
         try:
-            return await asyncio.wait_for(self._caller.call(tool_id, args), timeout)
+            reply = await asyncio.wait_for(self._caller.call(tool_id, args), timeout)
         except TimeoutError:
-            return ToolReply(text=f"tool {tool_id} timed out after {timeout:g} s", is_error=True)
+            text = f"tool {tool_id} timed out after {timeout:g} s"
+            return _Execution(
+                ToolReply(text=text, is_error=True),
+                "outcome_unknown",
+                f"timed out after {timeout:g} s",
+            )
         except Exception as error:
-            return ToolReply(text=f"tool {tool_id} failed: {error}", is_error=True)
+            text = f"tool {tool_id} failed: {error}"
+            return _Execution(ToolReply(text=text, is_error=True), "failed", str(error))
+        if reply.is_error:
+            return _Execution(reply, "failed", reply.text)
+        return _Execution(reply, "succeeded")
+
+    def _transition(self, call_id: str | None, state: ActionState, detail: str = "") -> None:
+        if call_id is not None:
+            self._record(lambda journal: journal.transition(call_id, state, detail))
+
+    def _record(self, write):
+        """Journal writes are evidence, not a gate: a failure is reported once and ignored."""
+        if self._journal is None:
+            return None
+        try:
+            return write(self._journal)
+        except Exception as error:
+            if not self._journal_failure_reported:
+                self._journal_failure_reported = True
+                message = f"action journal write failed: {error}"
+                self._publish(core_events.error(JOURNAL_SOURCE, message, clock=self._clock))
+            return None
 
     def _handler_for(self, tool_id: str):
         async def handler(args: dict[str, Any]) -> ToolReply:

@@ -3,8 +3,9 @@ import json
 import pytest
 from typer.testing import CliRunner
 
+from tests.core.orchestrator.skills_home import set_native
 from tests.core.orchestrator.viernes_home import make_viernes_home
-from tests.fakes.fake_engine import FakeModelEngine, Final
+from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final
 from tony.apps.cli.main import create_app
 
 OK = {"resumen": "Tienes una nota.", "datos": ["a.md"], "pasos": ["listar"], "errores": []}
@@ -102,3 +103,60 @@ def test_help_flag_shows_help(home):
 
     assert "Usage" in result.output and "run" in result.output
     assert "Tony: asistente personal local." in result.output
+
+
+NOTE_SOURCE = {
+    "connector": "filesystem",
+    "id": "a.md",
+    "title": "Nota A",
+    "retrieved_at": "2026-11-01T09:00:00Z",
+    "excerpt": "Comprar pan.",
+}
+READ = CallTool("filesystem.read_file", {"path": "a.md"})
+ASK = CallTool("tony.ask_user", {"question": "¿Qué cuenta?", "options": ["Personal", "Trabajo"]})
+
+
+def run_with(home, steps, line=None):
+    engine = FakeModelEngine(steps)
+    app = create_app(engine_factory=lambda: engine, readline_factory=lambda: lambda: line)
+    result = CliRunner().invoke(app, ["run", "viernes", "x"], env={"TONY_HOME": str(home)})
+    return result, engine
+
+
+def test_sources_go_to_stderr_and_stdout_stays_one_json_object(home):
+    cited = {**OK, "datos": {"fuentes": [NOTE_SOURCE]}}
+
+    result, _ = run_with(home, [READ, Final(structured=cited)])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == cited
+    assert result.stdout.count("\n") == 1
+    assert "Fuentes:\n- filesystem · Nota A\n" in result.stderr
+
+
+def test_run_without_sources_prints_nothing_extra(home):
+    result, _ = run_with(home, [READ, Final(structured=OK)])
+
+    assert "Fuentes:" not in result.stderr
+    assert result.stdout.count("\n") == 1
+
+
+def test_question_is_answered_from_stdin(home):
+    set_native(home, "viernes", ["ask_user"])
+
+    result, engine = run_with(home, [ASK, Final(structured=OK)], line="2\n")
+
+    assert result.exit_code == 0
+    assert engine.replies[0].text == "Trabajo"
+    assert "Viernes: ¿Qué cuenta?\n1) Personal\n2) Trabajo\n" in result.stderr
+    assert json.loads(result.stdout) == OK
+    assert result.stdout.count("\n") == 1
+
+
+def test_question_without_input_gets_no_answer(home):
+    set_native(home, "viernes", ["ask_user"])
+
+    result, engine = run_with(home, [ASK, Final(structured=OK)], line=None)
+
+    assert (engine.replies[0].text, engine.replies[0].is_error) == ("no answer from the user", True)
+    assert result.exit_code == 0

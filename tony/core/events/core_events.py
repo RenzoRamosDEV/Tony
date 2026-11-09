@@ -1,12 +1,13 @@
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from tony.core.config.placeholders import SecretMasker
-from tony.core.events.log_events import Outcome
+from tony.core.events.log_events import Outcome, TaskOrigin
 from tony.core.events.messages import Ruling, TaskResult
 from tony.core.logging.task_log import Clock, utc_now
+from tony.core.memory.history import ConversationSummary
 
 Event = dict[str, Any]
 Publisher = Callable[[Event], None]
@@ -45,8 +46,16 @@ def progress(agent: str, text: str, *, clock: Clock = utc_now) -> Event:
     return _event("progress", clock, agent=agent, text=text)
 
 
-def task_started(task_id: str, agent: str, objetivo: str, *, clock: Clock = utc_now) -> Event:
-    return _event("task_started", clock, task_id=task_id, agent=agent, objetivo=objetivo)
+def task_started(
+    task_id: str,
+    agent: str,
+    objetivo: str,
+    *,
+    origin: TaskOrigin | None = None,
+    clock: Clock = utc_now,
+) -> Event:
+    extra = {} if origin is None else {"origin": origin}
+    return _event("task_started", clock, task_id=task_id, agent=agent, objetivo=objetivo, **extra)
 
 
 def tool_call(
@@ -76,8 +85,20 @@ def needs_confirmation(
     question: str,
     allow_always: bool,
     *,
+    approval_id: str | None = None,
+    args_digest: str | None = None,
+    policy_version: str | None = None,
+    expires_at: datetime | None = None,
+    preview: dict[str, str | int] | None = None,
     clock: Clock = utc_now,
 ) -> Event:
+    approval = {
+        "approval_id": approval_id,
+        "args_digest": args_digest,
+        "policy_version": policy_version,
+        "expires_at": expires_at and expires_at.astimezone(UTC).isoformat(),
+        "preview": preview or None,
+    }
     return _event(
         "needs_confirmation",
         clock,
@@ -86,6 +107,27 @@ def needs_confirmation(
         args_preview=args_preview,
         question=question,
         allow_always=allow_always,
+        **{name: value for name, value in approval.items() if value is not None},
+    )
+
+
+def clarification_requested(
+    request_id: str,
+    task_id: str,
+    agent: str,
+    question: str,
+    options: list[str],
+    *,
+    clock: Clock = utc_now,
+) -> Event:
+    return _event(
+        "clarification_requested",
+        clock,
+        request_id=request_id,
+        task_id=task_id,
+        agent=agent,
+        question=question,
+        options=options,
     )
 
 
@@ -192,3 +234,7 @@ def audio_devices(
         input_fallback_warning=input_fallback_warning,
         output_fallback_warning=output_fallback_warning,
     )
+
+
+def conversations(items: list[ConversationSummary], *, clock: Clock = utc_now) -> Event:
+    return _event("conversations", clock, items=[dataclasses.asdict(item) for item in items])

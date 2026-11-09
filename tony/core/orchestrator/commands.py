@@ -20,6 +20,13 @@ class Confirm(_Command):
     type: Literal["confirm"] = "confirm"
     task_id: str
     decision: ConfirmDecision
+    approval_id: str | None = None
+
+
+class AnswerClarification(_Command):
+    type: Literal["answer_clarification"] = "answer_clarification"
+    request_id: str
+    answer: str
 
 
 class Cancel(_Command):
@@ -58,9 +65,24 @@ class SetAudioDevice(_Command):
     device: str | None
 
 
+class ListConversations(_Command):
+    type: Literal["list_conversations"] = "list_conversations"
+
+
+class ResumeConversation(_Command):
+    type: Literal["resume_conversation"] = "resume_conversation"
+    id: str
+
+
+class DeleteConversation(_Command):
+    type: Literal["delete_conversation"] = "delete_conversation"
+    id: str
+
+
 Command = Annotated[
     SendMessage
     | Confirm
+    | AnswerClarification
     | Cancel
     | SetMode
     | Unlock
@@ -68,7 +90,10 @@ Command = Annotated[
     | StopListening
     | Stop
     | ListDevices
-    | SetAudioDevice,
+    | SetAudioDevice
+    | ListConversations
+    | ResumeConversation
+    | DeleteConversation,
     Field(discriminator="type"),
 ]
 _COMMAND = TypeAdapter(Command)

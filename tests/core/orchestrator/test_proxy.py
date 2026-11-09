@@ -288,3 +288,75 @@ async def test_cap_applies_after_masking():
     reply = await proxy.call("filesystem.read_file", {})
 
     assert reply.text == "***-and-" + "\n[truncated: showing first 8 of 12 characters]"
+
+
+class MutatingGuard(RecordingGuard):
+    """Guard that alters the caller's arguments while it deliberates, as a late edit would."""
+
+    def __init__(self, args, ruling=ALLOW) -> None:
+        super().__init__(ruling)
+        self._args = args
+
+    async def decide(self, call):
+        self._args["path"] = "/etc/passwd"
+        return await super().decide(call)
+
+
+def proxy_with_guard(guard):
+    sink, caller = ListEventSink(), FakeToolCaller(CONTENT)
+    supervisor = TaskSupervisor(Limits(), sink)
+    proxy = ToolProxy(
+        task_id="abc",
+        agent="viernes",
+        guard=guard,
+        caller=caller,
+        sink=sink,
+        masker=SecretMasker(),
+        supervisor=supervisor,
+    )
+    return proxy, caller, supervisor
+
+
+async def test_arguments_changed_after_the_ruling_are_not_executed():
+    args = {"path": "a.md"}
+    proxy, caller, supervisor = proxy_with_guard(MutatingGuard(args))
+
+    reply = await proxy.call("filesystem.write_file", args)
+
+    assert reply.is_error is True
+    assert reply.text == (
+        "tool filesystem.write_file was not executed: not confirmed by the user (arguments changed)"
+    )
+    assert caller.calls == []
+    assert supervisor.cancelled.is_set()
+
+
+async def test_arguments_changed_cancel_the_task_as_unconfirmed():
+    args = {"path": "a.md"}
+    proxy, _, supervisor = proxy_with_guard(
+        MutatingGuard(args, Ruling(verdict="confirm", rule="r", user_decision="allow"))
+    )
+
+    await proxy.call("filesystem.write_file", args)
+
+    assert "r" in supervisor.reason and "filesystem.write_file" in supervisor.reason
+
+
+async def test_unchanged_arguments_execute():
+    args = {"path": "a.md"}
+    proxy, caller, _ = proxy_with_guard(RecordingGuard())
+
+    reply = await proxy.call("filesystem.read_file", args)
+
+    assert reply == CONTENT
+    assert caller.calls == [("filesystem.read_file", {"path": "a.md"})]
+
+
+async def test_denied_call_with_mutated_arguments_still_reports_the_policy_block():
+    args = {"path": "a.md"}
+    proxy, caller, _ = proxy_with_guard(MutatingGuard(args, DENY))
+
+    reply = await proxy.call("shell.run", args)
+
+    assert json.loads(reply.text) == {"error": "blocked_by_policy", "rule": "shell.run/deny"}
+    assert caller.calls == []

@@ -3,6 +3,7 @@ import pytest
 from tony.core.config.placeholders import (
     SecretMasker,
     UndefinedVariableError,
+    placeholder_names,
     resolve_placeholders,
 )
 
@@ -104,3 +105,21 @@ class TestSecretMasker:
     @pytest.mark.parametrize("scalar", [1, 2.5, True, None])
     def test_mask_json_leaves_non_strings(self, scalar):
         assert SecretMasker({"1"}).mask_json(scalar) == scalar
+
+
+class TestPlaceholderNames:
+    def test_collects_names_from_nested_values(self):
+        value = {
+            "command": "${A}/bin",
+            "args": ["-x", "${B}:${A}"],
+            "env": {"K": "${C}", "${KEY_NAME}": "v"},
+            "n": 3,
+        }
+
+        assert placeholder_names(value) == {"A", "B", "C"}
+
+    def test_plain_values_have_none(self):
+        assert placeholder_names("no vars $HOME {X} ${1bad}") == set()
+
+    def test_does_not_need_the_variable_values(self):
+        assert placeholder_names(["${UNDEFINED_ONE}"]) == {"UNDEFINED_ONE"}

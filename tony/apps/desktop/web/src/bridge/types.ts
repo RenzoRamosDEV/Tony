@@ -37,6 +37,7 @@ export interface TaskStartedEvent extends Base {
   task_id: string;
   agent: string;
   objetivo: string;
+  origin?: "routine";
 }
 export interface ToolCallEvent extends Base {
   type: "tool_call";
@@ -55,6 +56,11 @@ export interface NeedsConfirmationEvent extends Base {
   args_preview: string;
   question: string;
   allow_always: boolean;
+  approval_id?: string;
+  args_digest?: string;
+  policy_version?: string;
+  expires_at?: string;
+  preview?: Record<string, string | number>;
 }
 export interface TaskResultEvent extends Base {
   type: "result";
@@ -159,7 +165,7 @@ export type CoreEvent =
 
 export type Command =
   | { type: "send_message"; text: string; origin?: Origin }
-  | { type: "confirm"; task_id: string; decision: ConfirmDecision }
+  | { type: "confirm"; task_id: string; decision: ConfirmDecision; approval_id?: string }
   | { type: "cancel" }
   | { type: "set_mode"; mode: ReplyMode }
   | { type: "unlock"; pin: string | null }

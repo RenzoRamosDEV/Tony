@@ -1,9 +1,10 @@
+import asyncio
 import json
 
 import pytest
 
 from tests.core.orchestrator.tony_home import make_tony_home, set_config
-from tests.fakes.fake_chat import Fail, FakeChatEngine, Say
+from tests.fakes.fake_chat import Fail, FakeChatEngine, Say, Wait
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final
 from tests.fakes.pin import FakePinPrompt
 from tony.core.config.placeholders import SecretMasker
@@ -293,3 +294,66 @@ async def test_viernes_as_front_gets_control_and_own_tools_judged(tmp_path):
         "filesystem.read_file",
         "allow",
     )
+
+
+async def test_resume_stores_new_messages_under_the_resumed_id_with_its_history(home):
+    chat = FakeChatEngine()
+    conversation, _, history, _ = make(home, chat)
+    history.add("old", "user", "jarvis", "pregunta vieja")
+    history.add("old", "assistant", "jarvis", "respuesta vieja")
+    history.add("c1", "user", "jarvis", "otra conversación")
+
+    conversation.resume("old")
+    await conversation.handle("sigamos")
+
+    assert "usuario: pregunta vieja" in chat.prompts[0]
+    assert "otra conversación" not in chat.prompts[0]
+    assert [m.content for m in history.recent("old")] == [
+        "pregunta vieja",
+        "respuesta vieja",
+        "sigamos",
+        "ok",
+    ]
+    assert [m.content for m in history.recent("c1")] == ["otra conversación"]
+    assert conversation.conversation_id == "old"
+
+
+async def test_resume_keeps_the_history_window_of_20_messages(home):
+    chat = FakeChatEngine()
+    conversation, _, history, _ = make(home, chat)
+    for n in range(25):
+        history.add("old", "user", "jarvis", f"m{n:02d}")
+
+    conversation.resume("old")
+    await conversation.handle("nuevo")
+
+    assert "m04" not in chat.prompts[0]
+    assert "m05" in chat.prompts[0]
+
+
+async def test_resume_publishes_nothing_and_does_not_replay(home):
+    chat = FakeChatEngine()
+    conversation, published, history, _ = make(home, chat)
+    history.add("old", "user", "jarvis", "vieja")
+
+    conversation.resume("old")
+
+    assert published == []
+    assert chat.prompts == []
+
+
+async def test_a_turn_in_flight_keeps_the_id_it_started_with(home):
+    release = asyncio.Event()
+    chat = FakeChatEngine([Wait(release), Say("respuesta")])
+    conversation, _, history, _ = make(home, chat)
+
+    turn = asyncio.create_task(conversation.handle("pregunta"))
+    await asyncio.sleep(0)
+    while not chat.prompts:
+        await asyncio.sleep(0)
+    conversation.resume("other")
+    release.set()
+    await turn
+
+    assert [m.content for m in history.recent("c1")] == ["pregunta", "respuesta"]
+    assert history.recent("other") == []

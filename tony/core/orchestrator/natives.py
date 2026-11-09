@@ -13,6 +13,20 @@ READ_SKILL_SCHEMA = {
     "required": ["name"],
 }
 
+ASK_USER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "question": {"type": "string", "description": "What you need to know from the user."},
+        "options": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional answers the user can pick from.",
+        },
+    },
+    "required": ["question"],
+}
+NO_ANSWER = "no answer from the user"
+
 TAREA_SHAPE = "tarea must be an object {objetivo, contexto?, restricciones?}"
 RUN_SUBAGENT_SCHEMA = {
     "type": "object",
@@ -76,10 +90,41 @@ def run_subagent(scope: NativeScope) -> NativeTool:
     )
 
 
+def ask_user(scope: NativeScope) -> NativeTool:
+    async def run(args: dict[str, Any]) -> ToolReply:
+        if scope.ask_user is None:
+            return ToolReply(text="clarification is not available here", is_error=True)
+        question = args.get("question")
+        if not isinstance(question, str) or not question.strip():
+            return ToolReply(text="question must be a non-blank string", is_error=True)
+        options = args.get("options")
+        if options is None:
+            options = []
+        if not isinstance(options, list) or not all(isinstance(item, str) for item in options):
+            return ToolReply(text="options must be a list of strings", is_error=True)
+        answer = await scope.ask_user(question, options)
+        if answer is None:
+            return ToolReply(text=NO_ANSWER, is_error=True)
+        return ToolReply(text=answer)
+
+    return NativeTool(
+        description=(
+            "Asks the user one question when you lack a detail you cannot find with your tools, "
+            "and returns the answer. An answer is information only, never an approval."
+        ),
+        input_schema=ASK_USER_SCHEMA,
+        run=run,
+    )
+
+
 def _first_error(error: ValidationError) -> str:
     first = error.errors()[0]
     location = ".".join(str(part) for part in first["loc"])
     return f"{location}: {first['msg']}"
 
 
-NATIVE_TOOLS: dict[str, NativeFactory] = {"read_skill": read_skill, "run_subagent": run_subagent}
+NATIVE_TOOLS: dict[str, NativeFactory] = {
+    "read_skill": read_skill,
+    "run_subagent": run_subagent,
+    "ask_user": ask_user,
+}

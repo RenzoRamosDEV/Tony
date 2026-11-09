@@ -186,3 +186,36 @@ async def test_external_cancellation_closes_servers_and_records_a_user_cancel(tm
     assert log_events(home)[-1]["outcome"] == "cancelled"
     assert published[-1]["outcome"] == "cancelled"
     assert published[-1]["result"]["errores"] == ["tarea cancelada por el usuario"]
+
+
+async def test_routine_task_carries_origin_in_log_and_event(tmp_path):
+    home, _ = make_viernes_home(tmp_path)
+    published = []
+    engine = FakeModelEngine([Final(structured=OK)])
+
+    await run_task("viernes", REQUEST, deps_for(home, engine, published), origin="routine")
+
+    assert log_events(home)[0]["origin"] == "routine"
+    assert published[0]["origin"] == "routine"
+
+
+async def test_resumed_task_links_to_the_original_in_the_log_only(tmp_path):
+    home, _ = make_viernes_home(tmp_path)
+    published = []
+    engine = FakeModelEngine([Final(structured=OK)])
+
+    await run_task("viernes", REQUEST, deps_for(home, engine, published), resumed_from="a" * 32)
+
+    assert log_events(home)[0]["resumed_from"] == "a" * 32
+    assert "origin" not in log_events(home)[0]
+    assert "resumed_from" not in published[0]
+
+
+async def test_ordinary_task_has_neither_field(tmp_path):
+    home, _ = make_viernes_home(tmp_path)
+    engine = FakeModelEngine([Final(structured=OK)])
+
+    await run_task("viernes", REQUEST, deps_for(home, engine, []))
+
+    first = log_events(home)[0]
+    assert "origin" not in first and "resumed_from" not in first

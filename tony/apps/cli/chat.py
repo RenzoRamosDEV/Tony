@@ -5,17 +5,21 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import TextIO
 
+from tony.core.automation.host import start_scheduler
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.reload import ChangeStream, live_config
 from tony.core.config.secrets import load_variables
 from tony.core.config.settings import TonyConfig
 from tony.core.config.watcher import watch_config
-from tony.core.events.core_events import Event
+from tony.core.events.core_events import Event, no_op
+from tony.core.evidence.render import source_lines
 from tony.core.guard.confirm import ConsoleLines, thread_line_reader
 from tony.core.guard.pin import PinStore
 from tony.core.guard.policy import Policy
 from tony.core.guard.session import AuthStatus, EdithSession, SessionGate
+from tony.core.memory.actions import open_for_host
 from tony.core.memory.history import HistoryStore
+from tony.core.memory.undo import UndoStore
 from tony.core.orchestrator.agents import AgentSlots
 from tony.core.orchestrator.conversation import Conversation
 from tony.core.orchestrator.ports import ChatEngine
@@ -46,9 +50,15 @@ class ChatPrinter:
             self._line(f"{event['agent'].title()}: {event['text']}")
         elif kind == "result" and event["scope"] == "turn":
             self._finish(event["agent"], event["text"])
+        elif kind == "result" and event["scope"] == "task":
+            self._sources(event["result"]["datos"])
         elif kind == "error":
             self._close()
             print(f"tony: {event['message']}", file=self._err or sys.stderr)
+
+    def _sources(self, datos) -> None:
+        for line in source_lines(datos):
+            self._line(line)
 
     def _token(self, agent: str, text: str) -> None:
         out = self._out or sys.stdout
@@ -108,6 +118,8 @@ async def run_chat(
     console: ConsoleLines,
     getpass: Callable[[str], str],
     changes: ChangeStream = watch_config,
+    conversation_id: str | None = None,
+    policy_version: str = "",
 ) -> None:
     live = live_config(
         deps.root,
@@ -116,6 +128,7 @@ async def run_chat(
         native_tools=deps.native.keys(),
         environ=deps.environ,
         publish=deps.publish,
+        policy_version=policy_version,
     )
     deps = replace(deps, policy_source=live.policy, tool_specs=live.tools)
     stop = asyncio.Event()
@@ -125,7 +138,10 @@ async def run_chat(
         session, TerminalPinPrompt(getpass), timeout_s=policy.limits.confirm_timeout_s
     )
     variables = load_variables(deps.root, deps.environ)
-    history = HistoryStore(deps.root, SecretMasker(variables.env_file_values.values()))
+    masker = SecretMasker(variables.env_file_values.values())
+    history = HistoryStore(deps.root, masker)
+    journal = deps.journal or open_for_host(deps.root, masker)
+    deps = replace(deps, journal=journal, snapshots=deps.snapshots or UndoStore(deps.root))
     conversation = Conversation(
         slots=slots,
         config=config,
@@ -133,7 +149,14 @@ async def run_chat(
         chat_engine=chat_engine,
         gate=gate,
         history=history,
-        conversation_id=uuid.uuid4().hex,
+        conversation_id=conversation_id or uuid.uuid4().hex,
+    )
+    scheduler = start_scheduler(
+        replace(deps, publish=no_op),
+        worker=slots.worker.name,
+        unlocked=lambda: session.unlocked,
+        masker=masker,
+        publish=deps.publish,
     )
     try:
         if session.status.reason == "no_lock_file":
@@ -152,4 +175,7 @@ async def run_chat(
         stop.set()
         reloader.cancel()
         await asyncio.gather(reloader, return_exceptions=True)
+        if scheduler is not None:
+            await scheduler.stop()
         history.close()
+        journal.close()

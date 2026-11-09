@@ -68,6 +68,14 @@ class Conversation:
             waiting_after_s=waiting_after_s,
         )
 
+    @property
+    def conversation_id(self) -> str:
+        return self._conversation_id
+
+    def resume(self, conversation_id: str) -> None:
+        """New messages go to this conversation; a turn already running keeps its own id."""
+        self._conversation_id = conversation_id
+
     def reply_mode(self) -> ReplyMode:
         return self.preferences.reply_mode() or self._config.reply_mode
 
@@ -78,14 +86,15 @@ class Conversation:
             self._publish(core_events.auth(*relocked))
         message, mode = self._split_mode(text)
         self._announce_turn(origin, mode)
-        earlier = self._history.recent(self._conversation_id)
-        self._history.add(self._conversation_id, "user", self.front.name, message)
+        conversation_id = self._conversation_id
+        earlier = self._history.recent(conversation_id)
+        self._history.add(conversation_id, "user", self.front.name, message)
         try:
             reply = await self._converse(message, earlier)
         except Exception as error:
             self._publish(core_events.error("front", str(error) or type(error).__name__))
             return None
-        self._history.add(self._conversation_id, "assistant", self.front.name, reply)
+        self._history.add(conversation_id, "assistant", self.front.name, reply)
         self._publish(core_events.turn_result(self.front.name, reply, mode))
         return reply
 

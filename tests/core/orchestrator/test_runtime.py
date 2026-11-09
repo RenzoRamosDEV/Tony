@@ -176,6 +176,31 @@ async def test_confirm_is_routed_to_the_broker(tmp_path):
     assert not (notes / "a.md").exists()
 
 
+async def test_confirm_forwards_the_approval_id_to_the_broker(tmp_path):
+    home, _ = home_for(tmp_path)
+    chat = FakeChatEngine([CallTool("tony.delegate", {"objetivo": "Borra a.md"}), Say("Hecho")])
+    worker = FakeModelEngine(
+        [CallTool("filesystem.delete_file", {"path": "a.md"}), Final(structured=DONE)]
+    )
+
+    async with Harness(home, chat, worker) as harness:
+        answers = []
+        broker = harness.runtime.broker
+        original = broker.answer
+        broker.answer = lambda *args: (answers.append(args), original(*args))
+        harness.send(type="send_message", text="Borra a.md")
+        [request] = await harness.wait_for("needs_confirmation")
+        harness.send(
+            type="confirm",
+            task_id=request["task_id"],
+            decision="allow",
+            approval_id=request["approval_id"],
+        )
+        await harness.wait_for("result", 2)
+
+    assert answers == [(request["task_id"], "allow", request["approval_id"])]
+
+
 async def test_wrong_pin_publishes_wrong_pin_and_correct_pin_unlocks(tmp_path):
     home, _ = home_for(tmp_path, SHIPPED_POLICY_YAML)
     PinStore(home).set(PIN)

@@ -7,6 +7,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from tony.core.automation.host import RunningScheduler, start_scheduler
+from tony.core.clarification.broker import ClarificationBroker
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.reload import ChangeStream, live_config
 from tony.core.config.secrets import Variables, load_variables
@@ -16,20 +18,26 @@ from tony.core.events import core_events
 from tony.core.events.core_events import Event, MaskingPublisher, Origin, Publisher
 from tony.core.guard.broker import ConfirmationBroker
 from tony.core.guard.pin import PinStore
-from tony.core.guard.policy import load_policy
+from tony.core.guard.policy import load_policy_with_version
 from tony.core.guard.session import AuthStatus, EdithSession, SessionGate
 from tony.core.guard.unlock_expiry import UnlockExpiry
 from tony.core.loader.agent import AgentDefinition
 from tony.core.mcp.manager import McpManager
+from tony.core.memory.actions import ActionJournal, open_for_host
+from tony.core.memory.undo import UndoStore
 from tony.core.memory.history import HistoryStore
 from tony.core.orchestrator.agents import AgentSlots, resolve_slots
 from tony.core.orchestrator.commands import (
+    AnswerClarification,
     Cancel,
     Command,
     Confirm,
+    DeleteConversation,
     InvalidCommand,
+    ListConversations,
     Listen,
     ListDevices,
+    ResumeConversation,
     SendMessage,
     SetAudioDevice,
     SetMode,
@@ -115,6 +123,8 @@ class CoreRuntime:
         self._startup_error = "the core did not start"
         self.conversation: Conversation | None = None
         self.history: HistoryStore | None = None
+        self.journal: ActionJournal | None = None
+        self.scheduler: RunningScheduler | None = None
 
     def submit(self, raw: Any) -> None:
         self._commands.put_nowait(raw)
@@ -142,7 +152,7 @@ class CoreRuntime:
         try:
             config = load_config(self._root)
             slots = resolve_slots(self._root, config)
-            policy = load_policy(self._root, config.guard)
+            policy, policy_version = load_policy_with_version(self._root, config.guard)
         except Exception as error:
             self._startup_error = _describe(error)
             self._publish(core_events.error("startup", self._startup_error))
@@ -153,6 +163,7 @@ class CoreRuntime:
         ui_publish = MaskingPublisher(masker, self._publish)
         self._publish = ui_publish if self.voice is None else _fan_out(ui_publish, self.voice)
         self.broker = ConfirmationBroker(self._root, config.guard, self._publish)
+        self.clarifications = ClarificationBroker(self._publish)
         self.session = EdithSession(
             policy.auth,
             PinStore(self._root),
@@ -166,6 +177,7 @@ class CoreRuntime:
             native_tools=NATIVE_TOOLS.keys(),
             environ=self._environ,
             publish=self._publish,
+            policy_version=policy_version,
         )
         self.pin_prompt = DesktopPinPrompt(self._publish)
         gate = SessionGate(
@@ -174,16 +186,20 @@ class CoreRuntime:
             timeout_s=policy.limits.confirm_timeout_s,
             on_change=lambda status: self._publish(core_events.auth(*status)),
         )
+        self.journal = open_for_host(self._root, masker)
         deps = RunDeps(
             root=self._root,
             engine=self._engine,
             confirmer=self.broker,
+            clarifier=self.clarifications,
             wording=self._wording,
             environ=self._environ,
             monotonic=self._monotonic,
             publish=self._publish,
             policy_source=live.policy,
             tool_specs=live.tools,
+            journal=self.journal,
+            snapshots=UndoStore(self._root),
         )
         self.history = HistoryStore(self._root, masker)
         self.conversation = Conversation(
@@ -196,6 +212,13 @@ class CoreRuntime:
             conversation_id=uuid.uuid4().hex,
             waiting_after_s=self._waiting_after_s,
             voice_ready=self._voice_ready,
+        )
+        self.scheduler = start_scheduler(
+            deps,
+            worker=slots.worker.name,
+            unlocked=lambda: self.session.unlocked,
+            masker=masker,
+            publish=self._publish,
         )
         self._start_voice(config.voice, slots, ui_publish)
         self._publish(core_events.auth(*self.session.status))
@@ -234,7 +257,9 @@ class CoreRuntime:
         if isinstance(command, SendMessage):
             self._turns.put_nowait((command.text, command.origin))
         elif isinstance(command, Confirm):
-            self.broker.answer(command.task_id, command.decision)
+            self.broker.answer(command.task_id, command.decision, command.approval_id)
+        elif isinstance(command, AnswerClarification):
+            self.clarifications.answer(command.request_id, command.answer)
         elif isinstance(command, Cancel):
             self._cancel_turn()
         elif isinstance(command, SetMode):
@@ -250,6 +275,28 @@ class CoreRuntime:
             self._publish_audio_devices()
         elif isinstance(command, SetAudioDevice):
             self._set_audio_device(command.kind, command.device)
+        elif isinstance(command, ListConversations):
+            self._publish_conversations()
+        elif isinstance(command, ResumeConversation):
+            self._resume(command.id)
+        elif isinstance(command, DeleteConversation):
+            self._delete(command.id)
+
+    def _publish_conversations(self) -> None:
+        assert self.history is not None
+        self._publish(core_events.conversations(self.history.list_conversations()))
+
+    def _resume(self, conversation_id: str) -> None:
+        assert self.conversation is not None and self.history is not None
+        if not self.history.has_conversation(conversation_id):
+            raise LookupError(f"unknown conversation {conversation_id}")
+        self.conversation.resume(conversation_id)
+
+    def _delete(self, conversation_id: str) -> None:
+        assert self.history is not None
+        if not self.history.delete_conversation(conversation_id):
+            raise LookupError(f"unknown conversation {conversation_id}")
+        self._publish_conversations()
 
     def _publish_audio_devices(
         self,
@@ -328,6 +375,7 @@ class CoreRuntime:
             self.voice.stop_speaking()
             self.voice.stop_listening()
         self.broker.cancel()
+        self.clarifications.cancel()
         if self._turn is not None:
             self._turn.cancel()
 
@@ -375,8 +423,12 @@ class CoreRuntime:
             task.cancel()
         with suppress(asyncio.CancelledError):
             await asyncio.gather(*tasks, return_exceptions=True)
+        if self.scheduler is not None:
+            await self.scheduler.stop()
         if self.history is not None:
             self.history.close()
+        if self.journal is not None:
+            self.journal.close()
         if self.voice is not None:
             self.voice.close()
 

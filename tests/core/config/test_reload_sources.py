@@ -3,8 +3,8 @@ import json
 import pytest
 
 from tony.core.config.errors import DefinitionError
-from tony.core.config.reload import LivePolicy, LiveToolSpecs
-from tony.core.guard.policy import load_policy
+from tony.core.config.reload import LivePolicy, LiveToolSpecs, StaticPolicy
+from tony.core.guard.policy import Policy, load_policy_with_version
 
 POLICY_FILE = "agents/edith/policy.yaml"
 TOOL_FILE = "agents/viernes/tool/tool.json"
@@ -21,7 +21,8 @@ def write(root, file, text):
 @pytest.fixture
 def live_policy(tmp_path):
     write(tmp_path, POLICY_FILE, "default: allow\n")
-    return LivePolicy(tmp_path, "edith", load_policy(tmp_path, "edith"))
+    policy, version = load_policy_with_version(tmp_path, "edith")
+    return LivePolicy(tmp_path, "edith", policy, version)
 
 
 def test_live_policy_starts_with_seed(live_policy):
@@ -139,3 +140,26 @@ def test_subagent_key(tmp_path, specs):
 
     assert specs.reload("viernes/resumidor") is None
     assert list(specs.spec_for("viernes/resumidor").mcp_servers) == ["s"]
+
+
+def test_static_policy_reports_its_version():
+    assert StaticPolicy(Policy(default="allow"), "v1").version() == "v1"
+
+
+def test_live_policy_version_follows_each_successful_reload(tmp_path, live_policy):
+    seed = live_policy.version()
+    write(tmp_path, POLICY_FILE, "default: deny\n")
+
+    live_policy.reload()
+
+    assert live_policy.version() not in (seed, "")
+
+
+def test_failed_reload_keeps_policy_and_version(tmp_path, live_policy):
+    seed = live_policy.version()
+    write(tmp_path, POLICY_FILE, "default: maybe\n")
+
+    assert live_policy.reload() is not None
+
+    assert live_policy.version() == seed
+    assert live_policy.current().default == "allow"

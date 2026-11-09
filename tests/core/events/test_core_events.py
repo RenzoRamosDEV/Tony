@@ -62,6 +62,33 @@ CASES = [
         },
     ),
     (
+        ev.needs_confirmation(
+            "t1",
+            "gmail.send_email",
+            "{}",
+            "¿Autoriza?",
+            False,
+            approval_id="A1",
+            args_digest="d1",
+            policy_version="v1",
+            expires_at=datetime(2026, 11, 1, 10, 1, 5, tzinfo=MADRID),
+            preview={"to": "a@x.com", "bytes": 5},
+        ),
+        {
+            "type": "needs_confirmation",
+            "task_id": "t1",
+            "tool": "gmail.send_email",
+            "args_preview": "{}",
+            "question": "¿Autoriza?",
+            "allow_always": False,
+            "approval_id": "A1",
+            "args_digest": "d1",
+            "policy_version": "v1",
+            "expires_at": "2026-11-01T09:01:05+00:00",
+            "preview": {"to": "a@x.com", "bytes": 5},
+        },
+    ),
+    (
         ev.task_result(
             "t1", "viernes", "ok", RESULT, input_tokens=10, output_tokens=5, elapsed_ms=1200
         ),
@@ -232,10 +259,88 @@ def test_audio_devices_event_shape():
     from tony.core.voice.engines.devices import DeviceInfo
 
     event = ev.audio_devices(
-        (DeviceInfo(name="Mic A", kind="input", is_default=True),), (),
-        selected_input="Mic A", selected_output=None,
+        (DeviceInfo(name="Mic A", kind="input", is_default=True),),
+        (),
+        selected_input="Mic A",
+        selected_output=None,
     )
     assert event["type"] == "audio_devices"
     assert event["input"] == [{"name": "Mic A", "kind": "input", "is_default": True}]
     assert event["selected_input"] == "Mic A"
     assert event["input_fallback_warning"] is None
+
+
+def test_conversations_event_shape():
+    from tony.core.memory.history import ConversationSummary
+
+    event = ev.conversations([ConversationSummary("c1", "Hola", 2, "2026-11-01T09:00:00+00:00")])
+
+    assert {key: value for key, value in event.items() if key != "ts"} == {
+        "type": "conversations",
+        "items": [
+            {
+                "id": "c1",
+                "title": "Hola",
+                "message_count": 2,
+                "last_ts": "2026-11-01T09:00:00+00:00",
+            }
+        ],
+    }
+    assert json.loads(json.dumps(event)) == event
+
+
+def test_conversations_event_uses_the_injected_clock_and_may_be_empty():
+    event = ev.conversations([], clock=clock)
+
+    assert (event["ts"], event["items"]) == (TS, [])
+
+
+def test_needs_confirmation_omits_unset_approval_fields():
+    event = ev.needs_confirmation("t1", "x", "{}", "q", False, preview={})
+
+    assert set(event) == {
+        "type",
+        "ts",
+        "task_id",
+        "tool",
+        "args_preview",
+        "question",
+        "allow_always",
+    }
+
+
+def test_clarification_requested_shape():
+    event = ev.clarification_requested(
+        "r1", "t1", "viernes", "¿Qué cuenta?", ["a", "b"], clock=clock
+    )
+
+    assert event == {
+        "type": "clarification_requested",
+        "ts": TS,
+        "request_id": "r1",
+        "task_id": "t1",
+        "agent": "viernes",
+        "question": "¿Qué cuenta?",
+        "options": ["a", "b"],
+    }
+    assert json.loads(json.dumps(event)) == event
+
+
+def test_clarification_requested_without_options_has_an_empty_list():
+    assert ev.clarification_requested("r1", "t1", "viernes", "q", [])["options"] == []
+
+
+def test_clarification_requested_masks_secrets_in_question_and_options():
+    published = []
+    publish = ev.MaskingPublisher(SecretMasker({"s3cr3t"}), published.append)
+
+    publish(ev.clarification_requested("r1", "t1", "viernes", "¿Es s3cr3t?", ["s3cr3t"]))
+
+    [event] = published
+    assert event["question"] == "¿Es ***?"
+    assert event["options"] == ["***"]
+
+
+def test_task_started_origin_only_when_given():
+    assert "origin" not in ev.task_started("t1", "viernes", "o")
+    assert ev.task_started("t1", "viernes", "o", origin="routine")["origin"] == "routine"

@@ -144,3 +144,15 @@ def test_token_usage_defaults_report_no_cache_and_null_cost():
     assert event["cache_read_tokens"] == 0
     assert event["cache_creation_tokens"] == 0
     assert event["cost_usd"] is None
+
+
+def test_task_started_adds_origin_and_resumed_from_only_when_given():
+    request = TaskRequest(objetivo="o")
+
+    plain = log_events.task_started("viernes", request)
+    routine = log_events.task_started("viernes", request, origin="routine")
+    resumed = log_events.task_started("viernes", request, resumed_from="abc")
+
+    assert "origin" not in plain and "resumed_from" not in plain
+    assert routine["origin"] == "routine" and "resumed_from" not in routine
+    assert resumed["resumed_from"] == "abc" and "origin" not in resumed

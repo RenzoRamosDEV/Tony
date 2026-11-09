@@ -10,7 +10,7 @@ from tony.core.config.placeholders import SecretMasker
 from tony.core.config.secrets import load_variables
 from tony.core.events import core_events
 from tony.core.events.core_events import MaskingPublisher, Publisher
-from tony.core.guard.policy import Policy, load_policy, policy_file
+from tony.core.guard.policy import Policy, load_policy_with_version, policy_file
 from tony.core.loader.tool_json import McpServer, ToolSpec, load_tool_spec, tool_json_keys
 from tony.core.logging.task_log import Clock, utc_now
 from tony.core.mcp.manager import DEFAULT_RETRY_DELAYS, McpManager
@@ -29,6 +29,10 @@ Change = tuple[Literal["policy"], None] | tuple[Literal["tools"], str]
 class PolicySource(Protocol):
     def current(self) -> Policy: ...
 
+    def version(self) -> str:
+        """Identifies the exact policy file content behind `current()`."""
+        ...
+
 
 class ToolSpecSource(Protocol):
     def spec_for(self, key: str) -> ToolSpec: ...
@@ -37,27 +41,35 @@ class ToolSpecSource(Protocol):
 class StaticPolicy:
     """The policy loaded once for a single task (`tony run`)."""
 
-    def __init__(self, policy: Policy) -> None:
+    def __init__(self, policy: Policy, version: str = "") -> None:
         self._policy = policy
+        self._version = version
 
     def current(self) -> Policy:
         return self._policy
+
+    def version(self) -> str:
+        return self._version
 
 
 class LivePolicy:
     """The guard's last valid policy; a failed reload keeps the previous one."""
 
-    def __init__(self, root: Path, guard: str, policy: Policy) -> None:
+    def __init__(self, root: Path, guard: str, policy: Policy, version: str = "") -> None:
         self._root = root
         self._guard = guard
         self._policy = policy
+        self._version = version
 
     def current(self) -> Policy:
         return self._policy
 
+    def version(self) -> str:
+        return self._version
+
     def reload(self) -> DefinitionError | None:
         try:
-            self._policy = load_policy(self._root, self._guard)
+            self._policy, self._version = load_policy_with_version(self._root, self._guard)
         except DefinitionError as error:
             return error
         return None
@@ -272,9 +284,10 @@ def live_config(
     native_tools: Collection[str],
     environ: Mapping[str, str],
     publish: Publisher,
+    policy_version: str = "",
 ) -> LiveConfig:
     """Live sources for a long-running host, seeded silently from every valid `tool.json`."""
-    live_policy = LivePolicy(root, guard, policy)
+    live_policy = LivePolicy(root, guard, policy, policy_version)
     tools = LiveToolSpecs(root, native_tools=native_tools)
     for key in tool_json_keys(root):
         tools.reload(key)

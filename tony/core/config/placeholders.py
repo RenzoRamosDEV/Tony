@@ -34,6 +34,17 @@ def resolve_placeholders(value: Any, variables: Mapping[str, str]) -> tuple[Any,
     return walk(value), used
 
 
+def placeholder_names(value: Any) -> set[str]:
+    """Names of the `${NAME}` placeholders in the strings of a nested value; keys are ignored."""
+    if isinstance(value, str):
+        return set(_PLACEHOLDER.findall(value))
+    if isinstance(value, list):
+        return set().union(*map(placeholder_names, value))
+    if isinstance(value, dict):
+        return set().union(*map(placeholder_names, value.values()))
+    return set()
+
+
 class SecretMasker:
     def __init__(self, secrets: Iterable[str] = ()) -> None:
         self._secrets: set[str] = set()

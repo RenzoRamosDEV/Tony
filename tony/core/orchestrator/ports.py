@@ -4,6 +4,7 @@ from typing import Any, Protocol
 
 from tony.core.events.messages import TaskRequest
 from tony.core.loader.agent_md import AgentSpec
+from tony.core.memory.actions import ActionState
 
 
 @dataclass(frozen=True)
@@ -72,3 +73,19 @@ class ChatEngine(Protocol):
 
 class EventSink(Protocol):
     def emit(self, event: dict[str, Any]) -> None: ...
+
+
+class ActionRecorder(Protocol):
+    """Durable per-call state of guarded executions (the action journal)."""
+
+    def prepared(self, task_id: str, agent: str, tool: str, args_digest: str) -> str: ...
+
+    def transition(self, call_id: str, state: ActionState, detail: str = "") -> None: ...
+
+
+class ActionSnapshots(Protocol):
+    """Keeps what is needed to revert a guarded call and fingerprints what it wrote."""
+
+    def keep(self, call_id: str, tool_id: str, args: dict[str, Any]) -> None: ...
+
+    def written_digest(self, tool_id: str, args: dict[str, Any]) -> str: ...
