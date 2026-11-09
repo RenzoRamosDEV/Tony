@@ -78,7 +78,7 @@ async def test_working_servers_emit_no_error(tmp_path):
     assert sink.events == []
 
 
-def test_default_connect_timeout_is_ten_seconds(tmp_path):
+def test_default_connect_timeout_is_thirty_seconds(tmp_path):
     manager = McpManager(
         ToolSpec(mcp_servers={}),
         variables=secret_variables({}),
@@ -87,7 +87,7 @@ def test_default_connect_timeout_is_ten_seconds(tmp_path):
         log_dir=tmp_path,
     )
 
-    assert manager.connect_timeout == 10.0
+    assert manager.connect_timeout == 30.0
 
 
 @pytest.mark.parametrize(

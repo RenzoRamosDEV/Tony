@@ -1,6 +1,6 @@
 import asyncio
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, TextIO
@@ -13,7 +13,7 @@ from tony.core.events.core_events import MaskingPublisher, Publisher
 from tony.core.guard.policy import Policy, load_policy, policy_file
 from tony.core.loader.tool_json import McpServer, ToolSpec, load_tool_spec, tool_json_keys
 from tony.core.logging.task_log import Clock, utc_now
-from tony.core.mcp.manager import McpManager
+from tony.core.mcp.manager import DEFAULT_RETRY_DELAYS, McpManager
 
 RELOAD_SOURCE = "reload"
 REMOVED_REASON = "removed from tool.json"
@@ -151,7 +151,7 @@ class ConfigReloader:
         self._probe = probe
         self._stderr = stderr
         self._clock = clock
-        self._probes: set[asyncio.Task[None]] = set()
+        self._probes: dict[tuple[str, str], asyncio.Task[None]] = {}
 
     async def run(self, changes: AsyncIterator[set[Path]]) -> None:
         try:
@@ -172,7 +172,7 @@ class ConfigReloader:
                 self._reload_tools(key)
 
     async def wait_idle(self) -> None:
-        await asyncio.gather(*self._probes, return_exceptions=True)
+        await asyncio.gather(*self._probes.values(), return_exceptions=True)
 
     def _reload_tools(self, key: str) -> None:
         previous = self._tools.cached(key)
@@ -189,9 +189,19 @@ class ConfigReloader:
                 )
             )
         for name in [*diff.added, *diff.changed]:
-            task = asyncio.create_task(self._probe(key, name, current[name]))
-            self._probes.add(task)
-            task.add_done_callback(self._probes.discard)
+            self._schedule_probe(key, name, current[name])
+
+    def _schedule_probe(self, key: str, name: str, server: McpServer) -> None:
+        superseded = self._probes.get((key, name))
+        if superseded is not None:
+            superseded.cancel()
+        task = asyncio.create_task(self._probe(key, name, server))
+        self._probes[(key, name)] = task
+        task.add_done_callback(lambda done: self._forget(key, name, done))
+
+    def _forget(self, key: str, name: str, done: asyncio.Task[None]) -> None:
+        if self._probes.get((key, name)) is done:
+            del self._probes[(key, name)]
 
     def _report(self, error: DefinitionError | None) -> None:
         if error is None:
@@ -200,7 +210,7 @@ class ConfigReloader:
         print(f"tony: warning: {error}", file=self._stderr or sys.stderr)
 
     async def _cancel_probes(self) -> None:
-        for task in self._probes:
+        for task in self._probes.values():
             task.cancel()
         await self.wait_idle()
 
@@ -217,6 +227,8 @@ def mcp_probe(
     publish: Publisher,
     clock: Clock = utc_now,
     connect_timeout: float = 10.0,
+    retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> Probe:
     """Probe adapter over McpManager: connect, list and close a single server."""
 
@@ -231,6 +243,8 @@ def mcp_probe(
             sink=_Discard(),
             log_dir=root / "logs" / "mcp",
             connect_timeout=connect_timeout,
+            retry_delays=retry_delays,
+            sleep=sleep,
             on_status=lambda server_name, status: masked(
                 core_events.mcp_status(
                     key, server_name, up=status.up, reason=status.reason, clock=clock
@@ -238,7 +252,7 @@ def mcp_probe(
             ),
         )
         async with manager:
-            pass
+            await manager.wait_settled()
 
     return probe
 

@@ -282,7 +282,9 @@ async def test_real_probe_publishes_status_and_leaves_no_process(tmp_path):
 
 async def test_real_probe_of_broken_server_publishes_reason(tmp_path):
     published = []
-    probe = mcp_probe(tmp_path, environ={}, publish=published.append, connect_timeout=0.5)
+    probe = mcp_probe(
+        tmp_path, environ={}, publish=published.append, connect_timeout=0.5, retry_delays=()
+    )
     entry = McpServer.model_validate({"command": "/nonexistent/tony-no-such-cmd"})
 
     async with asyncio.timeout(20):
@@ -294,7 +296,9 @@ async def test_real_probe_of_broken_server_publishes_reason(tmp_path):
 
 async def test_real_probe_uses_the_connect_timeout(tmp_path):
     published = []
-    probe = mcp_probe(tmp_path, environ={}, publish=published.append, connect_timeout=0.2)
+    probe = mcp_probe(
+        tmp_path, environ={}, publish=published.append, connect_timeout=0.2, retry_delays=()
+    )
     entry = McpServer.model_validate(
         {"command": sys.executable, "args": ["-c", "import time; time.sleep(30)"]}
     )
@@ -315,3 +319,91 @@ async def test_default_stderr_is_resolved_when_warning(tmp_path, capsys):
     await reloader.handle({tmp_path / POLICY_FILE})
 
     assert capsys.readouterr().err.startswith(f"tony: warning: {POLICY_FILE}")
+
+
+async def test_new_probe_supersedes_the_pending_one_of_the_same_server(tmp_path):
+    harness = Harness(tmp_path, {"b": {"command": "y"}})
+    started, cancelled = [], []
+
+    async def waiting_probe(key, name, entry):
+        started.append(entry.command)
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(entry.command)
+            raise
+
+    harness.reloader._probe = waiting_probe
+    for command in ("y1", "y2"):
+        write(tmp_path, TOOL_FILE, json.dumps({"mcpServers": {"b": {"command": command}}}))
+        await harness.reloader.handle({tmp_path / TOOL_FILE})
+        await asyncio.sleep(0)
+
+    assert started == ["y1", "y2"] and cancelled == ["y1"]
+    await harness.reloader._cancel_probes()
+    assert cancelled == ["y1", "y2"]
+
+
+async def test_probes_of_other_servers_do_not_supersede_each_other(tmp_path):
+    harness = Harness(tmp_path, {})
+    cancelled = []
+
+    async def waiting_probe(key, name, entry):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(name)
+            raise
+
+    harness.reloader._probe = waiting_probe
+    servers = {"a": {"command": "x"}, "b": {"command": "y"}}
+    write(tmp_path, TOOL_FILE, json.dumps({"mcpServers": servers}))
+    await harness.reloader.handle({tmp_path / TOOL_FILE})
+    await asyncio.sleep(0)
+
+    assert cancelled == []
+    await harness.reloader._cancel_probes()
+
+
+async def test_real_probe_keeps_retrying_a_broken_server(tmp_path):
+    published, delays = [], []
+
+    async def sleep(delay):
+        delays.append(delay)
+        await asyncio.sleep(0)
+
+    probe = mcp_probe(
+        tmp_path,
+        environ={},
+        publish=published.append,
+        connect_timeout=0.5,
+        retry_delays=(1.0, 2.0),
+        sleep=sleep,
+    )
+    entry = McpServer.model_validate({"command": "/nonexistent/tony-no-such-cmd"})
+
+    async with asyncio.timeout(20):
+        await probe("viernes", "roto", entry)
+
+    assert delays == [1.0, 2.0]
+    assert [e["up"] for e in published] == [False]
+
+
+async def test_finished_superseded_probe_does_not_forget_the_new_one(tmp_path):
+    harness = Harness(tmp_path, {"b": {"command": "y"}})
+
+    async def waiting_probe(key, name, entry):
+        await asyncio.Event().wait()
+
+    harness.reloader._probe = waiting_probe
+    tasks = []
+    for command in ("y1", "y2"):
+        write(tmp_path, TOOL_FILE, json.dumps({"mcpServers": {"b": {"command": command}}}))
+        await harness.reloader.handle({tmp_path / TOOL_FILE})
+        tasks.append(harness.reloader._probes[("viernes", "b")])
+    current = tasks[1]
+    await asyncio.gather(tasks[0], return_exceptions=True)
+    await asyncio.sleep(0)
+
+    assert harness.reloader._probes == {("viernes", "b"): current}
+    await harness.reloader._cancel_probes()
