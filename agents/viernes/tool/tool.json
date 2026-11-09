@@ -61,6 +61,7 @@
   },
   "native": [
     "read_skill",
-    "run_subagent"
+    "run_subagent",
+    "ask_user"
   ]
 }
