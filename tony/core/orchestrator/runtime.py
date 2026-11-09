@@ -111,6 +111,7 @@ class CoreRuntime:
         self._turns: asyncio.Queue[tuple[str, Origin]] = asyncio.Queue()
         self._background: list[asyncio.Task[None]] = []
         self._turn: asyncio.Task[str | None] | None = None
+        self._discovery: asyncio.Task[tuple[Any, ...]] | None = None
         self._startup_error = "the core did not start"
         self.conversation: Conversation | None = None
         self.history: HistoryStore | None = None
@@ -251,9 +252,31 @@ class CoreRuntime:
             self._set_audio_device(command.kind, command.device)
 
     def _publish_audio_devices(
-        self, *, input_fallback_warning: str | None = None, output_fallback_warning: str | None = None
+        self,
+        *,
+        input_fallback_warning: str | None = None,
+        output_fallback_warning: str | None = None,
     ) -> None:
-        devices = list_devices()
+        if self._discovery is None or self._discovery.done():
+            self._discovery = asyncio.create_task(asyncio.to_thread(list_devices))
+        discovery = self._discovery
+        self._track(
+            asyncio.create_task(
+                self._publish_discovered(discovery, input_fallback_warning, output_fallback_warning)
+            )
+        )
+
+    async def _publish_discovered(
+        self,
+        discovery: "asyncio.Task[tuple[Any, ...]]",
+        input_fallback_warning: str | None,
+        output_fallback_warning: str | None,
+    ) -> None:
+        try:
+            devices = await asyncio.shield(discovery)
+        except Exception as error:
+            self._publish(core_events.error("list_devices", _describe(error)))
+            return
         inputs = tuple(device for device in devices if device.kind == "input")
         outputs = tuple(device for device in devices if device.kind == "output")
         self._publish(
@@ -267,18 +290,27 @@ class CoreRuntime:
             )
         )
 
+    def _track(self, task: "asyncio.Task[Any]") -> None:
+        self._background.append(task)
+        task.add_done_callback(self._background.remove)
+
     def _set_audio_device(self, kind: str, device: str | None) -> None:
+        found = True
         if self.voice is not None:
             if kind == "input":
-                self.voice.set_input_device(device)
+                found = self.voice.set_input_device(device)
             else:
-                self.voice.set_output_device(device)
+                found = self.voice.set_output_device(device)
         if kind == "input":
             self._config.voice.input_device = device
         else:
             self._config.voice.output_device = device
         save_config(self._root, self._config)
-        self._publish_audio_devices()
+        warning = None if found else _fallback_warning(kind, device)
+        if kind == "input":
+            self._publish_audio_devices(input_fallback_warning=warning)
+        else:
+            self._publish_audio_devices(output_fallback_warning=warning)
 
     def _require_voice(self) -> VoiceService:
         if self.voice is None:
@@ -323,8 +355,8 @@ class CoreRuntime:
                     sink=_DiscardSink(),
                     log_dir=self._root / "logs" / "mcp",
                     on_status=self._status_publisher(agent.name),
-                ):
-                    pass
+                ) as manager:
+                    await manager.wait_settled()
             except Exception as error:
                 self._publish(core_events.error(f"mcp.{agent.name}", _describe(error)))
 
@@ -338,10 +370,11 @@ class CoreRuntime:
         self._stop_watching.set()
         if self._turn is not None:
             self._turn.cancel()
-        for task in self._background:
+        tasks = [*self._background, *filter(None, [self._discovery])]
+        for task in tasks:
             task.cancel()
         with suppress(asyncio.CancelledError):
-            await asyncio.gather(*self._background, return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
         if self.history is not None:
             self.history.close()
         if self.voice is not None:
@@ -360,6 +393,11 @@ def _fan_out(ui_publish: Publisher, voice: VoiceService) -> Publisher:
             ui_publish(core_events.error("voice", _describe(error)))
 
     return publish
+
+
+def _fallback_warning(kind: str, device: str | None) -> str:
+    label = "entrada" if kind == "input" else "salida"
+    return f"No se encontró el dispositivo de {label} «{device}»: se usa el predeterminado."
 
 
 def _describe(error: BaseException) -> str:

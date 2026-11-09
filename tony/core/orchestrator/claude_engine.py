@@ -1,6 +1,6 @@
 import dataclasses
 import warnings
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterable
 from typing import Any
 
 from claude_agent_sdk import (
@@ -144,25 +144,39 @@ def make_can_use_tool(catalog: Collection[str]) -> CanUseTool:
     return can_use_tool
 
 
-def outcome_from_messages(messages: list[Any]) -> EngineOutcome:
-    last_text = ""
-    final: ResultMessage | None = None
-    for message in messages:
+class OutcomeAccumulator:
+    """Folds streamed SDK messages into an outcome without retaining them."""
+
+    def __init__(self) -> None:
+        self._last_text = ""
+        self._final: ResultMessage | None = None
+
+    def add(self, message: Any) -> None:
         if isinstance(message, AssistantMessage):
             texts = [block.text for block in message.content if isinstance(block, TextBlock)]
-            last_text = "".join(texts) or last_text
+            self._last_text = "".join(texts) or self._last_text
         elif isinstance(message, ResultMessage):
-            final = message
-    if final is None:
-        return EngineOutcome(text=last_text)
-    if final.is_error:
-        raise EngineError(f"{final.subtype}: {final.result}" if final.result else final.subtype)
-    usage = final.usage or {}
-    return EngineOutcome(
-        text=final.result or last_text,
-        structured=final.structured_output,
-        usage=[Usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))],
-    )
+            self._final = message
+
+    def outcome(self) -> EngineOutcome:
+        final = self._final
+        if final is None:
+            return EngineOutcome(text=self._last_text)
+        if final.is_error:
+            raise EngineError(f"{final.subtype}: {final.result}" if final.result else final.subtype)
+        usage = final.usage or {}
+        return EngineOutcome(
+            text=final.result or self._last_text,
+            structured=final.structured_output,
+            usage=[Usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))],
+        )
+
+
+def outcome_from_messages(messages: Iterable[Any]) -> EngineOutcome:
+    accumulator = OutcomeAccumulator()
+    for message in messages:
+        accumulator.add(message)
+    return accumulator.outcome()
 
 
 class ClaudeEngine:
@@ -180,8 +194,10 @@ class ClaudeEngine:
         options = build_options(spec, tools, model_id, can_use_tool)
         async with self._client_factory(options) as client:
             await client.query(request.model_dump_json())
-            messages = [message async for message in client.receive_response()]
-        return outcome_from_messages(messages)
+            accumulator = OutcomeAccumulator()
+            async for message in client.receive_response():
+                accumulator.add(message)
+        return accumulator.outcome()
 
     async def converse(
         self,
@@ -194,13 +210,13 @@ class ClaudeEngine:
     ) -> ChatOutcome:
         can_use_tool = make_can_use_tool({tool.id for tool in tools})
         options = build_chat_options(spec, system_prompt, tools, model_id, can_use_tool)
-        messages = []
+        accumulator = OutcomeAccumulator()
         async with self._client_factory(options) as client:
             await client.query(prompt)
             async for message in client.receive_response():
                 chunk = text_delta(message)
                 if chunk:
                     on_text(chunk)
-                messages.append(message)
-        outcome = outcome_from_messages(messages)
+                accumulator.add(message)
+        outcome = accumulator.outcome()
         return ChatOutcome(text=outcome.text, usage=outcome.usage)

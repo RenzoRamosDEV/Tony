@@ -41,8 +41,19 @@ def list_skills(root: Path, key: str) -> tuple[list[Skill], list[DefinitionError
 
 
 def read_skill_body(root: Path, key: str, name: str) -> str | None:
-    skills, _ = list_skills(root, key)
-    return next((skill.body for skill in skills if skill.name == name), None)
+    if not _is_plain_folder_name(name):
+        return None
+    folder = f"{agent_folder(key)}skills/{name}"
+    if not (root / folder / SKILL_FILE).is_file():
+        return None
+    try:
+        return _parse_skill(root / folder, f"{folder}/{SKILL_FILE}").body
+    except DefinitionError:
+        return None
+
+
+def _is_plain_folder_name(name: str) -> bool:
+    return name not in ("", ".", "..") and Path(name).name == name
 
 
 def _parse_skill(path: Path, file: str) -> Skill:

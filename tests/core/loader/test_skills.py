@@ -108,3 +108,35 @@ def test_read_skill_body_unknown_or_traversal_is_none(tmp_path, monkeypatch, nam
     assert all(path.is_relative_to(skills_root) for path in opened)
     assert (tmp_path / "agents/viernes/x/SKILL.md").resolve() not in opened
     assert (tmp_path / SKILLS / "a/b/SKILL.md").resolve() not in opened
+
+
+def test_read_skill_body_parses_only_the_requested_file(tmp_path, monkeypatch):
+    for name in ("resumir", "buscar", "corregir"):
+        write_skill(tmp_path, name, skill_text(name, body=f"cuerpo {name}"))
+    opened = []
+    real_read = Path.read_text
+
+    def spy_read(path, *args, **kwargs):
+        opened.append(path)
+        return real_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", spy_read)
+
+    assert read_skill_body(tmp_path, "viernes", "buscar") == "cuerpo buscar"
+    assert opened == [tmp_path / SKILLS / "buscar" / "SKILL.md"]
+
+
+def test_read_skill_body_reads_fresh_after_edit(tmp_path):
+    write_skill(tmp_path, "resumir", skill_text("resumir", body="antes"))
+    assert read_skill_body(tmp_path, "viernes", "resumir") == "antes"
+
+    write_skill(tmp_path, "resumir", skill_text("resumir", body="después"))
+
+    assert read_skill_body(tmp_path, "viernes", "resumir") == "después"
+
+
+def test_read_skill_body_with_mismatched_name_is_none(tmp_path):
+    write_skill(tmp_path, "carpeta", skill_text("otro"))
+
+    assert read_skill_body(tmp_path, "viernes", "carpeta") is None
+    assert read_skill_body(tmp_path, "viernes", "otro") is None
