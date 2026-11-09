@@ -5,6 +5,7 @@ import pytest
 from tony.core.config.errors import DefinitionError
 from tony.core.config.settings import TonyConfig
 from tony.core.loader.agent import load_agent
+from tony.core.orchestrator.natives import NATIVE_TOOLS
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -29,7 +30,7 @@ def make_agent(root, agent_md=AGENT_MD, tool_json='{"mcpServers": {}}'):
 
 
 def test_bundled_viernes_loads_with_default_config():
-    agent = load_agent(REPO, "viernes", TonyConfig(), native_tools={"read_skill", "run_subagent"})
+    agent = load_agent(REPO, "viernes", TonyConfig(), native_tools=NATIVE_TOOLS.keys())
 
     assert (agent.spec.role, agent.spec.model) == ("worker", "claude-sonnet")
     assert agent.spec.persona.language == "es"
@@ -39,7 +40,7 @@ def test_bundled_viernes_loads_with_default_config():
     assert filesystem.command == "npx"
     assert "@modelcontextprotocol/server-filesystem" in filesystem.args
     assert "${HOME}/notas" in filesystem.args
-    assert agent.tools.native == ["read_skill", "run_subagent"]
+    assert agent.tools.native == ["read_skill", "run_subagent", "ask_user"]
 
 
 def test_loads_agent_from_root(tmp_path):

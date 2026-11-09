@@ -2,9 +2,16 @@ import json
 import re
 from collections.abc import Collection
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    model_validator,
+)
 
 from tony.core.config.errors import DefinitionError
 
@@ -12,8 +19,17 @@ RESERVED_SERVER = "tony"
 SERVER_NAME = re.compile(r"[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*")
 PERMISSION_KEYS = {"allow", "confirm"}
 POLICY_FILE = "agents/edith/policy.yaml"
-_STDIO_ONLY = {"args", "env"}
+_STDIO_ONLY = {"args", "env", "isolation"}
 _HTTP_ONLY = {"headers"}
+
+
+EnvName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
+
+
+class Isolation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    env_allow: list[EnvName] = []
 
 
 class McpServer(BaseModel):
@@ -24,6 +40,7 @@ class McpServer(BaseModel):
     env: dict[str, str] = {}
     url: str | None = None
     headers: dict[str, str] = {}
+    isolation: Isolation | None = None
 
     @model_validator(mode="after")
     def _one_transport(self) -> "McpServer":

@@ -148,3 +148,44 @@ def test_server_names_rejected(tmp_path, name):
 
     assert error.field == f"mcpServers.{name}"
     assert "server name" in error.message
+
+
+def test_stdio_isolation_keeps_allowlist(tmp_path):
+    entry = {**STDIO, "isolation": {"env_allow": ["GITHUB_TOKEN", "_x1"]}}
+    write(tmp_path, {"mcpServers": {"fs": entry}})
+
+    assert load(tmp_path).mcp_servers["fs"].isolation.env_allow == ["GITHUB_TOKEN", "_x1"]
+
+
+def test_empty_isolation_object_is_isolated_with_empty_allowlist(tmp_path):
+    write(tmp_path, {"mcpServers": {"fs": {**STDIO, "isolation": {}}}})
+
+    isolation = load(tmp_path).mcp_servers["fs"].isolation
+    assert isolation is not None
+    assert isolation.env_allow == []
+
+
+def test_server_without_isolation_has_none(tmp_path):
+    write(tmp_path, {"mcpServers": {"fs": STDIO}})
+
+    assert load(tmp_path).mcp_servers["fs"].isolation is None
+
+
+def test_http_entry_with_isolation_names_server(tmp_path):
+    error = error_of(tmp_path, {"mcpServers": {"r": {**HTTP, "isolation": {}}}})
+
+    assert error.field == "mcpServers.r"
+
+
+def test_unknown_isolation_key_names_its_path(tmp_path):
+    entry = {**STDIO, "isolation": {"env_deny": ["A"]}}
+    error = error_of(tmp_path, {"mcpServers": {"fs": entry}})
+
+    assert error.field == "mcpServers.fs.isolation.env_deny"
+
+
+@pytest.mark.parametrize("name", ["1BAD", "A=B", "", "A B", "A-B"])
+def test_malformed_env_allow_name_rejected(tmp_path, name):
+    entry = {**STDIO, "isolation": {"env_allow": [name]}}
+
+    error_of(tmp_path, {"mcpServers": {"fs": entry}})

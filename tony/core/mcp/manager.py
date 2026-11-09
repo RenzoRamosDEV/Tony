@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
@@ -15,6 +16,7 @@ from tony.core.config.placeholders import SecretMasker, resolve_placeholders
 from tony.core.config.secrets import Variables
 from tony.core.events import log_events
 from tony.core.loader.tool_json import McpServer, ToolSpec
+from tony.core.mcp.isolation import isolated_parameters
 from tony.core.mcp.native import NATIVE_SERVER, NativeTool
 from tony.core.mcp.stderr import MaskedStderr
 from tony.core.orchestrator.ports import EventSink, ToolReply
@@ -55,6 +57,7 @@ class McpManager:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         native: Mapping[str, NativeTool] | None = None,
         on_status: StatusCallback = lambda server, status: None,
+        host_environ: Mapping[str, str] | None = None,
     ) -> None:
         self.spec = spec
         self.connect_timeout = connect_timeout
@@ -70,6 +73,7 @@ class McpManager:
         self._sessions: dict[str, ClientSession] = {}
         self._native = {name: tool for name, tool in (native or {}).items() if name in spec.native}
         self._on_status = on_status
+        self._host_environ = host_environ
         self._sleep = sleep
         self._retries: set[asyncio.Task[None]] = set()
         self._settled: list[asyncio.Event] = []
@@ -244,9 +248,14 @@ class McpManager:
     async def _transport(self, name: str, server: McpServer, stack: AsyncExitStack) -> Any:
         if server.is_stdio:
             errlog = stack.enter_context(MaskedStderr(self._log_dir / f"{name}.log", self._masker))
-            params = StdioServerParameters(
-                command=stdio_command(server.command), args=server.args, env=server.env or None
-            )
+            command = stdio_command(server.command)
+            if server.isolation is None:
+                params = StdioServerParameters(
+                    command=command, args=server.args, env=server.env or None
+                )
+            else:
+                host = os.environ if self._host_environ is None else self._host_environ
+                params = isolated_parameters(command, server, host)
             return stdio_client(params, errlog)
         client = await stack.enter_async_context(create_mcp_http_client(headers=server.headers))
         return streamable_http_client(server.url, http_client=client)

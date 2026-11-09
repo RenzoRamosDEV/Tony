@@ -5,7 +5,7 @@ from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.settings import TonyConfig
 from tony.core.loader.agent import load_agent
-from tony.core.loader.skills import read_skill_body
+from tony.core.loader.skills import list_skills, read_skill_body
 from tony.core.mcp.manager import McpManager
 from tony.core.mcp.native import NativeScope
 from tony.core.orchestrator.natives import NATIVE_TOOLS
@@ -52,8 +52,8 @@ def test_bundled_viernes_persona():
     assert "resumen" in viernes.spec.system_prompt
 
 
-def test_bundled_viernes_declares_both_natives():
-    assert bundled("viernes").tools.native == ["read_skill", "run_subagent"]
+def test_bundled_viernes_declares_its_natives():
+    assert bundled("viernes").tools.native == ["read_skill", "run_subagent", "ask_user"]
 
 
 async def test_bundled_viernes_catalog_has_native_ids(tmp_path):
@@ -70,7 +70,11 @@ async def test_bundled_viernes_catalog_has_native_ids(tmp_path):
     )
 
     async with manager:
-        assert [tool.id for tool in manager.tools] == ["tony.read_skill", "tony.run_subagent"]
+        assert [tool.id for tool in manager.tools] == [
+            "tony.read_skill",
+            "tony.run_subagent",
+            "tony.ask_user",
+        ]
 
 
 def test_viernes_has_a_music_server_launched_with_the_project_python():
@@ -83,3 +87,18 @@ def test_viernes_has_the_music_skill():
     body = read_skill_body(REPO, "viernes", "musica")
 
     assert "music_play" in body and "music_queue" in body
+
+
+def test_viernes_lists_the_evidence_skill_without_errors():
+    skills, errors = list_skills(REPO, "viernes")
+
+    assert errors == []
+    [evidencia] = [skill for skill in skills if skill.name == "evidencia"]
+    assert evidencia.description
+
+
+def test_evidence_skill_teaches_the_source_shape():
+    body = read_skill_body(REPO, "viernes", "evidencia")
+
+    for term in ("fuentes", "connector", "id", "title", "retrieved_at", "excerpt", "300"):
+        assert term in body

@@ -219,3 +219,18 @@ def test_folder_without_readable_role_is_not_a_guard(home, agent_md):
         md.write_text(agent_md)
 
     assert add(home) == FILE
+
+
+def test_entry_with_isolation_is_written(home):
+    entry = {"command": "uvx", "isolation": {"env_allow": ["GITHUB_TOKEN"]}}
+
+    add(home, entry=entry)
+
+    assert json.loads(text(home))["mcpServers"]["notas"] == entry
+
+
+def test_invalid_isolation_is_refused_and_file_untouched(home):
+    with pytest.raises(DefinitionError):
+        add(home, entry={"command": "uvx", "isolation": {"env_allow": ["1BAD"]}})
+
+    assert text(home) == ORIGINAL

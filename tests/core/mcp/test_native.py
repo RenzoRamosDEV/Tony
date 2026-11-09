@@ -49,7 +49,7 @@ async def test_undeclared_native_tool_is_not_exposed(tmp_path):
 
 
 def test_production_registry_keys():
-    assert set(NATIVE_TOOLS) == {"read_skill", "run_subagent"}
+    assert set(NATIVE_TOOLS) == {"read_skill", "run_subagent", "ask_user"}
 
 
 @pytest.mark.parametrize("name", ["read_skill", "run_subagent"])

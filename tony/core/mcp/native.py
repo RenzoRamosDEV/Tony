@@ -9,6 +9,7 @@ from tony.core.orchestrator.ports import ToolReply
 NATIVE_SERVER = "tony"
 
 SubagentRunner = Callable[[str, TaskRequest], Awaitable[ToolReply]]
+UserAsker = Callable[[str, list[str]], Awaitable[str | None]]
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class NativeScope:
     root: Path
     agent: str
     run_subagent: SubagentRunner | None = None
+    ask_user: UserAsker | None = None
 
 
 NativeFactory = Callable[[NativeScope], NativeTool]
