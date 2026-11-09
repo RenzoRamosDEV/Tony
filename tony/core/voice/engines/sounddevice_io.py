@@ -1,18 +1,42 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from tony.core.voice.ports import INPUT_RATE, WINDOW_SAMPLES, Clip
 
 
-def _resolve_device(name: str | None, kind: Literal["input", "output"]) -> int | None:
+@dataclass(frozen=True)
+class DeviceChoice:
+    """`index` None is the system default; `matched` is False when a named device is missing."""
+
+    index: int | None
+    matched: bool
+
+
+def resolve_device(name: str | None, kind: Literal["input", "output"]) -> DeviceChoice:
     if name is None:
-        return None
+        return DeviceChoice(index=None, matched=True)
     import sounddevice
 
-    for index, device in enumerate(sounddevice.query_devices()):
-        if device["name"] == name:
-            return index
-    return None
+    channels = f"max_{kind}_channels"
+    candidates = [
+        (index, device["name"])
+        for index, device in enumerate(sounddevice.query_devices())
+        if device.get(channels, 0) > 0
+    ]
+    for normalize in (str, _normalized):
+        for index, found in candidates:
+            if normalize(found) == normalize(name):
+                return DeviceChoice(index=index, matched=True)
+    return DeviceChoice(index=None, matched=False)
+
+
+def _resolve_device(name: str | None, kind: Literal["input", "output"]) -> int | None:
+    return resolve_device(name, kind).index
+
+
+def _normalized(name: str) -> str:
+    return name.strip().casefold()
 
 
 class SoundDeviceInput:
@@ -48,16 +72,17 @@ class SoundDeviceInput:
             stream.stop()
             stream.close()
 
-    def set_device(self, device: str | None) -> None:
+    def set_device(self, device: str | None) -> bool:
         self._device = device
         if self._stream is not None and self._on_frame is not None:
             on_frame = self._on_frame
             self.close()
             self.open(on_frame)
+        return resolve_device(device, "input").matched
 
 
 class SoundDeviceOutput:
-    """Plays clips on the configured (or default) output; `stop` interrupts the clip being played."""
+    """Plays clips on the configured (or default) output; `stop` interrupts the current clip."""
 
     def __init__(self, device: str | None = None) -> None:
         self._device = device
@@ -78,5 +103,6 @@ class SoundDeviceOutput:
 
         sounddevice.stop()
 
-    def set_device(self, device: str | None) -> None:
+    def set_device(self, device: str | None) -> bool:
         self._device = device
+        return resolve_device(device, "output").matched

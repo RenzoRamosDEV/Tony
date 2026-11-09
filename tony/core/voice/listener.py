@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from tony.core.voice.levels import LevelMeter, level
 from tony.core.voice.ports import WINDOW_BYTES, AudioInput, Stt, Vad
 from tony.core.voice.stages import Report, StageThread
+from tony.core.voice.timing import NullTimings, StageTimings
 from tony.core.voice.utterances import UtteranceAssembler
 
 
@@ -17,6 +18,7 @@ class _Session:
     started: float
     capturing: bool = True
     heard: bool = field(default=False)
+    last_speech_at: float = 0.0
 
 
 class Listener:
@@ -33,6 +35,7 @@ class Listener:
         *,
         clock: Callable[[], float] = time.monotonic,
         meter: LevelMeter | None = None,
+        timings: StageTimings | NullTimings | None = None,
     ) -> None:
         self._audio = audio
         self._vad = vad
@@ -40,6 +43,8 @@ class Listener:
         self._report = report
         self._clock = clock
         self._meter = meter or LevelMeter()
+        self._timings = timings or NullTimings()
+        self._turn: int | None = None
         self._lock = threading.Lock()
         self._session: _Session | None = None
         self._vad_session: _Session | None = None
@@ -51,6 +56,11 @@ class Listener:
     @property
     def listening(self) -> bool:
         return self._session is not None
+
+    @property
+    def turn(self) -> int | None:
+        """Timing turn of the most recent utterance (None without a recorder)."""
+        return self._turn
 
     def start(self) -> None:
         self._detection.start()
@@ -84,8 +94,8 @@ class Listener:
         self._detection.stop()
         self._transcription.stop()
 
-    def set_device(self, device: str | None) -> None:
-        self._audio.set_device(device)
+    def set_device(self, device: str | None) -> bool:
+        return self._audio.set_device(device)
 
     def _detect(self, item: tuple[_Session, bytes]) -> None:
         session, frame = item
@@ -105,10 +115,16 @@ class Listener:
         self._meter.set_input(level(window))
         speech = self._vad.is_speech(window)
         session.heard = session.heard or speech
+        if speech:
+            session.last_speech_at = self._timings.now()
         utterance = self._assembler.push(window, speech)
         if utterance is not None:
+            turn = self._timings.begin_turn()
+            self._turn = turn
+            self._timings.mark(turn, "speech_end", session.last_speech_at)
             self._close_capture(session)
-            self._transcription.put((session, utterance))
+            self._timings.mark(turn, "capture_close")
+            self._transcription.put((session, utterance, turn))
         elif self._idle_expired(session):
             self._end(session)
 
@@ -117,10 +133,15 @@ class Listener:
             return False
         return self._clock() - session.started >= session.idle_timeout_s
 
-    def _transcribe(self, item: tuple[_Session, bytes]) -> None:
-        session, pcm = item
+    def _transcribe(self, item: tuple[_Session, bytes, int | None]) -> None:
+        session, pcm, turn = item
+        if session is not self._session:
+            self._end(session)
+            return
         try:
+            self._timings.mark(turn, "stt_start")
             text = self._stt.transcribe(pcm).strip()
+            self._timings.mark(turn, "stt_end")
         except Exception:
             self._end(session)
             raise

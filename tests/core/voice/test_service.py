@@ -355,3 +355,32 @@ async def test_task_events_do_not_disturb_a_turn(harness):
         ev.turn_result("jarvis", "Hecho, señor.", "voice"),
     )
     await h.until(lambda: h.loader.output.played == ["Hecho, señor."])
+
+
+async def test_set_input_device_reports_whether_it_was_found(harness):
+    loader = FakeLoader()
+    loader.audio.unavailable_devices = {"Ghost"}
+    h = harness(loader)
+    h.start()
+    await h.ready()
+
+    assert h.service.set_input_device("Mic B") is True
+    assert h.service.set_input_device("Ghost") is False
+
+
+async def test_set_output_device_reports_whether_it_was_found(harness):
+    loader = FakeLoader()
+    loader.output.unavailable_devices = {"Ghost"}
+    h = harness(loader)
+    h.start()
+    await h.ready()
+
+    assert h.service.set_output_device("Speak B") is True
+    assert h.service.set_output_device("Ghost") is False
+
+
+async def test_device_selection_before_the_engines_load_reports_no_problem(harness):
+    h = harness(FakeLoader())
+
+    assert h.service.set_input_device("Mic B") is True
+    assert h.service.set_output_device("Speak B") is True

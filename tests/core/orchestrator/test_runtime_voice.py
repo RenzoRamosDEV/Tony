@@ -190,3 +190,51 @@ async def test_a_voice_failure_never_hides_an_event_from_the_ui(tmp_path):
 
     assert [e["text"] for e in harness.of("token")] == ["Hola"]
     assert [(e["source"], e["message"]) for e in harness.of("error")] == [("voice", "voz rota")]
+
+
+async def selected_device_event(tmp_path, monkeypatch, *, kind, device, unavailable=()):
+    home, _ = home_for(tmp_path)
+    loader, voice = with_voice()
+    loader.audio.unavailable_devices = set(unavailable)
+    loader.output.unavailable_devices = set(unavailable)
+    monkeypatch.setattr("tony.core.voice.engines.devices.list_devices", lambda: ())
+
+    async with Harness(home, voice=voice) as harness:
+        await ready(harness)
+        harness.send(type="set_audio_device", kind=kind, device=device)
+        await harness.until(lambda: harness.of("audio_devices"))
+    return harness.of("audio_devices")[-1]
+
+
+@pytest.mark.parametrize(
+    ("kind", "warning", "other"),
+    [
+        ("input", "input_fallback_warning", "output_fallback_warning"),
+        ("output", "output_fallback_warning", "input_fallback_warning"),
+    ],
+)
+async def test_missing_device_publishes_the_fallback_warning_naming_it(
+    tmp_path, monkeypatch, kind, warning, other
+):
+    event = await selected_device_event(
+        tmp_path, monkeypatch, kind=kind, device="Foo", unavailable=["Foo"]
+    )
+
+    assert "Foo" in event[warning]
+    assert event[other] is None
+
+
+@pytest.mark.parametrize("kind", ["input", "output"])
+async def test_found_device_publishes_no_warning(tmp_path, monkeypatch, kind):
+    event = await selected_device_event(tmp_path, monkeypatch, kind=kind, device="Mic A")
+
+    assert event["input_fallback_warning"] is None
+    assert event["output_fallback_warning"] is None
+
+
+@pytest.mark.parametrize("kind", ["input", "output"])
+async def test_default_selection_publishes_no_warning(tmp_path, monkeypatch, kind):
+    event = await selected_device_event(tmp_path, monkeypatch, kind=kind, device=None)
+
+    assert event["input_fallback_warning"] is None
+    assert event["output_fallback_warning"] is None

@@ -24,7 +24,8 @@ class AudioInput(Protocol):
 
     def close(self) -> None: ...
 
-    def set_device(self, device: str | None) -> None: ...
+    def set_device(self, device: str | None) -> bool:
+        """Select the device; False when it was not found and the default is used instead."""
 
 
 class AudioOutput(Protocol):
@@ -33,7 +34,8 @@ class AudioOutput(Protocol):
 
     def stop(self) -> None: ...
 
-    def set_device(self, device: str | None) -> None: ...
+    def set_device(self, device: str | None) -> bool:
+        """Select the device; False when it was not found and the default is used instead."""
 
 
 class Vad(Protocol):

@@ -16,6 +16,15 @@ def test_speaker_set_device_delegates_to_output():
     assert output.device == "Speak B"
 
 
+def test_speaker_set_device_reports_the_output_result():
+    output = RecordingAudioOutput()
+    output.unavailable_devices = {"Ghost"}
+    speaker = Speaker(TextTts(), output, lambda *_: None)
+
+    assert speaker.set_device("Speak B") is True
+    assert speaker.set_device("Ghost") is False
+
+
 class Reports(list):
     def __call__(self, source, message):
         self.append((source, message))

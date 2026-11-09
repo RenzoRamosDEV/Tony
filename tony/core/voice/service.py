@@ -16,6 +16,7 @@ from tony.core.voice.ports import Engines, Unavailable
 from tony.core.voice.speaker import Speaker
 from tony.core.voice.spoken import TurnSpeech
 from tony.core.voice.stages import STOP_TIMEOUT_S, THREAD_PREFIX
+from tony.core.voice.timing import NullTimings, StageTimings
 
 IDLE_TIMEOUT_S = 10.0
 FLUSH_AFTER_S = 0.3
@@ -96,9 +97,11 @@ class VoiceService:
         flush_after_s: float = FLUSH_AFTER_S,
         level_interval_s: float = FRAME_S,
         clock: Callable[[], float] = time.monotonic,
+        timings: StageTimings | NullTimings | None = None,
     ) -> None:
         self.loader = loader
         self._clock = clock
+        self._timings = timings or NullTimings()
         self._meter = LevelMeter()
         self._ticker = _LevelTicker(self._meter, self._post_level, level_interval_s, clock)
         self._idle_timeout_s = idle_timeout_s
@@ -112,6 +115,8 @@ class VoiceService:
         self._turn: TurnSpeech | None = None
         self._flush: asyncio.TimerHandle | None = None
         self._armed: str | None = None
+        self._heard_turn: int | None = None
+        self._speech_turn: int | None = None
         self._closed = False
 
     @property
@@ -154,13 +159,11 @@ class VoiceService:
         if self._listener is not None:
             self._listener.stop()
 
-    def set_input_device(self, device: str | None) -> None:
-        if self._listener is not None:
-            self._listener.set_device(device)
+    def set_input_device(self, device: str | None) -> bool:
+        return self._listener is None or self._listener.set_device(device)
 
-    def set_output_device(self, device: str | None) -> None:
-        if self._speaker is not None:
-            self._speaker.set_device(device)
+    def set_output_device(self, device: str | None) -> bool:
+        return self._speaker is None or self._speaker.set_device(device)
 
     def stop_speaking(self) -> None:
         self._turn = None
@@ -216,10 +219,20 @@ class VoiceService:
             self._set_state("unavailable", outcome.reason)
             return
         self._speaker = Speaker(
-            outcome.tts, outcome.audio_output, self._report, meter=self._meter, clock=self._clock
+            outcome.tts,
+            outcome.audio_output,
+            self._report,
+            meter=self._meter,
+            clock=self._clock,
+            timings=self._timings,
         )
         self._listener = Listener(
-            outcome.audio_input, outcome.vad, outcome.stt, self._report, meter=self._meter
+            outcome.audio_input,
+            outcome.vad,
+            outcome.stt,
+            self._report,
+            meter=self._meter,
+            timings=self._timings,
         )
         self._speaker.start()
         self._listener.start()
@@ -246,6 +259,7 @@ class VoiceService:
             self._submit({"type": "confirm", "task_id": self._armed, "decision": decision})
             self._armed = None
             return
+        self._heard_turn = self._listener.turn if self._listener is not None else None
         self._publish(core_events.transcript(text))
         self._submit({"type": "send_message", "text": text, "origin": "voice"})
 
@@ -255,11 +269,13 @@ class VoiceService:
 
     def _on_turn_started(self, event: Event) -> None:
         speaks = event["speaks"] and self._speaker is not None
+        self._speech_turn, self._heard_turn = self._heard_turn, None
         self._turn = TurnSpeech(self._cast.front_voice, self._say) if speaks else None
 
     def _on_token(self, event: Event) -> None:
         if self._turn is None or event["agent"] != self._cast.front:
             return
+        self._timings.mark(self._speech_turn, "first_token")
         self._turn.feed(event["text"])
         self._cancel_flush()
         self._flush = asyncio.get_running_loop().call_later(self._flush_after_s, self._flush_turn)
@@ -281,6 +297,7 @@ class VoiceService:
             self._cancel_flush()
             self._turn.finish()
             self._turn = None
+            self._speech_turn = None
 
     def _on_needs_confirmation(self, event: Event) -> None:
         if self._turn is None or self._speaker is None:
@@ -302,7 +319,7 @@ class VoiceService:
 
     def _say(self, text: str, voice: str) -> None:
         if self._speaker is not None:
-            self._speaker.say(text, voice)
+            self._speaker.say(text, voice, turn=self._speech_turn)
 
     def _post_level(self, source: str, value: float) -> None:
         self._post(lambda: self._publish(core_events.voice_level(source, value)))

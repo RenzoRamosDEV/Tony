@@ -3,7 +3,7 @@
 Voice leg: end of the utterance -> first played audio of a reply without tools, with the real
 VAD, STT and TTS, playback to a null output and a fake chat engine (the real one with
 TONY_EVALS=1). Text leg (TONY_EVALS=1 only): typed message -> first token. Reports p50 and
-never asserts the 1 s / 2 s targets.
+the cold/warm stage report with event-loop lag; never asserts the 1 s / 2 s targets.
 """
 
 import asyncio
@@ -27,8 +27,14 @@ from tests.voice.test_engines import to_input_rate  # noqa: E402
 from tony.core.voice.engines.loader import build_engines  # noqa: E402
 from tony.core.voice.ports import WINDOW_BYTES, Clip  # noqa: E402
 from tony.core.voice.service import VoiceService  # noqa: E402
+from tony.core.voice.timing import (  # noqa: E402
+    LoopLagSampler,
+    StageTimings,
+    format_report,
+    summarise,
+)
 
-RUNS = 5
+RUNS = 20
 REAL_MODEL = os.environ.get("TONY_EVALS") == "1"
 REPLY = ("Son las cinco y media, señor.", " ¿Desea algo más?")
 
@@ -87,10 +93,13 @@ async def test_latency_p50(tmp_path, record_property):
         inputs.append(TimedInput(utterance_frames(engines)))
         return replace(engines, audio_input=inputs[0], audio_output=output)
 
-    voice = VoiceService(loader)
+    timings = StageTimings()
+    lag = LoopLagSampler()
+    voice = VoiceService(loader, timings=timings)
     voice_s: list[float] = []
     text_s: list[float] = []
     async with Harness(home, chat_engine(), voice=voice) as harness:
+        lag.start()
         await harness.until(lambda: voice.ready, timeout=120)
         for run in range(RUNS):
             output.played.clear()
@@ -109,9 +118,11 @@ async def test_latency_p50(tmp_path, record_property):
                 text_s.append(time.perf_counter() - started)
                 await asyncio.sleep(0)
 
+    await lag.stop()
     voice_p50 = statistics.median(voice_s)
     record_property("voice_first_audio_p50_s", round(voice_p50, 3))
     print(f"\nvoice first audio p50: {voice_p50:.3f} s over {voice_s}")
+    print(format_report(summarise(timings), lag))
     if text_s:
         text_p50 = statistics.median(text_s)
         record_property("text_first_token_p50_s", round(text_p50, 3))

@@ -38,6 +38,7 @@ class ScriptedAudioInput:
         self.opened = 0
         self.closed = 0
         self.device: str | None = None
+        self.unavailable_devices: set[str] = set()
 
     def open(self, on_frame: Callable[[bytes], None]) -> None:
         self.opened += 1
@@ -51,8 +52,9 @@ class ScriptedAudioInput:
     def close(self) -> None:
         self.closed += 1
 
-    def set_device(self, device: str | None) -> None:
+    def set_device(self, device: str | None) -> bool:
         self.device = device
+        return device not in self.unavailable_devices
 
 
 class ThresholdVad:
@@ -109,9 +111,11 @@ class RecordingAudioOutput:
         self.rates: list[int] = []
         self.stops = 0
         self.device: str | None = None
+        self.unavailable_devices: set[str] = set()
 
-    def set_device(self, device: str | None) -> None:
+    def set_device(self, device: str | None) -> bool:
         self.device = device
+        return device not in self.unavailable_devices
 
     def play(self, clip: Clip) -> None:
         text = clip.pcm.decode("utf-8")
@@ -176,6 +180,7 @@ class RealtimeAudioOutput:
         self.finished = threading.Event()
         self.finished_at: float | None = None
         self.device: str | None = None
+        self.unavailable_devices: set[str] = set()
 
     def play(self, clip: Clip) -> None:
         self._stop.clear()
@@ -187,5 +192,6 @@ class RealtimeAudioOutput:
     def stop(self) -> None:
         self._stop.set()
 
-    def set_device(self, device: str | None) -> None:
+    def set_device(self, device: str | None) -> bool:
         self.device = device
+        return device not in self.unavailable_devices

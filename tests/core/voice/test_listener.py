@@ -234,3 +234,60 @@ def test_capture_error_clears_the_input_level(make):
     session = listen(listener)
     assert session.ended.wait(5)
     assert meter.sample(0.0) is None
+
+
+class CountingSession(Session):
+    def __init__(self) -> None:
+        super().__init__()
+        self.ends = 0
+
+    def on_end(self):
+        self.ends += 1
+        super().on_end()
+
+
+def test_utterance_of_a_cancelled_session_is_not_transcribed():
+    stt = ScriptedStt("no debe oírse")
+    listener = Listener(ScriptedAudioInput(), ThresholdVad(), stt, Reports())
+    session = CountingSession()
+    listener.listen(session.on_transcript, session.on_end)
+    listener._transcription.put((listener._session, b"pcm"))
+    listener.stop()
+
+    listener.start()
+    listener.close()
+
+    assert stt.pcms == []
+    assert session.transcripts == []
+    assert session.ends == 1
+
+
+def test_cancel_during_inference_discards_the_transcript_and_ends_once(make):
+    inferring, release = threading.Event(), threading.Event()
+
+    class BlockingStt:
+        def transcribe(self, pcm):
+            inferring.set()
+            release.wait(5)
+            return "tarde"
+
+    listener, _ = make(ScriptedAudioInput(frames(UTTERANCE + "SSS" + "." * 22)), BlockingStt())
+    session = CountingSession()
+    listener.listen(session.on_transcript, session.on_end)
+    assert inferring.wait(5)
+
+    listener.stop()
+    release.set()
+    listener.close()
+
+    assert session.transcripts == []
+    assert session.ends == 1
+
+
+def test_listener_set_device_reports_the_audio_result():
+    audio = ScriptedAudioInput()
+    audio.unavailable_devices = {"Ghost"}
+    listener = Listener(audio, ThresholdVad(), ScriptedStt(), lambda *_: None)
+
+    assert listener.set_device("Mic B") is True
+    assert listener.set_device("Ghost") is False
