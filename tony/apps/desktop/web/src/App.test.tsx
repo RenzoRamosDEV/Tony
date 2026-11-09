@@ -256,4 +256,70 @@ describe("App", () => {
 
     expect(screen.getByText(/no QWebChannel/)).toBeInTheDocument();
   });
+
+  describe("theme", () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+      document.documentElement.removeAttribute("data-theme");
+    });
+
+    afterEach(() => {
+      window.localStorage.clear();
+      document.documentElement.removeAttribute("data-theme");
+    });
+
+    const openSettings = () => fireEvent.click(screen.getByRole("button", { name: "Ajustes de audio y apariencia" }));
+
+    it("starts on holo, with the settings button reaching the appearance options", async () => {
+      await mount();
+
+      expect(document.documentElement.dataset["theme"]).toBe("holo");
+      openSettings();
+      expect(screen.getByRole("radio", { name: /Holo Ámbar/ })).toBeChecked();
+      expect(screen.getByLabelText(/micrófono/i)).toBeInTheDocument();
+    });
+
+    it("applies the chosen theme at once and keeps it for the next session", async () => {
+      const first = await mount();
+      openSettings();
+
+      fireEvent.click(screen.getByRole("radio", { name: /Instrumento/ }));
+
+      expect(document.documentElement.dataset["theme"]).toBe("instrumento");
+      expect(window.localStorage.getItem("tony.theme")).toBe("instrumento");
+      expect(first.bridge.handlers).toHaveLength(1);
+    });
+
+    it("restores the saved theme on start", async () => {
+      window.localStorage.setItem("tony.theme", "aurora");
+
+      await mount();
+
+      expect(document.documentElement.dataset["theme"]).toBe("aurora");
+    });
+
+    it("falls back to holo for a corrupt saved value", async () => {
+      window.localStorage.setItem("tony.theme", "<script>");
+
+      await mount();
+
+      expect(document.documentElement.dataset["theme"]).toBe("holo");
+    });
+
+    it("does not reconnect to the backend when the theme changes", async () => {
+      const connect = vi.fn();
+      const bridge = new FakeBridge();
+      connect.mockResolvedValue(bridge);
+      render(<App connect={connect} createScene={() => new FakeScene()} webglAvailable={() => true} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      openSettings();
+
+      fireEvent.click(screen.getByRole("radio", { name: /Aurora/ }));
+
+      expect(connect).toHaveBeenCalledTimes(1);
+      expect(stage()).toHaveAttribute("data-orb-state", "idle");
+    });
+  });
 });

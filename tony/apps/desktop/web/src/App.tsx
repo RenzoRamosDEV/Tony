@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useReducer, useRef, useState } from "reac
 import { connectBridge } from "./bridge/channel";
 import type { Command, CoreEvent, TonyBridge, WindowBridge } from "./bridge/types";
 import { ActivityPanel } from "./components/ActivityPanel";
+import { AppearanceSection } from "./components/AppearanceSection";
 import { AudioSettingsOverlay } from "./components/AudioSettingsOverlay";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConfirmationCard } from "./components/ConfirmationCard";
@@ -16,6 +17,7 @@ import type { OrbScene } from "./orb/scene";
 import { deriveOrbState, type OrbState } from "./orb/orbState";
 import { OrbStage } from "./orb/OrbStage";
 import { initialState, reduce } from "./state/reducer";
+import { useTheme } from "./theme/useTheme";
 
 /** The core publishes levels every 50 ms: an older one means the sound has stopped. */
 const LEVEL_STALE_MS = 150;
@@ -37,6 +39,7 @@ interface Level {
 }
 
 export function App({ connect = connectBridge, createScene, webglAvailable }: Props) {
+  const [theme, setTheme] = useTheme();
   const [state, dispatch] = useReducer(reduce, undefined, initialState);
   const [focusRequest, setFocusRequest] = useState(0);
   const [windowControls, setWindowControls] = useState<WindowBridge | null>(null);
@@ -131,6 +134,7 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
       <ResizeHandles window={windowControls} />
       <OrbStage
         state={orbState}
+        theme={theme}
         level={0}
         getLevel={freshLevel}
         getAmplitude={freshLevel}
@@ -153,7 +157,9 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
         onHide={() => dispatch({ kind: "pin_cancelled" })}
         onUnlockRequest={() => dispatch({ kind: "unlock_requested" })}
       />
-      <AudioSettingsOverlay devices={state.audioDevices} onCommand={send} />
+      <AudioSettingsOverlay devices={state.audioDevices} onCommand={send} label="Ajustes de audio y apariencia">
+        <AppearanceSection theme={theme} onChange={setTheme} />
+      </AudioSettingsOverlay>
     </>
   );
 }

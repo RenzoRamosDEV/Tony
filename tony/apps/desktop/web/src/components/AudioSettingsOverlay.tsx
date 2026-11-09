@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import type { Command } from "../bridge/types";
 import type { AudioDevicesView } from "../state/reducer";
@@ -8,6 +8,8 @@ const SYSTEM_DEFAULT_LABEL = "Sistema (predeterminado)";
 interface Props {
   devices: AudioDevicesView;
   onCommand: (command: Command) => void;
+  label?: string;
+  children?: ReactNode;
 }
 
 interface DeviceSelectProps {
@@ -47,7 +49,7 @@ function DeviceSelect({ id, label, kind, options, selected, warning, onCommand }
   );
 }
 
-export function AudioSettingsOverlay({ devices, onCommand }: Props) {
+export function AudioSettingsOverlay({ devices, onCommand, label = "Ajustes de audio", children }: Props) {
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -60,7 +62,7 @@ export function AudioSettingsOverlay({ devices, onCommand }: Props) {
           onCommand({ type: "list_devices" });
         }}
       >
-        Ajustes de audio
+        {label}
       </button>
     );
   }
@@ -74,7 +76,7 @@ export function AudioSettingsOverlay({ devices, onCommand }: Props) {
         className="audio-settings-card holo-frame"
       >
         <h2 id="audio-settings-title" className="holo">
-          Ajustes de audio
+          {label}
         </h2>
         <DeviceSelect
           id="audio-input-device"
@@ -94,6 +96,7 @@ export function AudioSettingsOverlay({ devices, onCommand }: Props) {
           warning={devices.outputWarning}
           onCommand={onCommand}
         />
+        {children}
         <button type="button" className="secondary" onClick={() => setOpen(false)}>
           Cerrar
         </button>

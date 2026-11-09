@@ -299,4 +299,67 @@ describe("OrbStage", () => {
     expect(scene.disposed).toBe(1);
     expect(frames.size).toBe(0);
   });
+
+  describe("themes", () => {
+    it("recreates the scene on a fresh canvas when the theme changes, keeping the stage and its state", () => {
+      const scenes: FakeScene[] = [];
+      const createScene = () => {
+        const scene = new FakeScene();
+        scenes.push(scene);
+        return scene;
+      };
+      const props: OrbStageProps = { state: "speaking", level: 0, getAmplitude: () => 0, createScene, webglAvailable: () => true };
+      const view = render(<OrbStage {...props} theme="holo" />);
+      const stageElement = view.container.querySelector(".stage");
+      const firstCanvas = view.container.querySelector("canvas");
+
+      view.rerender(<OrbStage {...props} theme="aurora" />);
+
+      expect(view.container.querySelector(".stage")).toBe(stageElement);
+      expect(stageElement).toHaveAttribute("data-orb-state", "speaking");
+      expect(view.container.querySelector("canvas")).not.toBe(firstCanvas);
+      expect(scenes).toHaveLength(2);
+      expect(scenes[0]!.disposed).toBe(1);
+      expect(scenes[1]!.disposed).toBe(0);
+    });
+
+    it("asks the loader for the scene of the active theme", async () => {
+      const scene = new FakeScene();
+      const loadScene = vi.fn().mockResolvedValue(() => scene);
+
+      await act(async () => {
+        render(<OrbStage state="idle" level={0} getAmplitude={() => 0} theme="instrumento" loadScene={loadScene} webglAvailable={() => true} />);
+      });
+
+      expect(loadScene).toHaveBeenCalledWith("instrumento");
+      expect(scene.resizes).toHaveLength(1);
+    });
+
+    it("does not need WebGL for the canvas themes", () => {
+      const { view } = stage({ webglAvailable: () => false, theme: "aurora" });
+
+      expect(view.container.querySelector("canvas")).not.toBeNull();
+      expect(view.container.querySelector(".orb-fallback")).toBeNull();
+    });
+
+    it("recovers from a lost WebGL context by switching to a canvas theme", () => {
+      const { view, props } = stage({ theme: "holo" });
+      step(1);
+      act(() => {
+        view.container.querySelector("canvas")!.dispatchEvent(new Event("webglcontextlost"));
+      });
+      expect(view.container.querySelector(".orb-fallback")).not.toBeNull();
+
+      view.rerender(<OrbStage {...props} theme="aurora" />);
+
+      expect(view.container.querySelector(".orb-fallback")).toBeNull();
+      expect(view.container.querySelector("canvas")).not.toBeNull();
+    });
+
+    it("defaults to holo and needs WebGL there", () => {
+      const { view } = stage({ webglAvailable: () => false });
+
+      expect(view.container.querySelector(".orb-fallback")).not.toBeNull();
+    });
+  });
 });

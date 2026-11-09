@@ -1,14 +1,14 @@
-import { type MutableRefObject, useEffect, useRef, useState } from "react";
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 
+import { DEFAULT_THEME, type ThemeId } from "../theme/themes";
 import { AmplitudeSmoother } from "./amplitude";
 import { OrbFallback } from "./OrbFallback";
 import { emptyParams, targetParams } from "./orbParams";
 import type { OrbState } from "./orbState";
 import type { OrbScene } from "./scene";
+import { type SceneFactory, loadSceneFactory } from "./sceneFactory";
 import { approachParams } from "./tween";
 import { isWebGLAvailable } from "./webgl";
-
-type SceneFactory = (canvas: HTMLCanvasElement) => OrbScene;
 
 export interface OrbStageProps {
   state: OrbState;
@@ -16,7 +16,9 @@ export interface OrbStageProps {
   getAmplitude: () => number;
   /** Per-frame microphone level; when given it replaces `level` without re-rendering. */
   getLevel?: () => number;
+  theme?: ThemeId;
   createScene?: SceneFactory;
+  loadScene?: (theme: ThemeId) => Promise<SceneFactory>;
   webglAvailable?: () => boolean;
 }
 
@@ -119,11 +121,15 @@ export function OrbStage({
   level,
   getAmplitude,
   getLevel,
+  theme = DEFAULT_THEME,
   createScene,
+  loadScene = loadSceneFactory,
   webglAvailable = browserWebGL,
 }: OrbStageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [failed, setFailed] = useState(() => !webglAvailable());
+  const [failedTheme, setFailedTheme] = useState<ThemeId | null>(null);
+  const webglMissing = useMemo(() => theme === "holo" && !webglAvailable(), [theme, webglAvailable]);
+  const failed = webglMissing || failedTheme === theme;
   const inputs = useRef<OrbInputs>({ state, level, getAmplitude, getLevel });
   inputs.current = { state, level, getAmplitude, getLevel };
 
@@ -139,29 +145,25 @@ export function OrbStage({
         return;
       }
       try {
-        stopOrb = runOrb(factory(canvas), canvas, inputs, () => setFailed(true));
+        stopOrb = runOrb(factory(canvas), canvas, inputs, () => setFailedTheme(theme));
       } catch {
-        setFailed(true);
+        setFailedTheme(theme);
       }
     };
     if (createScene) {
       start(createScene);
     } else {
-      // Three.js is only downloaded when WebGL is there to use it.
-      import("./scene").then(
-        (module) => start(module.createOrbScene),
-        () => setFailed(true),
-      );
+      loadScene(theme).then(start, () => setFailedTheme(theme));
     }
     return () => {
       unmounted = true;
       stopOrb?.();
     };
-  }, [failed, createScene]);
+  }, [failed, theme, createScene, loadScene]);
 
   return (
     <div className="stage" aria-hidden="true" data-orb-state={state}>
-      {failed ? <OrbFallback /> : <canvas ref={canvasRef} className="orb-canvas" />}
+      {failed ? <OrbFallback /> : <canvas key={theme} ref={canvasRef} className="orb-canvas" />}
     </div>
   );
 }

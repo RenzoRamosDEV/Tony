@@ -45,4 +45,23 @@ describe("AudioSettingsOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
     expect(screen.getByText(/no disponible/i)).toBeInTheDocument();
   });
+
+  it("keeps the audio label by default and accepts a custom one", () => {
+    const { rerender } = render(<AudioSettingsOverlay devices={emptyDevices} onCommand={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Ajustes de audio" })).toBeInTheDocument();
+
+    rerender(<AudioSettingsOverlay devices={emptyDevices} onCommand={vi.fn()} label="Ajustes" />);
+    fireEvent.click(screen.getByRole("button", { name: "Ajustes" }));
+    expect(screen.getByRole("dialog", { name: "Ajustes" })).toBeInTheDocument();
+  });
+
+  it("renders extra sections passed as children inside the dialog", () => {
+    render(
+      <AudioSettingsOverlay devices={emptyDevices} onCommand={vi.fn()}>
+        <p>Sección extra</p>
+      </AudioSettingsOverlay>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
+    expect(screen.getByRole("dialog")).toContainElement(screen.getByText("Sección extra"));
+  });
 });

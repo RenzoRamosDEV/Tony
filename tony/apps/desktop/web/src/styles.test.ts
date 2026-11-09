@@ -177,3 +177,76 @@ describe("HUD scrollbars", () => {
     expect(standard).toContain("scrollbar-color: rgb(var(--holo-ink) / 0.4) transparent");
   });
 });
+
+describe("visual themes", () => {
+  const themeBlock = (id: string) => block(new RegExp(`\\n\\[data-theme="${id}"\\] \\{[^}]*\\}`));
+  const THEMED_TOKENS = [
+    "--bg", "--surface", "--fg", "--muted", "--accent", "--accent-fg", "--warn", "--border",
+    "--glass", "--glass-strong", "--hairline", "--glow", "--holo-ink", "--accent-rgb", "--hot-rgb",
+    "--deep-rgb", "--glow-rgb", "--warn-rgb", "--scrim", "--bg-art", "--radius", "--radius-sm",
+    "--font-ui", "--font-display", "--agent-jarvis", "--agent-viernes", "--agent-edith",
+  ];
+
+  it("leaves holo as the :root default, with the extracted ink tokens equal to the old amber literals", () => {
+    expect(theme).toMatch(/--accent-rgb:\s*255 179 71;/);
+    expect(theme).toMatch(/--hot-rgb:\s*255 210 122;/);
+    expect(theme).toMatch(/--deep-rgb:\s*255 140 26;/);
+    expect(theme).toMatch(/--glow-rgb:\s*255 160 50;/);
+    expect(theme).toMatch(/--warn-rgb:\s*255 143 128;/);
+    expect(theme).toMatch(/--bg-art:\s*none;/);
+  });
+
+  it("no longer hard-codes amber outside the :root tokens", () => {
+    const outsideRoot = css.replace(theme, "");
+    for (const literal of ["255 179 71", "255 210 122", "255 160 50", "255 143 128", "255 140 26"]) {
+      expect(outsideRoot, literal).not.toContain(literal);
+    }
+  });
+
+  it.each(["aurora", "instrumento"])("%s overrides every token that makes up the look", (id) => {
+    const source = themeBlock(id);
+    for (const token of THEMED_TOKENS) {
+      expect(source, `${id} ${token}`).toMatch(new RegExp(`${token}:`));
+    }
+  });
+
+  it.each(["aurora", "instrumento"])("%s keeps text and accent readable (WCAG AA)", (id) => {
+    const source = themeBlock(id);
+    const bg = variable(source, "--bg");
+    const surface = variable(source, "--surface");
+    expect(luminance(bg)).toBeLessThan(0.05);
+    for (const name of ["--fg", "--muted", "--warn", "--accent"]) {
+      expect(contrast(variable(source, name), bg), `${id} ${name} on bg`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(variable(source, name), surface), `${id} ${name} on surface`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(contrast(variable(source, "--accent-fg"), variable(source, "--accent"))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps agent colours distinguishable per theme", () => {
+    for (const id of ["aurora", "instrumento"]) {
+      const source = themeBlock(id);
+      const colours = ["--agent-jarvis", "--agent-viernes", "--agent-edith"].map((name) => variable(source, name));
+      expect(new Set(colours).size).toBe(3);
+    }
+  });
+
+  it("rounds the notched frames outside holo", () => {
+    for (const id of ["aurora", "instrumento"]) {
+      const frame = block(new RegExp(`\\[data-theme="${id}"\\] \\.holo-frame \\{[^}]*\\}`));
+      expect(frame).toContain("clip-path: none");
+      expect(frame).toContain("border-radius: var(--radius)");
+    }
+  });
+
+  it("paints the page background art from the theme", () => {
+    expect(block(/body \{[^}]*\}/)).toContain("background-image: var(--bg-art)");
+    expect(block(/\.stage \{[^}]*\}/)).toContain("background-image: var(--bg-art)");
+  });
+
+  it("styles the appearance options with a visible focus ring and a swatch per theme", () => {
+    expect(css).toMatch(/\.theme-option:has\(input:focus-visible\)/);
+    for (const id of ["holo", "aurora", "instrumento"]) {
+      expect(css).toContain(`.theme-swatch[data-theme="${id}"]`);
+    }
+  });
+});
