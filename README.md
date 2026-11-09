@@ -18,6 +18,12 @@ confirmación. Todo corre en tu máquina: el modelo es la única pieza remota (v
 ![MCP](https://img.shields.io/badge/MCP-servidores-000000)
 ![Flatpak](https://img.shields.io/badge/Flatpak-KDE%206.8-4A86CF?logo=flatpak&logoColor=white)
 
+[Qué es](#qué-es) ·
+[Cómo está montado](#cómo-está-montado) ·
+[Flujos](#los-flujos-de-tony) ·
+[Instalación](#instalación) ·
+[Referencia técnica](#referencia-técnica)
+
 </div>
 
 ---
@@ -26,9 +32,9 @@ confirmación. Todo corre en tu máquina: el modelo es la única pieza remota (v
 
 Tony es un asistente personal que vive en tu escritorio (o en la terminal). Le hablas o le
 escribes, y él hace cosas: lee y escribe tus notas, consulta tu calendario, busca en tu Drive,
-gestiona tu correo, usa tu vault de Obsidian — lo que le conectes. Todo con un principio simple:
-**ninguna acción real ocurre sin que una política explícita la permita**, y las que importan te
-las pregunta antes de hacerlas.
+gestiona tu correo, usa tu vault de Obsidian, pone música — lo que le conectes. Todo con un
+principio simple: **ninguna acción real ocurre sin que una política explícita la permita**, y las
+que importan te las pregunta antes de hacerlas.
 
 No hay un único modelo haciendo de todo. Hay **tres agentes con un papel fijo cada uno**, y un
 cuarto rol —el guardián— que no es un agente que decide con criterio propio, sino una política
@@ -39,6 +45,23 @@ determinista (YAML, sin modelo) que se evalúa antes de cada acción.
 | 🗣️ **Jarvis** | `front` | Habla contigo, entiende lo que pides y se lo encarga a Viernes | 🔵 `#2F6FED` |
 | 🛠️ **Viernes** | `worker` | Ejecuta la tarea: usa tools, servidores MCP, skills y subagentes | 🟢 `#2E9E5B` |
 | 🛡️ **Edith** | `guard` | Antes de cada tool, decide `allow` / `confirm` / `deny` según la política | 🟡 `#E0A100` |
+
+### Qué puede hacer hoy
+
+| Capacidad | Qué resuelve | Dónde verla |
+|---|---|---|
+| **Aprobaciones atadas** | Tu «sí» vale solo para esos argumentos exactos, con vista previa y caducidad | [Aprobaciones](#aprobaciones-atadas-a-los-argumentos) |
+| **Diario de acciones** | Registro durable de cada tool que tocó algo; sabe qué pasó aunque se caiga | [Diario](#diario-de-acciones) |
+| **Recuperación y deshacer** | Reanuda una tarea interrumpida sin repetir lo hecho y deshace escrituras de ficheros | [Recuperación](#recuperación-y-deshacer) |
+| **Rutinas** | «Cada mañana resume mis tareas», bajo el mismo guardián que cualquier tarea | [Rutinas](#rutinas-programadas) |
+| **Aclaraciones en la tarea** | Viernes te pregunta lo que le falta en vez de adivinar o abortar | [Aclaraciones](#aclaraciones-en-mitad-de-una-tarea) |
+| **Respuestas con fuentes** | Cada fuente citada se verifica contra lo que las tools devolvieron de verdad | [Evidencia](#respuestas-con-fuentes-verificadas) |
+| **Conectores aislados** | Un servidor MCP puede ver solo las variables de entorno que le des | [Conectores](#conectores-mcp-arranque-recuperación-y-aislamiento) |
+| **Contexto y coste acotados** | Tope al tamaño de lo que llega al modelo; uso de caché y coste visibles | [Contexto y coste](#contexto-acotado-y-coste-visible) |
+| **Conversaciones** | Retoma, busca y borra conversaciones guardadas | [Conversaciones](#conversaciones-guardadas) |
+| **Doctor y política** | Diagnostica la instalación y explica, simula y revoca permisos | [Doctor y política](#diagnóstico-y-gestión-de-permisos) |
+| **Voz con métricas** | Latencia por etapa (p50/p95) para medir la voz sin adivinar | [Voz](#voz) |
+| **Temas visuales** | Holo Ámbar, Aurora e Instrumento, cada uno con su propio orbe | [Temas](#temas-y-orbe) |
 
 ---
 
@@ -65,9 +88,72 @@ muestra en el chat.
 <img src="docs/diagrams/system.png" alt="Diagrama: la interfaz (orbe, chat, actividad, ajustes) envía tus órdenes al núcleo (Jarvis, Viernes, Edith y voz) y recibe de vuelta lo que ocurre" width="780">
 </div>
 
+### El mapa completo
+
+Todas las piezas, incluidas las más recientes, y quién habla con quién:
+
+```mermaid
+flowchart LR
+    classDef jarvis fill:#2F6FED,stroke:#1c4db3,color:#ffffff
+    classDef viernes fill:#2E9E5B,stroke:#1f7340,color:#ffffff
+    classDef edith fill:#E0A100,stroke:#a97800,color:#1a1200
+
+    subgraph UI["Interfaz: ventana nativa + React"]
+        ORB["Orbe y temas"]
+        CHAT["Chat y tarjeta de confirmación"]
+        PANELS["Paneles Actividad y MCPs"]
+    end
+
+    subgraph CORE["Núcleo: hilo propio"]
+        J["Jarvis · front"]:::jarvis
+        V["Viernes · worker"]:::viernes
+        PROXY["Proxy de tools"]
+        E["Edith · guard"]:::edith
+        VOICE["Voz local"]
+        SCHED["Planificador de rutinas"]
+        CLAR["Aclaraciones"]
+        EVID["Validador de fuentes"]
+    end
+
+    subgraph MEM["Memoria local"]
+        CONV[("conversations.sqlite")]
+        ACT[("actions.sqlite")]
+        UNDO[("memory/undo")]
+        ROUT[("routines.sqlite")]
+        LOGS[("logs: audit y tareas")]
+    end
+
+    subgraph MCP["Conectores MCP"]
+        C1["filesystem"]
+        C2["gmail · calendar · drive"]
+        C3["obsidian"]
+        C4["music"]
+    end
+
+    UI -- "comandos JSON validados" --> J
+    CORE -- "eventos" --> UI
+    VOICE --> J
+    SCHED -- "tarea con origen routine" --> V
+    J -- "delegate" --> V
+    V --> PROXY
+    PROXY -- "¿permitido?" --> E
+    E -- "pregunta" --> CHAT
+    V -- "ask_user" --> CLAR
+    CLAR --> CHAT
+    PROXY --> MCP
+    PROXY --> ACT
+    PROXY --> UNDO
+    V --> EVID
+    J --> CONV
+    SCHED --> ROUT
+    E --> LOGS
+```
+
 ---
 
-## El flujo de una tarea
+## Los flujos de Tony
+
+### El flujo de una tarea
 
 <div align="center">
 <img src="docs/diagrams/task-flow.png" alt="Diagrama: pides borrar un archivo; Jarvis encarga la tarea a Viernes, que pide permiso a Edith; Edith permite, pide confirmación o deniega, y Jarvis te explica el resultado" width="640">
@@ -79,16 +165,307 @@ muestra en el chat.
 | `confirm` | Edith pregunta «Acción: borrar X. Regla: r. ¿Autoriza?»; si dices que sí, se ejecuta — si no, o se agota el tiempo, no |
 | `deny` | no se ejecuta; Viernes recibe `{"error": "blocked_by_policy"}` |
 
+Así se ve el recorrido completo de una llamada con confirmación, de la petición al diario:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Tú
+    participant J as Jarvis
+    participant V as Viernes
+    participant P as Proxy de tools
+    participant E as Edith
+    participant D as Diario de acciones
+    participant M as Conector MCP
+
+    U->>J: "Borra el borrador antiguo"
+    J->>V: delegate(objetivo, contexto, restricciones)
+    V->>P: filesystem.delete_file(args)
+    P->>E: evaluar política
+    alt allow
+        E-->>P: allow
+    else deny
+        E-->>P: deny
+        P-->>V: blocked_by_policy
+    else confirm
+        E->>U: needs_confirmation (vista previa, caducidad)
+        U-->>E: Permitir / Denegar
+        E-->>P: confirm aceptado
+    end
+    P->>D: prepared
+    P->>D: dispatched
+    P->>M: ejecuta con los mismos args
+    M-->>P: resultado
+    P->>D: succeeded o failed
+    P-->>V: resultado acotado
+    V-->>J: resumen, datos, pasos, errores
+    J-->>U: te explica qué pasó
+```
+
 Cada veredicto queda en `logs/audit.jsonl` (`tony audit`), y cada tarea en
 `logs/tasks/<task_id>.jsonl`. Nada de esto usa el modelo para decidir: la política es un YAML que
 lees y editas tú.
+
+### Aprobaciones atadas a los argumentos
+
+Antes, un «sí» aprobaba el nombre de una tool y una vista previa de 200 caracteres. Ahora cada
+pregunta de Edith es una **aprobación** con identidad propia: `approval_id`, `args_digest` (huella
+de los argumentos), `policy_version`, `expires_at` y una **vista previa tipada** con el contenido
+real: destinatarios y cuerpo de un correo, ruta y contenido de un fichero, campos de un evento de
+calendario (con secretos enmascarados y tamaño acotado).
+
+```mermaid
+flowchart TD
+    Q["Edith pregunta<br/>approval_id · args_digest · policy_version · caducidad"] --> A{"¿Respuesta a la<br/>aprobación pendiente<br/>y sin caducar?"}
+    A -- "no" --> IGN["Se ignora"]
+    A -- "sí" --> D{"¿Dijiste que sí?"}
+    D -- "no o timeout" --> CAN["Tarea cancelada"]
+    D -- "sí" --> ARGS{"¿Los argumentos<br/>siguen siendo los mismos?"}
+    ARGS -- "no" --> CAN2["Llamada cancelada"]
+    ARGS -- "sí" --> POL{"¿La política cambió<br/>mientras esperaba?"}
+    POL -- "sí" --> REEV["Se evalúa de nuevo<br/>desde cero"]
+    POL -- "no" --> RUN["Se ejecuta"]
+    REEV --> RUN
+```
+
+Nada de esto concede permisos nuevos: no se salta una confirmación ni el PIN, y el texto que
+escribe el modelo nunca cambia la política. Una respuesta sin `approval_id` sigue valiendo cuando
+solo hay una aprobación pendiente.
+
+### Diario de acciones
+
+El proxy de tools escribe en `memory/actions.sqlite` el estado de cada llamada que puede tocar el
+mundo. Si la app se cae a mitad de una llamada, al arrancar las que quedaron en `dispatched` pasan
+a `outcome_unknown`: Tony sabe que **no sabe** si se envió el correo, y nunca la repite solo.
+
+```mermaid
+stateDiagram-v2
+    [*] --> prepared: llamada aprobada
+    prepared --> dispatched: se envía al conector
+    dispatched --> succeeded: el conector responde bien
+    dispatched --> failed: el conector responde error
+    dispatched --> outcome_unknown: la app cae a mitad
+    succeeded --> [*]
+    failed --> [*]
+    outcome_unknown --> [*]
+```
+
+```bash
+uv run tony actions list                        # las más recientes primero
+uv run tony actions list --state outcome_unknown --limit 5
+uv run tony actions show <CALL_ID>              # todos los campos de una llamada
+```
+
+### Recuperación y deshacer
+
+Una tarea cancelada, con timeout o interrumpida deja efectos a medias. Tony te deja ver qué ya
+ocurrió, continuar sin repetirlo o revertir una escritura de fichero.
+
+```mermaid
+flowchart TD
+    T["Tarea que acaba cancelled,<br/>timeout o sin evento final"] --> L["tony recover list<br/>acciones succeeded: undoable / not undoable"]
+    L --> R["tony recover resume TASK_ID"]
+    L --> U["tony recover undo CALL_ID"]
+    R --> N["Tarea NUEVA, otro id<br/>contexto: lo ya hecho, no lo repitas"]
+    N --> G["Pasa por Edith<br/>confirmaciones y PIN normales"]
+    U --> H{"¿El fichero sigue igual<br/>que tras la acción?"}
+    H -- "sí" --> W["Nueva escritura guardada<br/>restaura el contenido previo"]
+    H -- "no" --> X["Rechaza:<br/>file changed since the action"]
+    W --> G
+```
+
+Antes de cada `filesystem.write_file` se guarda el contenido previo (hasta 1 MB, UTF-8) en
+`memory/undo/<call_id>` y el hash de lo escrito en el diario. Reanudar y deshacer pasan por Edith
+como cualquier llamada y **no reutilizan aprobaciones antiguas**.
+
+### Rutinas programadas
+
+«Cada mañana a las 8:30, resume mis tareas.» Una rutina es una tarea de Viernes con origen
+`routine` que se lanza sola a su hora. Programar nunca autoriza nada.
+
+```mermaid
+flowchart TD
+    S["Planificador<br/>revisa cada 30 s"] --> O{"¿Hay una ocurrencia<br/>pendiente?"}
+    O -- "no" --> S
+    O -- "sí" --> LATE{"¿Más de 12 h<br/>de retraso?"}
+    LATE -- "sí" --> SK["skipped"]
+    LATE -- "no" --> LOCK{"¿Edith está<br/>bloqueada?"}
+    LOCK -- "sí" --> Q["queued<br/>nunca pide el PIN"]
+    Q --> S
+    LOCK -- "no" --> RUN["Tarea de Viernes<br/>origen: routine"]
+    RUN --> ED["Edith como siempre<br/>sin respuesta = timeout = denegado"]
+    ED --> IN["Resultado en<br/>tony routines inbox"]
+```
+
+Las rutinas **solo se ejecutan mientras `tony chat` o la app de escritorio están en marcha**.
+
+### Aclaraciones en mitad de una tarea
+
+Si a Viernes le falta un dato (¿qué cuenta?, ¿qué fichero?), ya no adivina ni aborta: usa la tool
+nativa `tony.ask_user` y la tarea **continúa** con tu respuesta.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Tú
+    participant V as Viernes
+    participant B as Broker de aclaraciones
+    participant UI as Chat o terminal
+
+    V->>B: tony.ask_user(pregunta, opciones)
+    B->>UI: clarification_requested
+    UI->>U: pregunta con opciones numeradas
+    alt respondes a tiempo
+        U-->>UI: "2"
+        UI-->>B: AnswerClarification
+        B-->>V: tu respuesta como texto
+        Note over V: la tarea sigue, sin reiniciar
+    else sin respuesta, cancelación o sin canal
+        B-->>V: error "no answer from the user"
+    end
+```
+
+Es un canal **separado** de las confirmaciones: una respuesta de aclaración nunca es una
+aprobación. La espera tiene el límite de `confirm_timeout_s`. Hoy la pregunta se muestra en
+`tony chat` y `tony run`.
+
+### Respuestas con fuentes verificadas
+
+Un worker puede afirmar cosas sin que veas de dónde salen. Ahora cita sus fuentes y Tony las
+comprueba contra lo que las tools **realmente devolvieron** antes de dártelas.
+
+```mermaid
+flowchart LR
+    T["Tools de Viernes<br/>devuelven resultados"] --> OB["El proxy guarda<br/>los textos observados"]
+    V["Viernes responde con<br/>datos.fuentes"] --> VAL{"validate_sources<br/>¿la fuente tiene respaldo?"}
+    OB --> VAL
+    VAL -- "sí" --> OK["Se conserva<br/>conector · título · extracto"]
+    VAL -- "no" --> DROP["Se descarta y se avisa<br/>en pasos"]
+    OK --> OUT["Fuentes:<br/>- conector · título"]
+```
+
+El resultado de la tarea mantiene sus cuatro campos (`resumen`, `datos`, `pasos`, `errores`); las
+fuentes viajan dentro de `datos.fuentes`. La skill `evidencia` de Viernes le enseña a citarlas.
+
+### Conectores MCP: arranque, recuperación y aislamiento
+
+```mermaid
+flowchart TD
+    ST["Arranque de la app<br/>o recarga de tool.json"] --> CON["Conecta los servidores<br/>de 4 en 4, a la vez"]
+    CON --> OK{"¿Conecta en 30 s?"}
+    OK -- "sí" --> GREEN["Estado verde<br/>catálogo en orden de declaración"]
+    OK -- "no" --> RED["Estado rojo con el motivo"]
+    RED --> RETRY["Reintentos en segundo plano<br/>a los 5, 15 y 30 s"]
+    RETRY --> REC{"¿Conecta?"}
+    REC -- "sí" --> GREEN
+    REC -- "no, agotados" --> RED
+```
+
+- **Arranque concurrente**: antes N servidores caídos retrasaban N × 30 s; ahora se conectan a la
+  vez (máximo 4) y cada uno abre y cierra su propia conexión.
+- **Recuperación viva**: la comprobación de arranque se mantiene abierta hasta que cada servidor
+  caído se recupera, agota sus reintentos, lo sustituye una comprobación más nueva o la app se
+  cierra.
+- **Aislamiento opt-in**: un servidor stdio puede declarar `isolation.env_allow` y solo ve esas
+  variables más `PATH`, `HOME`, `LANG` y `LC_ALL`. No es un sandbox ni concede permisos.
+
+### Contexto acotado y coste visible
+
+Dos cosas llegaban al modelo sin tope: el texto completo de cada resultado de tool y hasta 20
+mensajes de historial, sin importar su longitud. Ahora ambos tienen un presupuesto generoso.
+
+```mermaid
+flowchart LR
+    R["Resultado de una tool"] --> C1{"¿Más de<br/>tool_result_max_chars?<br/>20000 por defecto"}
+    C1 -- "no" --> M["Al modelo<br/>tal cual"]
+    C1 -- "sí" --> TR["Al modelo recortado<br/>con marca: mostrado y total"]
+    R --> LOG["El log de la tarea guarda<br/>el resultado completo enmascarado"]
+    H["Historial: 20 mensajes"] --> C2{"¿Más de<br/>history_max_chars?<br/>12000 por defecto"}
+    C2 -- "no" --> M2["Se reenvía entero"]
+    C2 -- "sí" --> DR["Se descartan los más viejos<br/>el último siempre se conserva"]
+```
+
+Con `0` en cualquiera de los dos límites se desactiva. Los resultados de error nunca se recortan y
+el historial guardado no se toca. Además, `token_usage` en el log de tareas registra los tokens de
+**caché** y el **coste en USD** (`null` si el SDK no lo informa, nunca 0), y la redacción de las
+preguntas de confirmación idénticas se reutiliza en vez de volver a pedirla al modelo (las
+decisiones de permiso nunca se cachean).
+
+### Conversaciones guardadas
+
+Cada arranque abre una conversación nueva, pero ya puedes volver a una anterior:
+
+```bash
+uv run tony chat --resume              # retoma la más reciente
+uv run tony chat --resume <ID>         # retoma una concreta
+uv run tony conversations list         # las más recientes primero
+uv run tony conversations search "factura"
+uv run tony conversations delete <ID>
+```
+
+Reanudar solo cambia la conversación a la que van los mensajes nuevos: no se repite nada y **no se
+restaura ningún permiso ni aprobación**.
+
+### Diagnóstico y gestión de permisos
+
+```bash
+uv run tony doctor                     # comprueba la instalación sin arrancar ni conectar nada
+uv run tony policy explain shell.run --args '{"cmd": "ls"}'
+uv run tony policy grants              # qué tools tienen «Permitir siempre»
+uv run tony policy revoke filesystem.delete_file
+uv run tony policy simulate evals/politica.yaml
+```
+
+`tony doctor` imprime una tabla `check | status | hint` con `ok`, `warn` o `fail` y sale con
+código 1 si hay algún `fail`. Revisa que las definiciones carguen, que los comandos y URLs de los
+servidores MCP existan, que los `${NOMBRE}` estén definidos, que haya dependencias opcionales de
+voz y música y que cada variable de `env_allow` exista en el host. `revoke` y `simulate` solo los
+ejecuta el usuario desde la CLI: no son tools del modelo.
+
+### La voz
+
+<div align="center">
+<img src="docs/diagrams/voice-pipeline.png" alt="Diagrama: hablas al micrófono, se detecta tu voz, se pasa a texto, Jarvis responde y te lo dice en voz alta" width="840">
+</div>
+
+La voz es local (detalle en [Voz](#voz)). Si quieres medirla, un registrador de etapas opcional
+anota solo marcas de tiempo, nunca audio ni texto, y la prueba de latencia imprime p50 y p95 en
+frío y en caliente:
+
+```mermaid
+flowchart LR
+    A["Fin de tu voz"] --> B["Cierre de captura"] --> C["Transcripción<br/>inicio y fin"] --> D["Primer token<br/>de la respuesta"] --> E["Síntesis<br/>inicio y fin"] --> F["Empieza a sonar"]
+```
+
+### Temas y orbe
+
+Desde el botón de ajustes de la app (**«Ajustes de audio y apariencia»**) eliges entre tres
+direcciones visuales. El cambio es inmediato, se guarda y cada tema trae su propio orbe:
+
+| Tema | Aspecto | Orbe |
+|---|---|---|
+| **Holo Ámbar** (por defecto) | HUD ámbar sobre negro con esquinas marcadas | Wireframe geodésico en WebGL, con anillos y núcleo que late |
+| **Aurora** | Cristal translúcido, botones en píldora | Gota líquida con degradado cónico (Canvas 2D) |
+| **Instrumento** | Grafito con acabados metálicos | Dial radial que mide la voz y barre al pensar (Canvas 2D) |
+
+```mermaid
+flowchart LR
+    AJ["Ajustes → Apariencia"] --> EL["Eliges un tema"]
+    EL --> DT["data-theme en el documento<br/>tokens CSS del tema"]
+    EL --> LS["Se guarda en el navegador<br/>valor dañado → Holo Ámbar"]
+    EL --> OR{"¿Qué orbe?"}
+    OR -- "Holo" --> WG["WebGL"]
+    OR -- "Aurora / Instrumento" --> CV["Canvas 2D"]
+    WG --> ES["Mismos estados y parámetros<br/>del orbe en los tres"]
+    CV --> ES
+```
 
 ---
 
 ## El orbe: en qué estado está Tony
 
 En la app de escritorio, el orbe central siempre refleja un estado — no hace falta leer logs para
-saber qué está haciendo Tony:
+saber qué está haciendo Tony, sea cual sea el tema:
 
 <div align="center">
 <img src="docs/diagrams/orb-states.png" alt="Diagrama: el orbe pasa de Reposo a Escuchando cuando hablas, a Pensando cuando terminas, a Hablando cuando responde y vuelve a Reposo; en cualquier momento puede pasar a Esperando tu respuesta cuando Edith necesita tu permiso" width="840">
@@ -96,8 +473,9 @@ saber qué está haciendo Tony:
 
 El orbe pasa de **Reposo** a **Escuchando** cuando hablas, a **Pensando** mientras Jarvis y Viernes
 trabajan y a **Hablando** cuando responde. Si Edith necesita tu permiso, aparece **Esperando tu
-respuesta** con un halo ámbar. Su tamaño sigue el nivel de la voz; sin WebGL se ve una versión
-estática, pero el estado se nota igual por el halo y el color.
+respuesta**. Su tamaño sigue el nivel de la voz; con `prefers-reduced-motion` el movimiento se
+anula y solo cambia el brillo, y sin WebGL el tema Holo muestra una versión estática, pero el
+estado se nota igual por el halo y el color.
 
 ---
 
@@ -110,11 +488,11 @@ estática, pero el estado se nota igual por el halo y el color.
 - **`agent.md`**: frontmatter (`name`, `role`, `model`, `persona`, `voice.tts`) + el prompt de
   sistema en Markdown.
 - **`tool.json`**: qué servidores MCP tiene el agente (`command`/`args`/`env` para stdio, o
-  `url`/`headers` para HTTP) y qué tools nativas (`read_skill`, `run_subagent`). Nunca contiene
-  permisos — esos viven solo en `policy.yaml`.
+  `url`/`headers` para HTTP) y qué tools nativas (`read_skill`, `run_subagent`, `ask_user`). Nunca
+  contiene permisos — esos viven solo en `policy.yaml`.
 - **Skills** (`skills/<nombre>/SKILL.md`): procedimientos en Markdown que el agente lee bajo
   demanda con `tony.read_skill`; se listan en su prompt pero el cuerpo no se carga hasta que hace
-  falta.
+  falta. Viernes trae `calendario`, `correo`, `drive`, `evidencia`, `musica` y `obsidian`.
 - **Subagentes** (`subagents/<nombre>/`): un worker más, con su propio `tool.json`, invocado con
   `tony.run_subagent`; comparte el id de tarea, el log y el presupuesto de tiempo de la tarea
   padre, y Edith evalúa sus tools igual que las del agente principal.
@@ -151,8 +529,9 @@ mismo veredicto — no hay modelo de por medio en la decisión.
 
 Las tareas delegadas exigen además que la sesión esté desbloqueada con un **PIN** (`tony pin set`,
 guardado como hash argon2, nunca en claro), y toda decisión queda en `logs/audit.jsonl`
-(`tony audit`). Detalle completo de reglas, `when`, PIN y auditoría en la
-[referencia técnica](#referencia-técnica) más abajo.
+(`tony audit`). Para ver por qué una llamada recibe un veredicto usa `tony policy explain`. Detalle
+completo de reglas, `when`, PIN y auditoría en la [referencia técnica](#referencia-técnica) más
+abajo.
 
 ---
 
@@ -165,6 +544,7 @@ credenciales de Claude disponibles para el Claude Agent SDK.
 ```bash
 uv sync
 uv run tony --help
+uv run tony doctor        # comprueba que todo está en su sitio
 ```
 
 Compilar la interfaz de la app de escritorio (una vez; Node solo hace falta para compilar, la app
@@ -188,11 +568,25 @@ Tony usa como raíz el directorio de `TONY_HOME` o, si no existe, el directorio 
 uv run tony                          # abre la app de escritorio (orbe + chat)
 uv run tony chat                     # conversación por terminal
 uv run tony run viernes "Lista mis notas"   # ejecuta una tarea puntual y la imprime en JSON
-uv run tony agents                   # qué agente ocupa cada rol, con su modelo y voz
-uv run tony mcp list                 # conecta y lista los servidores MCP de cada agente
-uv run tony audit --today            # auditoría de permisos de hoy
-uv run tony pin set                  # fija el PIN de Edith
 ```
+
+Todos los comandos de la CLI:
+
+| Comando | Para qué |
+|---|---|
+| `tony` · `tony --focus` | abre la app · la levanta y empieza a escuchar |
+| `tony chat [--resume [ID]]` | conversación por terminal, nueva o retomada |
+| `tony run <agente> "<tarea>"` | una tarea puntual con resultado JSON |
+| `tony agents` | qué agente ocupa cada rol, con su modelo y voz |
+| `tony mcp add \| list` | gestionar y listar los servidores MCP |
+| `tony pin set` | fijar el PIN de Edith |
+| `tony audit [--today] [--verdict V]` | auditoría de permisos |
+| `tony policy explain \| grants \| revoke \| simulate` | inspeccionar y gestionar la política |
+| `tony doctor` | diagnóstico local de la instalación |
+| `tony conversations list \| search \| delete` | gestionar conversaciones guardadas |
+| `tony actions list \| show` | diario de acciones ejecutadas |
+| `tony recover list \| resume \| undo` | recuperar tareas y deshacer escrituras |
+| `tony routines add \| list \| inbox \| enable \| disable \| remove` | rutinas programadas |
 
 ---
 
@@ -206,7 +600,8 @@ solo quieres entender qué es Tony y cómo fluye una tarea, con lo de arriba ya 
 Opcional. Las claves que falten toman su valor por defecto y las desconocidas se rechazan con un
 error que nombra el fichero y el campo. El fichero incluido documenta todos los valores por
 defecto: agentes `front`/`worker`/`guard`, `reply_mode` (`auto|voice|text|both`), alias de modelos
-(`claude-haiku`, `claude-sonnet`), `voice` y `desktop`.
+(`claude-haiku`, `claude-sonnet`), `voice` y `desktop`. `history_max_chars` (12000 por defecto,
+`0` lo desactiva) limita los caracteres del historial que se reenvían al modelo.
 
 ### `config/.env`
 
@@ -230,7 +625,8 @@ se enmascaran.
 ```
 agents/viernes/
 ├── agent.md          # frontmatter YAML + prompt de sistema en Markdown
-└── tool/tool.json    # servidores MCP y tools nativas
+├── tool/tool.json    # servidores MCP y tools nativas
+└── skills/           # calendario, correo, drive, evidencia, musica, obsidian
 agents/edith/
 ├── agent.md          # role: guard; redacta las preguntas de confirmación
 └── policy.yaml       # política de permisos (Edith no tiene carpeta tool/)
@@ -250,7 +646,7 @@ agents/edith/
     "filesystem": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "${HOME}/notas"]},
     "remote": {"url": "https://example.test/mcp", "headers": {"Authorization": "Bearer ${REMOTE_TOKEN}"}}
   },
-  "native": ["read_skill", "run_subagent"]
+  "native": ["read_skill", "run_subagent", "ask_user"]
 }
 ```
 
@@ -259,7 +655,7 @@ con `headers` opcionales), nunca ambos. Las tools se identifican como `<servidor
 nombre de servidor `tony` está reservado para las tools nativas (`tony.<nombre>`). Las claves
 `allow` y `confirm` se rechazan: los permisos pertenecen a `agents/edith/policy.yaml`. Los nombres
 de servidor solo admiten letras y dígitos separados por un único `-` o `_` (sin `.` ni `__`). Las
-tools nativas disponibles son `read_skill` y `run_subagent`.
+tools nativas disponibles son `read_skill`, `run_subagent` y `ask_user`.
 
 Un servidor stdio puede declarar `"isolation": {"env_allow": ["GITHUB_TOKEN"]}` para limitar su
 entorno (solo POSIX): el proceso recibe únicamente las variables de `env_allow` presentes en el
@@ -285,8 +681,9 @@ Si el agente declara la nativa `read_skill`, su prompt de sistema termina con un
 `## Skills` con una línea `- <nombre>: <descripción>` por skill (nunca el cuerpo). El agente lee el
 cuerpo bajo demanda con `tony.read_skill` (`{"name": "resumir"}`); un nombre desconocido devuelve
 `skill '<nombre>' not found; available: ...`. Las skills se leen del disco al empezar cada tarea o
-turno, así que una carpeta nueva se usa en la siguiente tarea sin reiniciar. Una skill inválida se
-omite y genera un evento `error` (origen `skills`) que nombra el fichero.
+turno, así que una carpeta nueva se usa en la siguiente tarea sin reiniciar; leer el cuerpo de una
+skill solo procesa ese fichero. Una skill inválida se omite y genera un evento `error` (origen
+`skills`) que nombra el fichero.
 
 #### Subagentes: `agents/<agente>/subagents/<nombre>/`
 
@@ -323,7 +720,8 @@ rules:                        # en orden; gana la primera que aplica
       args_regex: "(rm -rf|sudo)"
       numeric_above: {arg: importe, value: 100}
 limits: {tool_timeout_s: 20, task_timeout_s: 300, confirm_timeout_s: 60,
-         max_denied_retries: 3, token_alert: 50000, max_steps_per_agent: 30}
+         max_denied_retries: 3, token_alert: 50000, max_steps_per_agent: 30,
+         tool_result_max_chars: 20000}
 auth: {pin_required: true, lock_after_min: 30}   # ver «PIN de Edith»
 ```
 
@@ -346,18 +744,40 @@ Veredictos:
 - `deny`: no se ejecuta y el agente recibe `{"error": "blocked_by_policy", "rule": "<regla>"}`. La
   tercera denegación de la misma tool en una tarea (`max_denied_retries`) cancela la tarea.
 - `confirm`: Edith pregunta al usuario `Acción: <qué>. Regla: <regla>. ¿Autoriza?` (redactada por
-  su modelo; si falla o tarda más de 5 s se usa una plantilla fija). En `tony run` la pregunta sale
-  por stderr y la respuesta se lee de stdin: `s`, `si`, `sí`, `y` o `yes` (sin distinguir mayúsculas
-  ni espacios) autorizan; cualquier otra respuesta, el fin de la entrada o no responder en
+  su modelo; si falla o tarda más de 5 s se usa una plantilla fija, y la redacción de una pregunta
+  idéntica se reutiliza). La pregunta es una aprobación atada a los argumentos exactos (ver
+  [Aprobaciones](#aprobaciones-atadas-a-los-argumentos)). En `tony run` la pregunta sale por
+  stderr y la respuesta se lee de stdin: `s`, `si`, `sí`, `y` o `yes` (sin distinguir mayúsculas ni
+  espacios) autorizan; cualquier otra respuesta, el fin de la entrada o no responder en
   `confirm_timeout_s` cancelan la tarea.
+
+`tony.ask_user` (aclaraciones) lo permite una regla `allow` de la política incluida: preguntar no
+concede ningún permiso.
 
 Una tarea cancelada (confirmación rechazada, denegaciones repetidas o más de
 `max_steps_per_agent` llamadas de un agente) se detiene, cierra sus servidores MCP y devuelve
 `resumen` vacío con el motivo en `errores`; `tony run` sale con código 1. Si los tokens de la
 tarea superan `token_alert` se registra un único evento `token_alert`, sin cancelar.
 
+`limits.tool_result_max_chars` (20000 por defecto, `0` lo desactiva) recorta los resultados
+correctos que llegan al modelo con una marca que indica tamaño mostrado y total; el log de la tarea
+conserva el resultado completo enmascarado y los errores nunca se recortan.
+
 La política incluida y sus casos de prueba offline están en `agents/edith/policy.yaml` y
-`evals/politica.yaml`.
+`evals/politica.yaml` (puedes lanzarlos con `tony policy simulate`).
+
+#### Inspeccionar la política: `tony policy`
+
+```bash
+uv run tony policy explain filesystem.write_file --args '{"path": "/tmp/x"}'
+uv run tony policy grants                       # reglas «Permitir siempre» (user-always/...)
+uv run tony policy revoke filesystem.delete_file
+uv run tony policy simulate casos.json          # lista de {tool, args, expect}; sale 1 si algún caso falla
+```
+
+`explain` usa la evaluación real y muestra veredicto, regla y posición. `revoke` quita la regla
+`user-always/<tool>` con el mismo reescrito atómico que usa «Permitir siempre». `revoke` y
+`simulate` son comandos de usuario: no se exponen como tools del modelo.
 
 #### PIN de Edith
 
@@ -398,8 +818,8 @@ salida.
 Cada veredicto añade una línea JSON con `ts` (UTC), `task_id`, `agent`, `tool`, `args_hash`
 (SHA-256 de los argumentos en JSON canónico), `args_preview` (JSON canónico con secretos
 enmascarados y claves con aspecto de secreto como `***`, recortado a 200 caracteres), `verdict`,
-`rule`, `user_decision` (`allow|deny|timeout` en `confirm`, `null` en el resto) y `duration_ms`
-(incluida la espera de confirmación).
+`rule`, `user_decision` (`allow|deny|timeout` en `confirm`, `null` en el resto), `duration_ms`
+(incluida la espera de confirmación) y, en las confirmaciones, el id de la aprobación.
 
 ```bash
 uv run tony audit --help
@@ -411,6 +831,40 @@ uv run tony audit --verdict deny     # allow | confirm | deny
 `tony audit` imprime una tabla con `ts`, `agent`, `tool`, `verdict`, `rule` y `user_decision`; sale
 con código 0 aunque no haya líneas o el fichero no exista, y avisa por stderr de las líneas mal
 formadas que omite.
+
+### Aprobaciones y diario, en detalle
+
+Cada `needs_confirmation` añade campos opcionales: `approval_id`, `args_digest`, `policy_version`,
+`expires_at` y `preview` (vista previa tipada con secretos enmascarados y tamaño acotado). El
+comando `confirm` acepta un `approval_id` opcional. El broker solo acepta respuesta para la
+aprobación pendiente y sin caducar; antes de ejecutar, la llamada se cancela si sus argumentos
+cambiaron y se evalúa de nuevo desde cero si cambió la política.
+
+El diario `memory/actions.sqlite` lo escribe el proxy con los estados `prepared`, `dispatched`,
+`succeeded`, `failed` y `outcome_unknown`. Al arrancar, las filas `dispatched` huérfanas pasan a
+`outcome_unknown`. Las llamadas nunca se reproducen. `tony actions list [--state S] [--limit N]`
+las lista (más recientes primero) y `tony actions show <CALL_ID>` imprime todos sus campos.
+
+### Aclaraciones y fuentes, en detalle
+
+`tony.ask_user` recibe `{question, options?}` y devuelve la respuesta como texto. El evento
+`clarification_requested{request_id, task_id, agent, question, options}` y el comando
+`AnswerClarification{request_id, answer}` son un canal aparte del de confirmación; una respuesta
+nunca es una aprobación. Si no hay respuesta en `confirm_timeout_s`, la tarea se cancela o no hay
+canal, la tool devuelve el error `no answer from the user`. En `tony chat` y `tony run` se imprime
+la pregunta con opciones numeradas y un número elige una opción. La tool está exenta del
+`tool_timeout_s` por llamada.
+
+Las fuentes (`datos.fuentes`) tienen `connector`, `id`, `title`, `retrieved_at` y `excerpt` (el
+texto literal que respalda el dato, de hasta 300 caracteres). El
+runner las valida contra los textos de los resultados correctos de tools no nativas de la tarea y
+descarta las que no tienen respaldo, con una línea de aviso en `pasos`. La CLI imprime después del
+resultado:
+
+```
+Fuentes:
+- gmail · Factura de octubre
+```
 
 ### Uso del CLI, en detalle
 
@@ -426,7 +880,8 @@ error, con fichero y campo, va a stderr).
 
 Límites: 30 s de conexión por servidor MCP (si falla, se reintenta en segundo plano 3 veces, tras 5, 15 y 30 s, hasta que conecte); el tiempo por llamada a tool y por tarea sale de
 `limits` en la política (20 s y 300 s por defecto). Cada tarea deja su registro en
-`logs/tasks/<task_id>.jsonl` y el stderr de cada servidor stdio en `logs/mcp/<servidor>.log`.
+`logs/tasks/<task_id>.jsonl` y el stderr de cada servidor stdio en `logs/mcp/<servidor>.log`. El
+evento `token_usage` del log incluye `cache_read_tokens`, `cache_creation_tokens` y `cost_usd`.
 
 ### App de escritorio
 
@@ -444,8 +899,8 @@ el chat y la ventana sigue abierta. El audio no pasa por la página: el núcleo 
 (`voice_level`) para animar el orbe.
 
 - **Orbe**: en el centro, detrás del chat. Su estado sale de los eventos (ver [el orbe](#el-orbe-en-qué-estado-está-tony)
-  más arriba); su tamaño sigue el nivel del micrófono o de la voz. Sin WebGL se muestra un orbe
-  estático y el resto funciona igual.
+  más arriba); su tamaño sigue el nivel del micrófono o de la voz. Sin WebGL el tema Holo muestra un
+  orbe estático y el resto funciona igual.
 - **Chat**: mensajes por agente, con el color de cada uno (ver la [tabla de agentes](#qué-es)) y el
   resto (incluido el usuario) en gris. Las respuestas crecen a medida que llegan y se muestran como
   Markdown (con tablas; el HTML en bruto se escapa). Intro envía el mensaje; el selector
@@ -461,6 +916,9 @@ el chat y la ventana sigue abierta. El audio no pasa por la página: el núcleo 
   por veredicto, con las llamadas nuevas añadidas al vuelo.
 - **Tarjeta de confirmación**: sobre el orbe, con la pregunta pendiente y los botones «Permitir»,
   «Denegar» y, cuando procede, «Permitir siempre»; el foco empieza en «Denegar».
+- **Ajustes de audio y apariencia**: el botón de ajustes abre la elección de dispositivos de audio
+  y, en «Apariencia», el tema visual (Holo Ámbar, Aurora o Instrumento). La elección se guarda en
+  el almacenamiento local de la ventana; si el valor guardado no es válido se vuelve a Holo Ámbar.
 
 «Permitir siempre» solo aparece si ninguna regla `deny` de la política tiene un patrón que encaje
 con la tool pendiente (sin mirar sus condiciones `when`); por eso nunca se ofrece, por ejemplo,
@@ -475,9 +933,9 @@ para `shell.run`. Al pulsarlo se ejecuta la llamada y se añade como primera reg
 
 A partir de ahí esa tool se permite sin preguntar en la tarea actual y en las siguientes. La
 política se valida antes de sustituir el fichero de forma atómica; al reescribirla se pierden los
-comentarios del YAML (el orden y el contenido de las reglas se conservan). Para revocarlo, borre la
-regla `user-always/<tool>` del fichero. Si no se puede escribir la política, la llamada se permite
-una vez y se muestra un error.
+comentarios del YAML (el orden y el contenido de las reglas se conservan). Para revocarlo usa
+`tony policy revoke <tool>` o borra la regla `user-always/<tool>` del fichero. Si no se puede
+escribir la política, la llamada se permite una vez y se muestra un error.
 
 El PIN se pide en una capa sobre la página al arrancar (y en el rebloqueo por inactividad) con el
 campo oculto, la cuenta atrás de la espera tras fallos y un botón de cancelar; sin
@@ -538,10 +996,6 @@ La voz es local: micrófono a 16 kHz mono, detección de voz con Silero VAD, tra
 español con faster-whisper (`voice.stt`, `faster-whisper/small` en `int8` sobre CPU) y síntesis con
 Kokoro a 24 kHz.
 
-<div align="center">
-<img src="docs/diagrams/voice-pipeline.png" alt="Diagrama: hablas al micrófono, se detecta tu voz, se pasa a texto, Jarvis responde y te lo dice en voz alta" width="840">
-</div>
-
 Se instala con el extra `voice` (torch solo CPU) y necesita la biblioteca del
 sistema PortAudio (`portaudio` en Fedora, `libportaudio2` en Debian/Ubuntu):
 
@@ -557,13 +1011,17 @@ voz todo sigue funcionando por texto y el tooltip del micrófono dice por qué.
 
 Los dispositivos de entrada/salida que se listan son los reales del sistema (vía PipeWire), los
 mismos que ves en los ajustes de audio — no las duplicidades internas de ALSA ni los flujos de
-otras apps.
+otras apps. La detección se hace fuera del bucle del núcleo (`pw-dump`, 5 s de límite) y varias
+peticiones simultáneas comparten una sola. Si eliges un dispositivo, se valida su tipo, el nombre
+se compara exacto y, si no, sin distinguir mayúsculas ni espacios; si acaba usándose el
+predeterminado en lugar del pedido, se avisa en `input_fallback_warning` / `output_fallback_warning`.
 
 Micrófono: con la voz `ready`, un clic escucha **una** frase: se cierra tras 700 ms de silencio (o
 a los 30 s), se transcribe y se envía a Jarvis como un mensaje escrito, con origen `voice` (en el
 chat aparece como «Tú (voz)»). Mientras escucha el botón muestra «Escuchando…» y otro clic lo para;
 sin hablar en 10 s se cierra solo. Empezar a escuchar corta lo que Tony esté diciendo, así que
-nunca se graba a sí mismo. `cancel` detiene también la voz y la escucha.
+nunca se graba a sí mismo. `cancel` detiene también la voz y la escucha, y una escucha cancelada
+nunca llega a transcribirse.
 
 Modo de respuesta y voz:
 
@@ -593,6 +1051,14 @@ Solo «Sí, Edith» (sin importar mayúsculas, tildes ni puntuación: `si edith`
 otra frase deniega; el silencio hasta `confirm_timeout_s` es `timeout`. El aviso de la ventana sigue
 disponible y responder ahí cierra la escucha.
 
+Métricas de latencia (opcionales): un registrador en proceso, apagado por defecto, anota las marcas
+de cada turno de voz (fin de voz, cierre de captura, inicio y fin de transcripción, primer token,
+inicio y fin de síntesis, inicio de reproducción) y un muestreador mide el retraso del bucle de
+eventos. El informe da p50 y p95 por etapa, separando el primer turno tras la carga (frío) de los
+siguientes (caliente). La prueba de latencia (`tests/voice/test_latency.py`) ejecuta 20 vueltas e
+imprime el informe sin afirmar ningún objetivo. Solo se guardan marcas de tiempo: nunca audio ni
+texto.
+
 Privacidad: el audio nunca sale del proceso, no se guarda en disco ni se publica como evento; solo
 el texto transcrito llega al chat y al historial.
 
@@ -601,6 +1067,7 @@ el texto transcrito llega al chat y al historial.
 ```bash
 uv run tony chat --help
 uv run tony chat
+uv run tony chat --resume [ID]
 uv run tony agents       # slot, agente, rol, modelo y voz de front, worker y guard
 ```
 
@@ -612,7 +1079,8 @@ entrada. Si el modelo falla se muestra `tony: <error>` en stderr y el chat conti
 Jarvis encarga las tareas a Viernes con la tool `delegate` y explica su resultado; si una tarea
 tarda más de 3 s se muestra una vez una de 50 frases de espera elegida al azar (nunca la misma dos veces seguidas), por ejemplo `Un momento, señor; estoy en ello.`. Las confirmaciones de
 Edith salen por stderr con el prefijo `Edith: ` y se responden en la misma entrada (una línea
-tardía tras agotarse la espera llega a Jarvis como mensaje, no se pierde).
+tardía tras agotarse la espera llega a Jarvis como mensaje, no se pierde). Las aclaraciones de
+Viernes salen igual, con opciones numeradas.
 
 Comandos y prefijos:
 
@@ -630,11 +1098,15 @@ Modo de respuesta: `auto`, `voice`, `text` o `both`. Se cambia pidiéndoselo a J
 Memoria local (ignorada por git):
 
 - `memory/preferences.md`: preferencias que Jarvis guarda con la tool `remember` (líneas
-  `- <texto>`, con secretos enmascarados). Se añade a su prompt en cada mensaje, así que las
-  ediciones a mano se aplican al siguiente mensaje.
+  `- <texto>`, con secretos enmascarados; guardar la misma línea otra vez no cambia el fichero). Se
+  añade a su prompt en cada mensaje, así que las ediciones a mano se aplican al siguiente mensaje.
 - `memory/conversations.sqlite`: historial (tabla `messages`). Cada arranque de `tony chat` o de la
-  app abre una conversación nueva; a cada mensaje se le envían los 20 mensajes anteriores de la
-  conversación actual. Los resultados de Viernes no se guardan como mensajes.
+  app abre una conversación nueva (o retoma una con `--resume`); a cada mensaje se le envían los 20
+  mensajes anteriores de la conversación actual, con el tope de `history_max_chars`. Los resultados
+  de Viernes no se guardan como mensajes.
+- `memory/actions.sqlite`: el diario de acciones.
+- `memory/undo/<call_id>`: contenido previo de las escrituras de ficheros.
+- `memory/routines.sqlite`: rutinas y sus ejecuciones.
 
 ### Servidores MCP: `tony mcp`
 
@@ -685,7 +1157,8 @@ uv run tony recover undo <CALL_ID>
   más de 15 minutos sin escribir), con sus acciones `succeeded` etiquetadas `undoable` o
   `not undoable`. `--limit N` (20 por defecto).
 - `recover resume` lanza la petición original como tarea NUEVA (otro id), con una nota al inicio de
-  `contexto` que lista las acciones ya hechas y pide no repetirlas.
+  `contexto` que lista las acciones ya hechas y pide no repetirlas. El inicio de la tarea registra
+  `resumed_from` con el id original.
 - `recover undo` restaura un `filesystem.write_file` con una escritura nueva y guardada, solo si el
   fichero sigue igual que tras la acción; si no, responde `file changed since the action`. Los
   contenidos previos (hasta 1 MB, UTF-8) están en `memory/undo/<call_id>`.
@@ -703,7 +1176,8 @@ mientras `tony chat` o la app de escritorio están en marcha**; los comandos `to
 editan definiciones y leen registros (`memory/routines.sqlite`). El planificador revisa cada 30 s,
 ejecuta una vez cada ocurrencia, guarda como `skipped` las que llevan más de 12 h de retraso y las
 deja en `queued` mientras la sesión de Edith está bloqueada (nunca pide el PIN). Una confirmación
-sin respuesta se deniega por el timeout habitual. El resultado se lee con `routines inbox`.
+sin respuesta se deniega por el timeout habitual. El resultado se lee con `routines inbox`. El
+evento `task_started` lleva el campo `origin` (por ejemplo `routine`).
 
 ### Música
 
@@ -718,6 +1192,11 @@ cada una. Poner una canción siempre se confirma: Viernes busca con `music_searc
 te muestra ese título para que digas sí o no; el resto (`music.*`, incluida la búsqueda) pasa sin
 preguntar.
 
+Suena exactamente lo que aprobaste: `music_play` y `music_queue` reutilizan la pista que ya resolvió
+`music_search` cuando la consulta coincide con el título devuelto (válida 10 minutos, hasta 20
+pistas); si la URL en caché caducó, vuelven a resolver y solo aceptan un resultado con el mismo
+título.
+
 Necesitas tener instalados `mpv` y `yt-dlp`. En Bazzite (sistema inmutable):
 
 ```bash
@@ -727,9 +1206,10 @@ curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.l
 chmod +x ~/.local/bin/yt-dlp
 ```
 
-Si falta alguno, Viernes lo dice en `errores` («instala mpv» / «instala yt-dlp»). `mpv` queda
-escuchando en un socket de `$XDG_RUNTIME_DIR` (`tony-mpv.sock`) y se arranca solo al pedir la
-primera canción. Con el Flatpak, `mpv` y `yt-dlp` tienen que ser visibles dentro del sandbox.
+Si falta alguno, Viernes lo dice en `errores` («instala mpv» / «instala yt-dlp») y `tony doctor` lo
+marca. `mpv` queda escuchando en un socket de `$XDG_RUNTIME_DIR` (`tony-mpv.sock`) y se arranca
+solo al pedir la primera canción. Con el Flatpak, `mpv` y `yt-dlp` tienen que ser visibles dentro
+del sandbox.
 
 ### Recarga en caliente
 
@@ -739,8 +1219,9 @@ creados después de arrancar; el resto de ficheros (incluido `tool.json.lock`) s
 no vigila nada: cada ejecución ya lee los ficheros al empezar.
 
 - Un cambio válido de `policy.yaml` se aplica a la siguiente llamada a una tool, incluso dentro de
-  una tarea en curso. Los `limits` (salvo `confirm_timeout_s`) se aplican desde la siguiente tarea
-  y `auth` desde la siguiente sesión.
+  una tarea en curso (y una aprobación pendiente se evalúa de nuevo desde cero). Los `limits`
+  (salvo `confirm_timeout_s`) se aplican desde la siguiente tarea y `auth` desde la siguiente
+  sesión.
 - Un cambio válido de un `tool.json` se usa en la siguiente tarea o turno; la tarea en curso
   conserva los servidores con los que empezó. Solo se conectan (y se cierran) los servidores
   añadidos o modificados para actualizar su estado; los eliminados aparecen caídos con el motivo
@@ -784,6 +1265,47 @@ Flatpak, que no viene incluido; use preferiblemente servidores que se lancen con
 binario estático de `uv` instalado en `~/.local/bin` es accesible gracias a `--filesystem=home`;
 indique su ruta completa como orden), o instale Node en el sandbox. Para el atajo de teclado en
 Wayland, vea [Atajos en Wayland](#atajos-en-wayland).
+
+## Estructura del repositorio
+
+```
+agents/                 jarvis, viernes y edith: agent.md, tool.json, skills, policy.yaml
+config/                 tony.yaml, .env.example
+tony/
+├── apps/
+│   ├── cli/            la CLI (chat, run, doctor, policy, recover, routines...)
+│   └── desktop/        la ventana nativa y su interfaz web (React + TypeScript)
+│       └── web/src/
+│           ├── orb/    orbe WebGL (Holo) y renderizadores Canvas 2D (Aurora, Instrumento)
+│           └── theme/  temas visuales y su almacenamiento
+└── core/
+    ├── orchestrator/   el bucle de tareas, el proxy de tools y los comandos
+    ├── guard/          política, confirmaciones, aprobaciones, PIN y auditoría
+    ├── mcp/            conexiones a conectores, arranque concurrente y aislamiento
+    ├── memory/         historial, diario de acciones, snapshots de deshacer, preferencias
+    ├── recovery/       listar, reanudar y deshacer tareas
+    ├── automation/     rutinas y planificador
+    ├── clarification/  aclaraciones en mitad de una tarea
+    ├── evidence/       fuentes y su validación
+    ├── diagnostics/    tony doctor
+    ├── voice/          voz local y métricas de latencia
+    ├── music/          el servidor MCP de música
+    └── config/ events/ loader/ logging/
+memory/  logs/          datos locales (ignorados por git)
+openspec/               especificaciones y cambios (SDD)
+evals/                  casos de la política
+packaging/              Flatpak
+docs/                   diagramas y resúmenes visuales
+```
+
+## Cómo se desarrolla
+
+El proyecto sigue desarrollo guiado por especificaciones con [OpenSpec](https://openspec.dev):
+cada cambio se propone en `openspec/changes/`, se implementa con TDD (primero el test que falla) y
+se archiva al terminar. Los cambios recientes (aprobaciones y diario, recuperación y rutinas,
+aclaraciones y evidencia, aislamiento de conectores, contexto acotado, fiabilidad de música y
+dispositivos, métricas de voz) están ahí con su propuesta y su diseño. Hay también resúmenes
+visuales en `docs/`: `novedades-tony.html`, `mejoras-tony.html` y `ahorro-tokens.html`.
 
 ## Desarrollo
 
