@@ -11,8 +11,8 @@ from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.mcp.native import NATIVE_SERVER
 from tony.core.memory.preferences import REPLY_MODES, PreferencesFile
 from tony.core.orchestrator.ports import ProxiedTool, ToolReply
+from tony.core.orchestrator.waiting_phrases import WaitingPhrases
 
-WAITING_PHRASE = "Un momento, señor; estoy en ello."
 WAITING_AFTER_S = 3.0
 LOCKED = json.dumps({"error": "locked"})
 
@@ -36,6 +36,7 @@ class FrontTools:
         run_worker: WorkerRunner,
         publish: Publisher,
         waiting_after_s: float = WAITING_AFTER_S,
+        choose_phrase: Callable[[], str] | None = None,
     ) -> None:
         self._front_agent = front_agent
         self._preferences = preferences
@@ -43,6 +44,7 @@ class FrontTools:
         self._run_worker = run_worker
         self._publish = publish
         self.waiting_after_s = waiting_after_s
+        self._choose_phrase = choose_phrase or WaitingPhrases().next
 
     def tools(self) -> list[ProxiedTool]:
         return [
@@ -85,7 +87,7 @@ class FrontTools:
         try:
             done, _ = await asyncio.wait({task}, timeout=self.waiting_after_s)
             if not done:
-                self._publish(core_events.progress(self._front_agent, WAITING_PHRASE))
+                self._publish(core_events.progress(self._front_agent, self._choose_phrase()))
             result = await task
         finally:
             if not task.done():

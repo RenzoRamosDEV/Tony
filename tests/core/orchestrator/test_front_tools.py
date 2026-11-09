@@ -6,7 +6,7 @@ import pytest
 from tony.core.config.placeholders import SecretMasker
 from tony.core.events.messages import TaskRequest, TaskResult
 from tony.core.memory.preferences import PREFERENCES_FILE, PreferencesFile
-from tony.core.orchestrator.front_tools import WAITING_PHRASE, FrontTools
+from tony.core.orchestrator.front_tools import FrontTools
 
 RESULT = TaskResult(resumen="Hay 2 notas", datos=["a.md", "b.md"], pasos=["listar"])
 
@@ -38,7 +38,7 @@ class FakeWorker:
         return self.result
 
 
-def make(tmp_path, *, unlocked=True, delay=0.0, wait_s=0.05):
+def make(tmp_path, *, unlocked=True, delay=0.0, wait_s=0.05, phrase="Un momento, señor."):
     published, gate, worker = [], FakeGate(unlocked), FakeWorker(delay)
     front = FrontTools(
         front_agent="jarvis",
@@ -47,6 +47,7 @@ def make(tmp_path, *, unlocked=True, delay=0.0, wait_s=0.05):
         run_worker=worker,
         publish=published.append,
         waiting_after_s=wait_s,
+        choose_phrase=lambda: phrase,
     )
     tools = {tool.id: tool for tool in front.tools()}
     return tools, published, gate, worker
@@ -152,13 +153,16 @@ async def test_delegate_refused_while_locked(tmp_path):
 
 
 async def test_waiting_phrase_once_when_the_worker_is_slow(tmp_path):
-    tools, published, *_ = make(tmp_path, delay=0.2, wait_s=0.05)
+    tools, published, *_ = make(tmp_path, delay=0.2, wait_s=0.05, phrase="Frase elegida.")
 
     await tools["tony.delegate"].handler({"objetivo": "Lista"})
 
     [event] = published
-    assert (event["type"], event["agent"], event["text"]) == ("progress", "jarvis", WAITING_PHRASE)
-    assert WAITING_PHRASE == "Un momento, señor; estoy en ello."
+    assert (event["type"], event["agent"], event["text"]) == (
+        "progress",
+        "jarvis",
+        "Frase elegida.",
+    )
 
 
 async def test_no_waiting_phrase_when_the_worker_is_fast(tmp_path):

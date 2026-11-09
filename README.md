@@ -413,7 +413,7 @@ stdout un único objeto JSON `{resumen, datos, pasos, errores}`. Sale con códig
 vacío, 1 si el resultado trae errores y 2 si la definición del agente o la tarea no son válidas (el
 error, con fichero y campo, va a stderr).
 
-Límites: 10 s de conexión por servidor MCP; el tiempo por llamada a tool y por tarea sale de
+Límites: 30 s de conexión por servidor MCP (si falla, se reintenta en segundo plano 3 veces, tras 5, 15 y 30 s, hasta que conecte); el tiempo por llamada a tool y por tarea sale de
 `limits` en la política (20 s y 300 s por defecto). Cada tarea deja su registro en
 `logs/tasks/<task_id>.jsonl` y el stderr de cada servidor stdio en `logs/mcp/<servidor>.log`.
 
@@ -445,7 +445,7 @@ el chat y la ventana sigue abierta. El audio no pasa por la página: el núcleo 
   más reciente primero.
 - **MCPs** (plegable): cada servidor MCP conectado por agente, con su estado (en rojo si está
   caído) y un icono de información con una breve descripción. Al arrancar se comprueba en segundo
-  plano cada servidor de Jarvis y Viernes.
+  plano cada servidor de Jarvis y Viernes; uno caído por fallo de conexión se reintenta solo (3 veces con espera creciente) y pasa a verde en cuanto conecta.
 - **Edith** (plegable): la auditoría de hoy (fecha local, sin argumentos de las tools) filtrable
   por veredicto, con las llamadas nuevas añadidas al vuelo.
 - **Tarjeta de confirmación**: sobre el orbe, con la pregunta pendiente y los botones «Permitir»,
@@ -599,7 +599,7 @@ prefijo `Jarvis: `. Las líneas vacías se ignoran y el chat termina con `/salir
 entrada. Si el modelo falla se muestra `tony: <error>` en stderr y el chat continúa.
 
 Jarvis encarga las tareas a Viernes con la tool `delegate` y explica su resultado; si una tarea
-tarda más de 3 s se muestra una vez `Un momento, señor; estoy en ello.`. Las confirmaciones de
+tarda más de 3 s se muestra una vez una de 50 frases de espera elegida al azar (nunca la misma dos veces seguidas), por ejemplo `Un momento, señor; estoy en ello.`. Las confirmaciones de
 Edith salen por stderr con el prefijo `Edith: ` y se responden en la misma entrada (una línea
 tardía tras agotarse la espera llega a Jarvis como mensaje, no se pierde).
 
@@ -658,6 +658,32 @@ tarea, imprime la tabla `agent server state tools` (`ok` o `error: <motivo enmas
 número de tools) y cierra todas las conexiones. Sale con 0 aunque haya servidores caídos; un
 `--agent` inexistente o un `tool.json` inválido (que se nombra en stderr mientras se listan los
 demás) dan un código distinto de 0.
+
+### Música
+
+Viernes puede poner música en tu PC: «ponme Bohemian Rhapsody», «añade otra a la cola», «sube el
+volumen», «qué suena». Lo hace el servidor MCP `music` (`python -m tony.core.music`, declarado en
+`agents/viernes/tool/tool.json`), que busca la canción con `yt-dlp` y la reproduce con `mpv` sin
+ventana, solo audio. No hace falta ninguna clave ni cuenta. Las tools son `music_search`
+(busca y devuelve el título sin reproducir), `music_play`, `music_queue`, `music_pause`, `music_resume`, `music_next`, `music_previous`, `music_volume`
+(0 a 100), `music_now_playing` y `music_stop`; la skill `musica` le explica a Viernes cuándo usar
+cada una. Poner una canción siempre se confirma: Viernes busca con `music_search`, llama a
+`music_play`/`music_queue` con el título encontrado y Edith (regla `confirm` sobre esas dos tools)
+te muestra ese título para que digas sí o no; el resto (`music.*`, incluida la búsqueda) pasa sin
+preguntar.
+
+Necesitas tener instalados `mpv` y `yt-dlp`. En Bazzite (sistema inmutable):
+
+```bash
+rpm-ostree install mpv        # después hay que reiniciar para activarlo
+mkdir -p ~/.local/bin
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
+chmod +x ~/.local/bin/yt-dlp
+```
+
+Si falta alguno, Viernes lo dice en `errores` («instala mpv» / «instala yt-dlp»). `mpv` queda
+escuchando en un socket de `$XDG_RUNTIME_DIR` (`tony-mpv.sock`) y se arranca solo al pedir la
+primera canción. Con el Flatpak, `mpv` y `yt-dlp` tienen que ser visibles dentro del sandbox.
 
 ### Recarga en caliente
 

@@ -2,6 +2,8 @@ from pathlib import Path
 
 from tests.core.guard.shipped_policy import SHIPPED_POLICY_DATA
 from tony.core.config.settings import TonyConfig
+from tony.core.guard.allow_always import ALLOW_ALWAYS_PREFIX
+from tony.core.guard.evaluate import evaluate
 from tony.core.guard.policy import Policy, load_policy
 from tony.core.loader.agent import load_agent
 
@@ -27,8 +29,14 @@ def test_system_prompt_states_the_question_template():
     assert "Acción: <qué>. Regla: <rule id>. ¿Autoriza?" in prompt
 
 
+def shipped_rules(policy: Policy) -> Policy:
+    """The policy without the per-user «Permitir siempre» rules, which are not shipped."""
+    own = [rule for rule in policy.rules if not rule.id.startswith(ALLOW_ALWAYS_PREFIX)]
+    return policy.model_copy(update={"rules": own})
+
+
 def test_bundled_policy_equals_the_shipped_example():
-    bundled = load_policy(REPO, "edith")
+    bundled = shipped_rules(load_policy(REPO, "edith"))
 
     assert bundled == Policy.model_validate(SHIPPED_POLICY_DATA)
     assert [rule.id for rule in bundled.rules] == [
@@ -53,9 +61,20 @@ def test_bundled_policy_equals_the_shipped_example():
         "obsidian.obsidian_list_vaults/allow",
         "obsidian.obsidian_create_note/confirm",
         "obsidian.*/confirm",
+        "music.music_play/confirm",
+        "music.*/allow",
         "tony.read_skill/allow",
     ]
 
 
 def test_bundled_policy_default_is_not_allow():
     assert load_policy(REPO, "edith").default != "allow"
+
+
+def test_bundled_policy_confirms_starting_music_and_allows_everything_else():
+    policy = load_policy(REPO, "edith")
+
+    for tool in ("play", "queue"):
+        assert evaluate(policy, f"music.music_{tool}", {"consulta": "x"}).verdict == "confirm"
+    for tool in ("search", "pause", "resume", "next", "previous", "volume", "stop", "now_playing"):
+        assert evaluate(policy, f"music.music_{tool}", {"consulta": "x"}).verdict == "allow"

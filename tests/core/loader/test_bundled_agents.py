@@ -5,6 +5,7 @@ from tests.fakes.variables import secret_variables
 from tony.core.config.placeholders import SecretMasker
 from tony.core.config.settings import TonyConfig
 from tony.core.loader.agent import load_agent
+from tony.core.loader.skills import read_skill_body
 from tony.core.mcp.manager import McpManager
 from tony.core.mcp.native import NativeScope
 from tony.core.orchestrator.natives import NATIVE_TOOLS
@@ -70,3 +71,15 @@ async def test_bundled_viernes_catalog_has_native_ids(tmp_path):
 
     async with manager:
         assert [tool.id for tool in manager.tools] == ["tony.read_skill", "tony.run_subagent"]
+
+
+def test_viernes_has_a_music_server_launched_with_the_project_python():
+    server = bundled("viernes").tools.mcp_servers["music"]
+
+    assert (server.command, server.args) == ("python", ["-m", "tony.core.music"])
+
+
+def test_viernes_has_the_music_skill():
+    body = read_skill_body(REPO, "viernes", "musica")
+
+    assert "music_play" in body and "music_queue" in body

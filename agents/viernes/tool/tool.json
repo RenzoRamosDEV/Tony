@@ -22,7 +22,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@gongrzhe/server-gmail-autoauth-mcp"
+        "@gongrzhe/server-gmail-autoauth-mcp@1.1.11"
       ],
       "env": {
         "GMAIL_OAUTH_PATH": "${HOME}/.gmail-mcp/gcp-oauth.keys.json",
@@ -49,6 +49,13 @@
         "serve",
         "--vault",
         "notas=${HOME}/Proyectos/Obsidian"
+      ]
+    },
+    "music": {
+      "command": "python",
+      "args": [
+        "-m",
+        "tony.core.music"
       ]
     }
   },

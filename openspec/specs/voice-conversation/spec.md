@@ -42,7 +42,7 @@ In a speaking turn, the reply SHALL be split into sentences while it streams and
 Each spoken text SHALL use the voice of the agent that produced it: front-agent reply sentences and its `progress` messages use the front agent's voice, and confirmation questions use the guard agent's voice.
 
 #### Scenario: Waiting phrase spoken
-- **WHEN** a speaking turn delegates a task that emits the `progress` text `Un momento, señor; estoy en ello.`
+- **WHEN** a speaking turn delegates a task that emits a `progress` waiting phrase
 - **THEN** that text is spoken with Jarvis' voice
 
 ### Requirement: Code and tables not spoken

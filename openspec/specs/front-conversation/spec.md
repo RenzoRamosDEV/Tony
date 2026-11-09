@@ -61,11 +61,11 @@ When the Edith session is locked, `delegate` SHALL return `{"error": "locked"}` 
 - **THEN** it gets `{"error": "locked"}` and no worker task is created
 
 ### Requirement: Waiting phrase
-If a delegated task has produced no result 3 seconds after it started, exactly one `progress` event SHALL be emitted with the front agent's name and the text `Un momento, señor; estoy en ello.`. A task finishing within 3 seconds SHALL emit none.
+If a delegated task has produced no result 3 seconds after it started, exactly one `progress` event SHALL be emitted with the front agent's name and a text chosen at random from a fixed set of 50 distinct Spanish waiting phrases (which includes `Un momento, señor; estoy en ello.`), never the same phrase as the previous one. A task finishing within 3 seconds SHALL emit none.
 
 #### Scenario: Slow task
 - **WHEN** a delegated task takes 5 seconds
-- **THEN** exactly one `progress` event with text `Un momento, señor; estoy en ello.` is emitted before the task's `result` event
+- **THEN** exactly one `progress` event whose text is one of the 50 waiting phrases is emitted before the task's `result` event
 
 #### Scenario: Fast task
 - **WHEN** a delegated task finishes in 1 second

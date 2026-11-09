@@ -51,6 +51,10 @@ rules:
     verdict: confirm
   - match: "obsidian.*"
     verdict: confirm
+  - match: ["music.music_play", "music.music_queue"]
+    verdict: confirm
+  - match: "music.*"
+    verdict: allow
   - match: ["tony.read_skill", "tony.run_subagent"]
     verdict: allow
 limits:

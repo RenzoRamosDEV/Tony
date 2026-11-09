@@ -17,10 +17,10 @@ Tony SHALL connect stdio servers (launched from `command`, `args`, `env`) and st
 - **THEN** the agent's tool catalog contains `remote.ping`
 
 ### Requirement: Connect timeout per server
-Each server connection, including its initialization handshake and tool listing, SHALL be bounded by a 10 second timeout, applied independently per server.
+Each server connection, including its initialization handshake and tool listing, SHALL be bounded by a 30 second timeout (configurable per manager), applied independently per server.
 
 #### Scenario: Server hangs on connect
-- **WHEN** a server does not finish initializing within 10 seconds
+- **WHEN** a server does not finish initializing within 30 seconds
 - **THEN** that server is marked down with a timeout reason and the remaining servers are unaffected
 
 ### Requirement: Failure isolation
@@ -29,6 +29,21 @@ A server that fails to connect SHALL be marked down, logged to the task log as a
 #### Scenario: MCP down at start
 - **WHEN** `tool.json` declares a stdio server whose command does not exist, alongside a working filesystem server
 - **THEN** the broken server is marked down, an `error` event naming it is written to the task log and stderr, the filesystem tools are callable, and the run continues to completion
+
+### Requirement: Background reconnect of failed servers
+A server marked down because its connection failed or timed out SHALL be retried in the background up to 3 times, after delays of 5, 15 and 30 seconds (injectable), stopping at the first success. Each real status transition SHALL be published through the status callback exactly once (a repeated identical failure reason is not republished); after the last failed attempt the server SHALL stay down with the last reason. A server that is up SHALL NOT be retried, and pending retries SHALL be cancelled when the manager exits, leaving no running tasks.
+
+#### Scenario: Server recovers after a failed start
+- **WHEN** a server fails on its first connection attempt and succeeds on a retry
+- **THEN** it is published down and then up, its tools join the catalog, and no further retries run
+
+#### Scenario: Server never recovers
+- **WHEN** every attempt fails
+- **THEN** exactly 3 retries run, and the server stays down with the last failure reason
+
+#### Scenario: Shutdown during backoff
+- **WHEN** the manager exits while a retry is waiting
+- **THEN** the retry is cancelled and no task remains
 
 ### Requirement: Tool identifiers
 MCP tools SHALL be identified as `<server>.<tool>` and native tools as `tony.<name>`. Server names `tony` MUST be rejected to avoid collisions. Tony SHALL provide exactly the native tools `read_skill` and `run_subagent`, bound to the calling agent at each run.

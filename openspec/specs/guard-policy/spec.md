@@ -191,6 +191,10 @@ rules:
     verdict: confirm
   - match: "obsidian.*"
     verdict: confirm
+  - match: ["music.music_play", "music.music_queue"]
+    verdict: confirm
+  - match: "music.*"
+    verdict: allow
   - match: ["tony.read_skill", "tony.run_subagent"]
     verdict: allow
 limits: {tool_timeout_s: 20, task_timeout_s: 300, confirm_timeout_s: 60, max_denied_retries: 3, token_alert: 50000, max_steps_per_agent: 30}
