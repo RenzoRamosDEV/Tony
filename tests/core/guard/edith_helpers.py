@@ -36,15 +36,45 @@ def call(tool, args=None):
     return ToolCall(task_id="t" * 32, agent="viernes", tool=tool, args=args or {})
 
 
-def make_edith(root, *, confirmer=None, wording=None, readings=(1.0, 1.0), policy=POLICY):
+NOW = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
+
+
+class MutablePolicySource:
+    """PolicySource whose policy and version a test (or a confirmer) swaps at will."""
+
+    def __init__(self, policy, version="v1"):
+        self.policy = policy
+        self.policy_version = version
+
+    def current(self):
+        return self.policy
+
+    def version(self):
+        return self.policy_version
+
+    def swap(self, policy, version):
+        self.policy, self.policy_version = policy, version
+
+
+def make_edith(
+    root,
+    *,
+    confirmer=None,
+    wording=None,
+    readings=(1.0, 1.0),
+    policy=POLICY,
+    source=None,
+    clock=lambda: NOW,
+):
     confirmer = confirmer or FakeConfirmer()
     edith = EdithGuard(
-        StaticPolicy(policy),
+        source or StaticPolicy(policy, "v1"),
         confirmer=confirmer,
         wording=wording,
         audit=AuditLog(root, clock=lambda: datetime(2026, 11, 1, 9, 0, tzinfo=UTC)),
         masker=SecretMasker({"s3cr3t"}),
         monotonic=TickingClock(*readings),
+        clock=clock,
     )
     return edith, confirmer
 

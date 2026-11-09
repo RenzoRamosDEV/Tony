@@ -64,6 +64,7 @@ def test_bundled_policy_equals_the_shipped_example():
         "music.music_play/confirm",
         "music.*/allow",
         "tony.read_skill/allow",
+        "tony.ask_user/allow",
     ]
 
 
@@ -78,3 +79,12 @@ def test_bundled_policy_confirms_starting_music_and_allows_everything_else():
         assert evaluate(policy, f"music.music_{tool}", {"consulta": "x"}).verdict == "confirm"
     for tool in ("search", "pause", "resume", "next", "previous", "volume", "stop", "now_playing"):
         assert evaluate(policy, f"music.music_{tool}", {"consulta": "x"}).verdict == "allow"
+
+
+def test_bundled_policy_allows_ask_user_and_still_confirms_unknown_tools():
+    policy = load_policy(REPO, "edith")
+
+    ruling = evaluate(policy, "tony.ask_user", {"question": "¿Cuál?"})
+
+    assert (ruling.verdict, ruling.rule) == ("allow", "tony.ask_user/allow")
+    assert evaluate(policy, "tony.other", {}).verdict == "confirm"

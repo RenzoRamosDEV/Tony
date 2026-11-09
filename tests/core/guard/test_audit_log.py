@@ -117,3 +117,23 @@ class TestAuditLog:
         log.append(CALL, CONFIRMED, args_preview='{"q": "acción"}', duration_ms=1)
 
         assert "acción" in (tmp_path / AUDIT_FILE).read_text(encoding="utf-8")
+
+
+class TestApprovalId:
+    def _line(self, tmp_path, ruling, approval_id):
+        AuditLog(tmp_path, clock=fixed_clock).append(
+            CALL, ruling, args_preview="p", duration_ms=1, approval_id=approval_id
+        )
+        return json.loads((tmp_path / AUDIT_FILE).read_text())
+
+    def test_confirm_line_records_the_approval_id(self, tmp_path):
+        assert self._line(tmp_path, CONFIRMED, "A1")["approval_id"] == "A1"
+
+    @pytest.mark.parametrize("verdict", ["allow", "deny"])
+    def test_other_verdicts_never_record_it(self, tmp_path, verdict):
+        ruling = Ruling(verdict=verdict, rule="r")
+
+        assert "approval_id" not in self._line(tmp_path, ruling, "A1")
+
+    def test_confirm_line_without_an_id_keeps_the_legacy_shape(self, tmp_path):
+        assert "approval_id" not in self._line(tmp_path, CONFIRMED, None)

@@ -3,6 +3,7 @@ import sys
 import threading
 from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
+from datetime import datetime
 from typing import Protocol, TextIO, runtime_checkable
 
 from pydantic import BaseModel
@@ -16,6 +17,11 @@ class ConfirmationRequest(BaseModel):
     args_preview: str
     question: str
     allow_always: bool = False
+    approval_id: str | None = None
+    args_digest: str | None = None
+    policy_version: str | None = None
+    expires_at: datetime | None = None
+    preview: dict[str, str | int] = {}
 
 
 @runtime_checkable
@@ -47,6 +53,8 @@ class CliConfirmer:
 
     async def ask(self, request: ConfirmationRequest) -> bool | None:
         err = self._err or sys.stderr
+        for name, value in request.preview.items():
+            err.write(f"{name}: {value}\n")
         err.write(f"{self._prefix}{request.question} ")
         err.flush()
         line = await self._read_line()

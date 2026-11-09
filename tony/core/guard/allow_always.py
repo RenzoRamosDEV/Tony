@@ -37,6 +37,25 @@ def insert_allow_always(root: Path, guard: str, tool: str) -> None:
     _replace(path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
 
+def revoke_allow_always(root: Path, guard: str, tool: str) -> bool:
+    """Remove the allow-always rule of `tool`; only `user-always/` rules can be removed.
+
+    Returns whether a rule was removed. Validated and replaced like `insert_allow_always`;
+    nothing is written when there is no such rule.
+    """
+    path = root / policy_file(guard)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    rule_id = allow_always_id(tool)
+    rules = data.get("rules", [])
+    kept = [rule for rule in rules if not (isinstance(rule, dict) and rule.get("id") == rule_id)]
+    if len(kept) == len(rules):
+        return False
+    data["rules"] = kept
+    Policy.model_validate(data)
+    _replace(path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+    return True
+
+
 def _replace(path: Path, text: str) -> None:
     descriptor, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:

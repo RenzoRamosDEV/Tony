@@ -14,7 +14,7 @@ PREVIEW_LIMIT = 200
 ELLIPSIS = "…"
 
 
-def canonical_json(args: dict[str, Any]) -> str:
+def canonical_json(args: Any) -> str:
     return json.dumps(args, sort_keys=True, ensure_ascii=False)
 
 
@@ -23,10 +23,15 @@ def args_hash(args: dict[str, Any]) -> str:
 
 
 def args_preview(args: dict[str, Any], masker: SecretMasker) -> str:
-    preview = canonical_json(masker.mask_json(_mask_secret_keys(args)))
+    preview = canonical_json(mask_args(args, masker))
     if len(preview) > PREVIEW_LIMIT:
         return preview[:PREVIEW_LIMIT] + ELLIPSIS
     return preview
+
+
+def mask_args(args: dict[str, Any], masker: SecretMasker) -> dict[str, Any]:
+    """Arguments with values under secret-named keys and known secret values masked."""
+    return masker.mask_json(_mask_secret_keys(args))
 
 
 def _mask_secret_keys(node: Any) -> Any:
@@ -48,7 +53,13 @@ class AuditLog:
         self._clock = clock
 
     def append(
-        self, call: ToolCall, ruling: Ruling, *, args_preview: str, duration_ms: int
+        self,
+        call: ToolCall,
+        ruling: Ruling,
+        *,
+        args_preview: str,
+        duration_ms: int,
+        approval_id: str | None = None,
     ) -> None:
         line = {
             "ts": self._clock().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -60,6 +71,8 @@ class AuditLog:
             **ruling.model_dump(),
             "duration_ms": duration_ms,
         }
+        if approval_id is not None and ruling.verdict == "confirm":
+            line["approval_id"] = approval_id
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(line, ensure_ascii=False) + "\n")

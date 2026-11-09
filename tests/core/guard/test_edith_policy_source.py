@@ -19,13 +19,17 @@ DENY_READS = Policy.model_validate(
 
 
 class MutablePolicy:
-    def __init__(self, policy):
+    def __init__(self, policy, version="v1"):
         self.policy = policy
+        self.policy_version = version
         self.reads = 0
 
     def current(self):
         self.reads += 1
         return self.policy
+
+    def version(self):
+        return self.policy_version
 
 
 def edith_for(root, source, confirmer=None):

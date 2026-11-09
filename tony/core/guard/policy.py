@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from re import Pattern
 from typing import Annotated, Any
@@ -76,17 +77,24 @@ def policy_file(guard: str) -> str:
 
 
 def load_policy(root: Path, guard: str) -> Policy:
+    return load_policy_with_version(root, guard)[0]
+
+
+def load_policy_with_version(root: Path, guard: str) -> tuple[Policy, str]:
+    """The guard's policy and the sha256 of the exact `policy.yaml` bytes it was parsed from."""
     file = policy_file(guard)
     path = root / file
     if not path.is_file():
         raise DefinitionError(file, None, f"missing file {file}")
+    content = path.read_bytes()
     try:
-        data = yaml.safe_load(path.read_text())
-    except yaml.YAMLError as error:
+        data = yaml.safe_load(content.decode())
+    except (yaml.YAMLError, UnicodeDecodeError) as error:
         raise DefinitionError(file, None, f"invalid YAML: {error}") from error
     if not isinstance(data, dict):
         raise DefinitionError(file, None, "must be a YAML mapping")
     try:
-        return Policy.model_validate(data)
+        policy = Policy.model_validate(data)
     except ValidationError as error:
         raise DefinitionError.from_validation(file, error) from error
+    return policy, hashlib.sha256(content).hexdigest()

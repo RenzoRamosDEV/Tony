@@ -1,7 +1,9 @@
+import hashlib
+
 import pytest
 
 from tony.core.config.errors import DefinitionError
-from tony.core.guard.policy import load_policy
+from tony.core.guard.policy import load_policy, load_policy_with_version
 
 FILE = "agents/edith/policy.yaml"
 
@@ -58,3 +60,33 @@ def test_schema_error_names_file_and_field(tmp_path):
 
     assert (error.file, error.field) == (FILE, "limits.max_cost")
     assert str(error).startswith(f"{FILE}: limits.max_cost: ")
+
+
+POLICY_TEXT = "default: deny\nrules:\n  - match: a.b\n    verdict: allow\n"
+
+
+def test_version_is_sha256_of_file_bytes_and_policy_matches_load_policy(tmp_path):
+    write_policy(tmp_path, POLICY_TEXT)
+
+    policy, version = load_policy_with_version(tmp_path, "edith")
+
+    assert version == hashlib.sha256(POLICY_TEXT.encode()).hexdigest()
+    assert policy == load_policy(tmp_path, "edith")
+
+
+def test_comment_only_edit_changes_the_version(tmp_path):
+    write_policy(tmp_path, POLICY_TEXT)
+    _, before = load_policy_with_version(tmp_path, "edith")
+
+    write_policy(tmp_path, POLICY_TEXT + "# nota\n")
+    policy, after = load_policy_with_version(tmp_path, "edith")
+
+    assert after != before
+    assert policy == load_policy(tmp_path, "edith")
+
+
+def test_version_of_an_invalid_file_raises_definition_error(tmp_path):
+    write_policy(tmp_path, "- a\n")
+
+    with pytest.raises(DefinitionError):
+        load_policy_with_version(tmp_path, "edith")

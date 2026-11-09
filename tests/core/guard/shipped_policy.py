@@ -57,6 +57,8 @@ rules:
     verdict: allow
   - match: ["tony.read_skill", "tony.run_subagent"]
     verdict: allow
+  - match: "tony.ask_user"
+    verdict: allow
 limits:
   tool_timeout_s: 20
   task_timeout_s: 300

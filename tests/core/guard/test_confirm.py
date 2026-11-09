@@ -124,3 +124,26 @@ def test_late_answer_after_the_loop_closed_is_ignored(monkeypatch):
 
     assert not reader.is_alive()
     assert errors == []
+
+
+def test_approval_fields_default_to_empty():
+    assert (REQUEST.approval_id, REQUEST.args_digest, REQUEST.policy_version) == (None, None, None)
+    assert (REQUEST.expires_at, REQUEST.preview) == (None, {})
+
+
+async def test_cli_confirmer_prints_preview_fields_before_the_question():
+    request = REQUEST.model_copy(update={"preview": {"to": "a@x.com", "bytes": 12}})
+    err = io.StringIO()
+
+    await CliConfirmer(thread_line_reader(lambda: "s\n"), err=err).ask(request)
+
+    assert err.getvalue() == f"to: a@x.com\nbytes: 12\n{QUESTION} "
+
+
+async def test_cli_confirmer_prefix_applies_to_the_question_only():
+    request = REQUEST.model_copy(update={"preview": {"to": "a"}})
+    err = io.StringIO()
+
+    await CliConfirmer(thread_line_reader(lambda: "s\n"), prefix="Edith: ", err=err).ask(request)
+
+    assert err.getvalue() == f"to: a\nEdith: {QUESTION} "
