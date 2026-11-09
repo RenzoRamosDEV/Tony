@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ahorro de tokens en Tony</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Concepto: plano técnico de ingeniería; cada mejora tiene una letra fija (A–I) que aparece en el mapa, en los diagramas y en la tabla. */
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --fg: #14202b; --muted: #55657a; --line: #d5dce6;
+  --accent: #1b5fd6; --accent-soft: #e3ecfc;
+  --ok: #0d8a5f; --ok-soft: #dff3ea;
+  --warn: #b86a00; --warn-soft: #fbeed8;
+  --bad: #c0392b; --bad-soft: #f9e1de;
+  --f-display: "Manrope", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1620; --surface: #17212d; --fg: #e6edf5; --muted: #9db0c5; --line: #2a3a4d;
+    --accent: #6ea3ff; --accent-soft: #1b2c4a;
+    --ok: #3dd29b; --ok-soft: #12362b;
+    --warn: #f0a640; --warn-soft: #3b2a10;
+    --bad: #ff7b6b; --bad-soft: #43201c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1620; --surface: #17212d; --fg: #e6edf5; --muted: #9db0c5; --line: #2a3a4d;
+  --accent: #6ea3ff; --accent-soft: #1b2c4a;
+  --ok: #3dd29b; --ok-soft: #12362b;
+  --warn: #f0a640; --warn-soft: #3b2a10;
+  --bad: #ff7b6b; --bad-soft: #43201c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 400 16px/1.6 var(--f-body);
+  padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); margin: 0; }
+.wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.01em; }
+h3 { font-size: 1.1rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+.lead { font-size: 1.15rem; color: var(--muted); max-width: 62ch; }
+.eyebrow { font: 500 0.78rem var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+section { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { border-top: 3px solid var(--accent); background: var(--surface); padding: 12px 14px; }
+.stat b { display: block; font: 800 1.9rem var(--f-display); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 0.9rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.scroll { overflow-x: auto; }
+.scroll svg { display: block; min-width: 620px; width: 100%; height: auto; }
+.tag { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; background: var(--accent); color: var(--bg);
+  font: 500 0.85rem var(--f-mono); flex: none; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cols > * { min-width: 0; }
+.chip { font: 500 0.78rem var(--f-mono); padding: 2px 8px; }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.note { font-size: 0.9rem; color: var(--muted); }
+code { font: 500 0.88em var(--f-mono); background: var(--accent-soft); padding: 1px 5px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.93rem; }
+th { text-align: left; font: 500 0.75rem var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { white-space: nowrap; }
+/* SVG */
+svg text { font-family: var(--f-body); fill: var(--fg); font-size: 13px; }
+svg .mono { font-family: var(--f-mono); font-size: 11.5px; }
+svg .muted { fill: var(--muted); }
+svg .bold { font-weight: 700; }
+.s-box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+.s-acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.s-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.5; }
+.s-bad { fill: var(--bad-soft); stroke: var(--bad); stroke-width: 1.5; }
+.s-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.5; }
+.s-bar-bad { fill: var(--bad); } .s-bar-ok { fill: var(--ok); } .s-bar-acc { fill: var(--accent); } .s-bar-warn { fill: var(--warn); }
+.s-line { stroke: var(--line); stroke-width: 1; fill: none; }
+.s-arrow { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+.s-dash { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; fill: none; }
+.s-badge { fill: var(--accent); }
+svg text.badge { fill: var(--bg); font-family: var(--f-mono); font-weight: 500; font-size: 12px; text-anchor: middle; }
+.s-arrowhead { fill: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .panel { transition: border-color .2s; } .panel:hover { border-color: var(--accent); } }
+</style>
+<div class="wrap">
+<header style="display:flex;flex-direction:column;gap:16px">
+  <span class="eyebrow">Segunda ronda · prioridad: ahorro de tokens</span>
+  <h1>Menos tokens, más visibilidad: qué se hizo en Tony</h1>
+  <p class="lead">Cada palabra que Tony manda al modelo cuesta dinero y tiempo. Una segunda revisión con Codex buscó dónde se enviaban tokens de más y dónde Tony no veía su propio gasto. Se hicieron cinco mejoras en dos cambios, sin quitar ni renombrar nada.</p>
+  <div class="stats">
+    <div class="stat"><b>5</b><span>mejoras (A–E)</span></div>
+    <div class="stat"><b>2</b><span>cambios OpenSpec</span></div>
+    <div class="stat"><b>2112</b><span>pruebas pasadas</span></div>
+    <div class="stat"><b>0</b><span>funciones quitadas</span></div>
+  </div>
+</header>
+
+<section>
+  <span class="eyebrow">Mapa</span>
+  <h2>Dónde se gastan los tokens en un turno</h2>
+  <p>Un turno de Tony junta varias piezas. Las insignias marcan en cuál actúa cada mejora. Las anchuras son un esquema orientativo, no una medición.</p>
+  <div class="panel"><div class="scroll">
+  <svg viewBox="0 0 900 250" role="img" aria-label="Piezas que componen el contexto de un turno y la mejora que actúa en cada una">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" class="s-arrowhead"/></marker></defs>
+    <text x="10" y="22" class="bold">Lo que entra al modelo</text>
+    <rect class="s-box" x="10" y="34" width="170" height="54"/><text x="95" y="58" text-anchor="middle" class="bold">Instrucciones</text><text x="95" y="76" text-anchor="middle" class="muted">del agente y skills</text>
+    <rect class="s-acc" x="184" y="34" width="120" height="54"/><text x="244" y="58" text-anchor="middle" class="bold">Preferencias</text><text x="244" y="76" text-anchor="middle" class="muted">archivo del usuario</text>
+    <rect class="s-acc" x="308" y="34" width="230" height="54"/><text x="423" y="58" text-anchor="middle" class="bold">Historial</text><text x="423" y="76" text-anchor="middle" class="muted">hasta 20 mensajes</text>
+    <rect class="s-box" x="542" y="34" width="90" height="54"/><text x="587" y="66" text-anchor="middle" class="bold">Tu mensaje</text>
+    <rect class="s-acc" x="636" y="34" width="254" height="54"/><text x="763" y="58" text-anchor="middle" class="bold">Resultados de herramientas</text><text x="763" y="76" text-anchor="middle" class="muted">documentos, listados…</text>
+    <circle class="s-badge" cx="244" cy="34" r="12"/><text class="badge" x="244" y="38">D</text>
+    <circle class="s-badge" cx="423" cy="34" r="12"/><text class="badge" x="423" y="38">E</text>
+    <circle class="s-badge" cx="763" cy="34" r="12"/><text class="badge" x="763" y="38">C</text>
+    <text x="10" y="140" class="bold">Alrededor del turno</text>
+    <rect class="s-acc" x="10" y="152" width="270" height="62"/><text x="145" y="178" text-anchor="middle" class="bold">Pregunta de confirmación de Edith</text><text x="145" y="198" text-anchor="middle" class="muted">una llamada al modelo cada vez</text>
+    <circle class="s-badge" cx="145" cy="152" r="12"/><text class="badge" x="145" y="156">B</text>
+    <rect class="s-acc" x="330" y="152" width="270" height="62"/><text x="465" y="178" text-anchor="middle" class="bold">Registro de uso de tokens</text><text x="465" y="198" text-anchor="middle" class="muted">antes sin caché ni coste</text>
+    <circle class="s-badge" cx="465" cy="152" r="12"/><text class="badge" x="465" y="156">A</text>
+    <text x="640" y="190" class="mono muted">A = medir · B, C, D, E = ahorrar</text>
+  </svg></div></div>
+</section>
+
+<section>
+  <span class="eyebrow">Cambio 1 · cost-visibility-and-prompt-savings</span>
+  <h2>Ver el gasto y dejar de repetir trabajo</h2>
+
+  <div class="panel">
+    <div class="row"><span class="tag">A</span><h3>Registrar caché y coste de cada llamada</h3></div>
+    <p>El SDK de Claude informa de cuántos tokens vinieron de la caché, cuántos se escribieron en ella y cuánto costó la llamada. Tony lo descartaba y solo guardaba entrada y salida, así que no se podía saber si la caché funcionaba. Ahora el registro de cada tarea incluye esos datos como claves adicionales; las claves anteriores no cambian.</p>
+    <div class="scroll"><svg viewBox="0 0 900 190" role="img" aria-label="Campos del evento token_usage antes y ahora">
+      <text x="10" y="20" class="bold">Antes</text>
+      <rect class="s-box" x="10" y="30" width="200" height="30"/><text x="110" y="50" text-anchor="middle" class="mono">input_tokens</text>
+      <rect class="s-box" x="220" y="30" width="200" height="30"/><text x="320" y="50" text-anchor="middle" class="mono">output_tokens</text>
+      <text x="10" y="100" class="bold">Ahora</text>
+      <rect class="s-box" x="10" y="110" width="200" height="30"/><text x="110" y="130" text-anchor="middle" class="mono">input_tokens</text>
+      <rect class="s-box" x="220" y="110" width="200" height="30"/><text x="320" y="130" text-anchor="middle" class="mono">output_tokens</text>
+      <rect class="s-ok" x="430" y="110" width="150" height="30"/><text x="505" y="130" text-anchor="middle" class="mono">cache_read_tokens</text>
+      <rect class="s-ok" x="590" y="110" width="170" height="30"/><text x="675" y="130" text-anchor="middle" class="mono">cache_creation_tokens</text>
+      <rect class="s-ok" x="770" y="110" width="120" height="30"/><text x="830" y="130" text-anchor="middle" class="mono">cost_usd</text>
+      <text x="430" y="168" class="mono muted">Si el SDK no informa del coste, queda en null: desconocido no es lo mismo que 0.</text>
+    </svg></div>
+    <div class="row"><span class="chip ok">Ahorro directo: 0</span><span class="chip">Permite medir todo lo demás</span></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="row"><span class="tag">B</span><h3>Reutilizar la redacción de confirmaciones</h3></div>
+      <p>Cada vez que Edith pide confirmar una acción, Tony llamaba al modelo para redactar la pregunta, aunque fuera idéntica a una anterior. Ahora se recuerda la redacción válida de las últimas 128 preguntas distintas. Las decisiones de permitir o denegar nunca se guardan: se evalúan siempre.</p>
+      <div class="scroll"><svg viewBox="0 0 420 190" role="img" aria-label="Tres confirmaciones iguales: llamadas al modelo antes y ahora" style="min-width:380px">
+        <text x="6" y="18" class="bold">Antes · 3 confirmaciones iguales</text>
+        <rect class="s-bad" x="6" y="28" width="120" height="30"/><text x="66" y="48" text-anchor="middle" class="mono">modelo</text>
+        <rect class="s-bad" x="136" y="28" width="120" height="30"/><text x="196" y="48" text-anchor="middle" class="mono">modelo</text>
+        <rect class="s-bad" x="266" y="28" width="120" height="30"/><text x="326" y="48" text-anchor="middle" class="mono">modelo</text>
+        <text x="6" y="100" class="bold">Ahora</text>
+        <rect class="s-bad" x="6" y="110" width="120" height="30"/><text x="66" y="130" text-anchor="middle" class="mono">modelo</text>
+        <rect class="s-ok" x="136" y="110" width="120" height="30"/><text x="196" y="130" text-anchor="middle" class="mono">recordada</text>
+        <rect class="s-ok" x="266" y="110" width="120" height="30"/><text x="326" y="130" text-anchor="middle" class="mono">recordada</text>
+        <text x="6" y="172" class="mono muted">Se separa por herramienta, argumentos, regla, prompt y modelo.</text>
+      </svg></div>
+      <p class="note">Texto inválido, vacío o con error no se recuerda.</p>
+    </div>
+    <div class="panel">
+      <div class="row"><span class="tag">D</span><h3>No repetir preferencias</h3></div>
+      <p>El archivo de preferencias entra completo en el prompt de cada turno, y guardar dos veces la misma preferencia añadía la línea repetida. Ahora una línea idéntica no se vuelve a escribir.</p>
+      <div class="scroll"><svg viewBox="0 0 420 190" role="img" aria-label="Líneas del archivo tras guardar la misma preferencia cinco veces" style="min-width:380px">
+        <line class="s-line" x1="40" x2="40" y1="14" y2="140"/><line class="s-line" x1="40" x2="410" y1="140" y2="140"/>
+        <text x="46" y="26" class="mono muted">líneas en el archivo</text>
+        <rect class="s-bar-bad" x="70" y="40" width="40" height="100"/><rect class="s-bar-ok" x="120" y="120" width="40" height="20"/>
+        <text x="90" y="156" text-anchor="middle" class="mono">antes</text><text x="140" y="156" text-anchor="middle" class="mono">ahora</text>
+        <text x="190" y="64" class="mono">guardar 5 veces «Prefiero</text><text x="190" y="82" class="mono">respuestas cortas»:</text>
+        <text x="190" y="104" class="mono" style="fill:var(--bad)">antes 5 líneas</text><text x="190" y="122" class="mono" style="fill:var(--ok)">ahora 1 línea</text>
+        <text x="40" y="180" class="mono muted">Mayúsculas distintas cuentan como otra línea.</text>
+      </svg></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Cambio 2 · bounded-model-context</span>
+  <h2>Poner tope a lo que crece sin límite</h2>
+  <p>Los dos contenidos que más pueden inflar un turno eran los resultados de herramientas y el historial. Ambos tienen ahora un tope configurable. Los valores por defecto son generosos, así que las conversaciones normales no cambian.</p>
+
+  <div class="panel">
+    <div class="row"><span class="tag">C</span><h3>Recortar resultados de herramientas enormes</h3></div>
+    <p>Una herramienta que devolvía un documento de 50.000 caracteres lo metía entero en el contexto, y se repetía en cada paso siguiente. Ahora el modelo recibe como máximo 20.000 caracteres (clave <code>tool_result_max_chars</code> en los límites de la política; <code>0</code> la desactiva). El texto termina con un aviso que dice cuánto se mostró y cuánto había en total, y el registro de la tarea guarda el resultado completo. Los errores nunca se recortan.</p>
+    <div class="scroll"><svg viewBox="0 0 900 190" role="img" aria-label="Resultado de 50000 caracteres: antes llegaba entero, ahora 20000 más aviso">
+      <text x="10" y="20" class="bold">Antes</text>
+      <rect class="s-bar-bad" x="150" y="30" width="700" height="24"/><text x="500" y="47" text-anchor="middle" class="mono" style="fill:var(--bg)">50.000 caracteres al modelo (≈ 12.500 tokens)</text>
+      <text x="10" y="100" class="bold">Ahora</text>
+      <rect class="s-bar-ok" x="150" y="110" width="280" height="24"/><text x="290" y="127" text-anchor="middle" class="mono" style="fill:var(--bg)">20.000 (≈ 5.000 tokens)</text>
+      <rect class="s-warn" x="430" y="110" width="140" height="24"/><text x="500" y="127" text-anchor="middle" class="mono">aviso</text>
+      <rect class="s-box" x="570" y="110" width="280" height="24" stroke-dasharray="4 3"/><text x="710" y="127" text-anchor="middle" class="mono muted">resto: solo en el registro</text>
+      <text x="150" y="168" class="mono muted">Aviso: [truncated: showing first 20000 of 50000 characters] · tokens estimados a 4 caracteres por token.</text>
+    </svg></div>
+    <div class="row"><span class="chip ok">≈ 60 % menos en este ejemplo</span><span class="chip warn">Con 0 se desactiva el tope</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="row"><span class="tag">E</span><h3>Presupuesto de caracteres para el historial</h3></div>
+    <p>Tony reenvía los últimos 20 mensajes, sean cortos o larguísimos. Ahora, además, el historial reenviado cabe en 12.000 caracteres (clave <code>history_max_chars</code> en <code>tony.yaml</code>; <code>0</code> la desactiva). Se descartan primero los mensajes más antiguos, se conserva el orden y el último mensaje siempre se mantiene; si por sí solo supera el presupuesto, se corta y acaba en <code>[…]</code>. El historial guardado en la base de datos no se toca.</p>
+    <div class="scroll"><svg viewBox="0 0 900 200" role="img" aria-label="Veinte mensajes de ejemplo con longitudes distintas; los ocho más recientes caben en el presupuesto">
+      <text x="10" y="18" class="mono muted">caracteres</text>
+      <line class="s-line" x1="60" x2="60" y1="26" y2="150"/><line class="s-line" x1="60" x2="860" y1="150" y2="150"/>
+      <rect class="s-bar-bad" x="70" y="40" width="28" height="110"/><rect class="s-bar-bad" x="108" y="95" width="28" height="55"/><rect class="s-bar-bad" x="146" y="68" width="28" height="82"/><rect class="s-bar-bad" x="184" y="109" width="28" height="41"/><rect class="s-bar-bad" x="222" y="54" width="28" height="96"/><rect class="s-bar-bad" x="260" y="81" width="28" height="69"/><rect class="s-bar-bad" x="298" y="90" width="28" height="60"/><rect class="s-bar-bad" x="336" y="58" width="28" height="92"/><rect class="s-bar-bad" x="374" y="100" width="28" height="50"/><rect class="s-bar-bad" x="412" y="72" width="28" height="78"/><rect class="s-bar-bad" x="450" y="86" width="28" height="64"/><rect class="s-bar-bad" x="488" y="49" width="28" height="101"/><rect class="s-bar-ok" x="526" y="104" width="28" height="46"/><rect class="s-bar-ok" x="564" y="77" width="28" height="73"/><rect class="s-bar-ok" x="602" y="68" width="28" height="82"/><rect class="s-bar-ok" x="640" y="95" width="28" height="55"/><rect class="s-bar-ok" x="678" y="81" width="28" height="69"/><rect class="s-bar-ok" x="716" y="90" width="28" height="60"/><rect class="s-bar-ok" x="754" y="81" width="28" height="69"/><rect class="s-bar-ok" x="792" y="81" width="28" height="69"/>
+      <rect class="s-warn" x="522" y="158" width="304" height="6" style="fill:var(--ok-soft)"/>
+      <text x="526" y="182" class="mono" style="fill:var(--ok)">8 mensajes recientes ≈ 11.400 caracteres: caben</text>
+      <text x="70" y="182" class="mono" style="fill:var(--bad)">12 antiguos: se omiten</text>
+      <text x="70" y="198" class="mono muted">Ejemplo ilustrativo: 20 mensajes, 31.000 caracteres, presupuesto de 12.000.</text>
+    </svg></div>
+    <div class="row"><span class="chip ok">En el ejemplo: 31.000 → 11.400 caracteres</span><span class="chip warn">Con 0 vuelve el comportamiento anterior</span></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Resumen</span>
+  <h2>Las cinco mejoras en una tabla</h2>
+  <div class="panel"><div class="scroll">
+  <table>
+    <thead><tr><th>Mejora</th><th>Qué cambia</th><th>Efecto</th><th>Riesgo vigilado</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag">A</span> Coste y caché</td><td>El registro guarda caché y coste</td><td>Permite medir; ahorro directo 0</td><td>Coste desconocido se guarda como null</td></tr>
+      <tr><td><span class="tag">B</span> Redacción</td><td>Se recuerdan 128 preguntas válidas</td><td>Menos llamadas al modelo en confirmaciones repetidas</td><td>Texto obsoleto; la clave incluye prompt y modelo</td></tr>
+      <tr><td><span class="tag">C</span> Resultados</td><td>Tope de 20.000 caracteres con aviso</td><td>Menos tokens con documentos grandes</td><td>Detalle oculto; el registro lo conserva</td></tr>
+      <tr><td><span class="tag">D</span> Preferencias</td><td>No se duplican líneas idénticas</td><td>Prompt más pequeño con el uso</td><td>No fusiona preferencias distintas</td></tr>
+      <tr><td><span class="tag">E</span> Historial</td><td>Presupuesto de 12.000 caracteres</td><td>Menos tokens en conversaciones largas</td><td>Perder contexto antiguo; configurable</td></tr>
+    </tbody>
+  </table></div></div>
+</section>
+
+<section>
+  <span class="eyebrow">Estado</span>
+  <h2>Hecho, pendiente y descartado</h2>
+  <div class="cols">
+    <div class="panel"><h3>Hecho</h3><div class="row"><span class="chip ok">2 cambios implementados</span><span class="chip ok">2112 pruebas pasan</span></div>
+      <p>Pruebas escritas primero y mutantes manuales sobre el diff: 17 de 17 y 15 de 15 detectados.</p></div>
+    <div class="panel"><h3>Pendiente tuyo</h3><div class="row"><span class="chip warn">Sin commit</span><span class="chip warn">Sin subir</span></div>
+      <p>Todo está en la rama <code>feat/token-savings</code>, sin confirmar en git ni subido.</p></div>
+    <div class="panel"><h3>Descartado a propósito</h3><div class="row"><span class="chip">Más ahorro, más riesgo</span></div>
+      <p>Enrutar tareas a un modelo más barato, cargar esquemas de herramientas bajo demanda, resumir el historial con el modelo, compactar los traspasos entre agentes y poner presupuestos de gasto. Primero hay que medir con A.</p></div>
+    <div class="panel"><h3>Cómo medir el ahorro</h3><div class="row"><span class="chip">Registro de la tarea</span></div>
+      <p>Los eventos <code>token_usage</code> ahora muestran caché y coste. Comparar tareas antes y después dará el ahorro real; las cifras de esta página son estimaciones.</p></div>
+  </div>
+</section>
+</div>
+</html>
