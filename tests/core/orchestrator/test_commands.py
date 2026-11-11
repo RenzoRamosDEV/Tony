@@ -7,6 +7,7 @@ from tony.core.orchestrator.commands import (
     DeleteConversation,
     InvalidCommand,
     Listen,
+    Lock,
     ListConversations,
     ListDevices,
     ResumeConversation,
@@ -52,6 +53,7 @@ def test_rejects_set_audio_device_with_bad_kind():
         ({"type": "unlock", "pin": "4821"}, Unlock(pin="4821")),
         ({"type": "unlock", "pin": None}, Unlock(pin=None)),
         ({"type": "stop"}, Stop()),
+        ({"type": "lock"}, Lock()),
         (
             {"type": "send_message", "text": "Hola", "origin": "voice"},
             SendMessage(text="Hola", origin="voice"),

@@ -87,6 +87,14 @@ class EdithSession:
     def cancel(self) -> AuthStatus:
         return self._lock_conversation_only("cancelled")
 
+    def lock(self) -> AuthStatus:
+        """Relock on the user's request; the returned reason differs, the session is as at start."""
+        if not (self._auth.pin_required and self.unlocked):
+            return self.status
+        self.status = AuthStatus("locked", "start", 0)
+        self._clear_expiry()
+        return AuthStatus("locked", "locked_by_user", 0)
+
     def touch(self) -> AuthStatus | None:
         """Record a user message; relock and return the new status after an idle period."""
         now = self._monotonic()
@@ -97,15 +105,17 @@ class EdithSession:
                 self._expiry.refresh(self._auth.lock_after_min)
             return None
         self.status = AuthStatus("locked", "idle", 0)
+        self._clear_expiry()
+        return self.status
+
+    def _clear_expiry(self) -> None:
         if self._expiry is not None:
             self._expiry.clear()
-        return self.status
 
     def _lock_conversation_only(self, reason: AuthReason) -> AuthStatus:
         self.conversation_only = True
         self.status = AuthStatus("locked", reason, 0)
-        if self._expiry is not None:
-            self._expiry.clear()
+        self._clear_expiry()
         return self.status
 
 

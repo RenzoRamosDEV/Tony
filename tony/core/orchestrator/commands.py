@@ -43,6 +43,10 @@ class Unlock(_Command):
     pin: str | None = Field(repr=False)
 
 
+class Lock(_Command):
+    type: Literal["lock"] = "lock"
+
+
 class Listen(_Command):
     type: Literal["listen"] = "listen"
 
@@ -86,6 +90,7 @@ Command = Annotated[
     | Cancel
     | SetMode
     | Unlock
+    | Lock
     | Listen
     | StopListening
     | Stop

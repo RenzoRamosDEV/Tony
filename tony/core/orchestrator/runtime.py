@@ -37,6 +37,7 @@ from tony.core.orchestrator.commands import (
     ListConversations,
     Listen,
     ListDevices,
+    Lock,
     ResumeConversation,
     SendMessage,
     SetAudioDevice,
@@ -267,6 +268,8 @@ class CoreRuntime:
             self._publish(core_events.reply_mode(command.mode))
         elif isinstance(command, Unlock):
             self._unlock(command.pin)
+        elif isinstance(command, Lock):
+            self._publish(core_events.auth(*self.session.lock()))
         elif isinstance(command, Listen):
             self._require_voice().listen()
         elif isinstance(command, StopListening) and self.voice is not None:

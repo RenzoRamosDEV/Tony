@@ -14,6 +14,7 @@ VALID = [
     {"type": "set_mode", "mode": "both"},
     {"type": "unlock", "pin": "1234"},
     {"type": "unlock", "pin": None},
+    {"type": "lock"},
     {"type": "listen"},
     {"type": "stop_listening"},
 ]
