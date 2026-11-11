@@ -865,12 +865,39 @@ pre {
   gap: 0.3rem;
 }
 
-.audio-settings-card select {
+.select-frame {
+  display: block;
+}
+
+.select-frame select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
   font: inherit;
+  font-family: var(--font-ui);
   color: var(--accent);
   background: transparent;
-  border: 1px solid var(--hairline);
-  padding: 0.3rem 0.5rem;
+  border: none;
+  padding: 0.4rem 1.8rem 0.4rem 0.6rem;
+  cursor: pointer;
+}
+
+.select-frame::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid var(--accent);
+  border-bottom: 1.5px solid var(--accent);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.select-frame option {
+  background: var(--surface);
+  color: var(--fg);
 }
 
 .pin-overlay {
@@ -891,6 +918,12 @@ pre {
 .pin-card h2 {
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
+}
+
+.pin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .pin-form label {
@@ -938,6 +971,10 @@ pre {
   border-radius: 999px;
 }
 
+:is([data-theme="aurora"], [data-theme="instrumento"]) .select-frame {
+  border-radius: var(--radius-sm);
+}
+
 [data-theme="aurora"] .mic-toggle[data-mic-state="on"] {
   background: linear-gradient(135deg, #5ef2c4, #4cc9f0);
   color: var(--accent-fg);
@@ -957,15 +994,24 @@ pre {
   border-radius: 999px;
 }
 
-.appearance-section {
+.appearance-section,
+.edith-section {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-.appearance-section h3 {
+.appearance-section h3,
+.edith-section h3 {
   margin: 0;
   font-size: 0.78rem;
+}
+
+.edith-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .theme-options {

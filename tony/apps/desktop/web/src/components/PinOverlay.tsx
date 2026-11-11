@@ -73,12 +73,12 @@ function PinPrompt({ pin, onCommand, onHide }: Omit<Props, "onUnlockRequest">) {
         </p>
       ) : null}
       <div className="confirmation-actions">
-        <button type="submit" disabled={left > 0}>
+        <button type="submit" className="holo-frame holo" disabled={left > 0}>
           Desbloquear
         </button>
         <button
           type="button"
-          className="secondary"
+          className="holo-frame holo"
           onClick={() => {
             onCommand({ type: "unlock", pin: null });
             onHide();

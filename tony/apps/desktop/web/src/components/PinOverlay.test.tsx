@@ -118,6 +118,15 @@ describe("PinOverlay", () => {
     expect(sent).toEqual([]);
   });
 
+  it.each(["Desbloquear", "Cancelar"])("styles %s as a HUD button like the rest of the app", (name) => {
+    show(auth("start"));
+
+    const button = screen.getByRole("button", { name });
+
+    expect(button).toHaveClass("holo-frame", "holo");
+    expect(button).not.toHaveClass("secondary");
+  });
+
   it("offers an unlock control while locked that reopens the overlay", () => {
     show(auth("cancelled"));
     expect(screen.queryByRole("dialog")).toBeNull();

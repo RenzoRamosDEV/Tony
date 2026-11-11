@@ -11,6 +11,7 @@ export type AuthReason =
   | "backoff"
   | "idle"
   | "cancelled"
+  | "locked_by_user"
   | "unlocked"
   | "not_required";
 export type Verdict = "allow" | "confirm" | "deny";
@@ -169,6 +170,7 @@ export type Command =
   | { type: "cancel" }
   | { type: "set_mode"; mode: ReplyMode }
   | { type: "unlock"; pin: string | null }
+  | { type: "lock" }
   | { type: "listen" }
   | { type: "stop_listening" }
   | { type: "list_devices" }

@@ -7,6 +7,7 @@ import { AppearanceSection } from "./components/AppearanceSection";
 import { AudioSettingsOverlay } from "./components/AudioSettingsOverlay";
 import { ChatPanel } from "./components/ChatPanel";
 import { ConfirmationCard } from "./components/ConfirmationCard";
+import { EdithSection } from "./components/EdithSection";
 import { McpPanel } from "./components/McpPanel";
 import { MicButton } from "./components/MicButton";
 import { PinOverlay } from "./components/PinOverlay";
@@ -128,6 +129,7 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
     },
     [send],
   );
+  const requestUnlock = useCallback(() => dispatch({ kind: "unlock_requested" }), []);
   return (
     <>
       <TitleBar window={windowControls} />
@@ -151,15 +153,27 @@ export function App({ connect = connectBridge, createScene, webglAvailable }: Pr
       {state.confirmation ? (
         <ConfirmationCard confirmation={state.confirmation} onAnswer={answer} focusRequest={focusRequest} />
       ) : null}
+      <AudioSettingsOverlay devices={state.audioDevices} onCommand={send} label="Ajustes">
+        {(close) => (
+          <>
+            <AppearanceSection theme={theme} onChange={setTheme} />
+            <EdithSection
+              pin={state.pin}
+              onCommand={send}
+              onUnlockRequest={() => {
+                close();
+                requestUnlock();
+              }}
+            />
+          </>
+        )}
+      </AudioSettingsOverlay>
       <PinOverlay
         pin={state.pin}
         onCommand={send}
         onHide={() => dispatch({ kind: "pin_cancelled" })}
-        onUnlockRequest={() => dispatch({ kind: "unlock_requested" })}
+        onUnlockRequest={requestUnlock}
       />
-      <AudioSettingsOverlay devices={state.audioDevices} onCommand={send} label="Ajustes de audio y apariencia">
-        <AppearanceSection theme={theme} onChange={setTheme} />
-      </AudioSettingsOverlay>
     </>
   );
 }

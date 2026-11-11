@@ -81,6 +81,16 @@ describe("confirmation card", () => {
   });
 });
 
+describe("PIN form", () => {
+  it("stacks the field and the actions with a gap, so the focus ring never touches the buttons", () => {
+    const form = block(/\.pin-form \{[^}]*\}/);
+
+    expect(form).toContain("display: flex");
+    expect(form).toContain("flex-direction: column");
+    expect(form).toMatch(/gap:\s*0\.75rem/);
+  });
+});
+
 describe("agent colours", () => {
   it.each([
     ["--agent-jarvis", "#2F6FED"],
@@ -248,5 +258,45 @@ describe("visual themes", () => {
     for (const id of ["holo", "aurora", "instrumento"]) {
       expect(css).toContain(`.theme-swatch[data-theme="${id}"]`);
     }
+  });
+});
+
+describe("HUD device selects", () => {
+  const rule = (selector: string) => block(new RegExp(`(^|\\n)${selector.replace(/[.*:()\[\]"=-]/g, "\\$&")} \\{[^}]*\\}`));
+
+  it("lets the shared frame draw the outline, so the select itself is bare accent text", () => {
+    const select = rule(".select-frame select");
+
+    expect(select).toContain("appearance: none");
+    expect(select).toContain("background: transparent");
+    expect(select).toContain("border: none");
+    expect(select).toContain("color: var(--accent)");
+    expect(select).toContain("font-family: var(--font-ui)");
+    expect(css.match(/clip-path: polygon\(/g)).toHaveLength(2);
+  });
+
+  it("draws a visible accent arrow that never steals the click", () => {
+    const arrow = rule(".select-frame::after");
+
+    expect(arrow).toContain("content: \"\"");
+    expect(arrow).toContain("pointer-events: none");
+    expect(arrow).toContain("var(--accent)");
+  });
+
+  it("keeps the option list readable: dark surface, light text", () => {
+    const option = rule(".select-frame option");
+
+    expect(option).toContain("background: var(--surface)");
+    expect(option).toContain("color: var(--fg)");
+  });
+
+  it("drops the old amber-bordered box", () => {
+    expect(css).not.toMatch(/\.audio-settings-card select \{/);
+  });
+
+  it("uses the small radius in the rounded themes instead of the button pill", () => {
+    const rounded = rule(':is([data-theme="aurora"], [data-theme="instrumento"]) .select-frame');
+
+    expect(rounded).toContain("border-radius: var(--radius-sm)");
   });
 });
