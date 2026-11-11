@@ -17,6 +17,11 @@ confirmación. Todo corre en tu máquina: el modelo es la única pieza remota (v
 ![Claude](https://img.shields.io/badge/Claude-Agent%20SDK-D97757?logo=anthropic&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-servidores-000000)
 ![Flatpak](https://img.shields.io/badge/Flatpak-KDE%206.8-4A86CF?logo=flatpak&logoColor=white)
+![Estado](https://img.shields.io/badge/estado-en%20constante%20actualizaci%C3%B3n-F5A623)
+
+> 🚧 **Este proyecto está en constante actualización.** Se añaden funciones y se ajusta la
+> interfaz con frecuencia, así que algunas partes de este README pueden ir un paso por detrás
+> del código.
 
 [Qué es](#qué-es) ·
 [Cómo está montado](#cómo-está-montado) ·
