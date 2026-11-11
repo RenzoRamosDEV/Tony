@@ -283,7 +283,7 @@ describe("PIN view", () => {
     expect(apply(auth("locked", reason)).pin.mode).toBe("prompt");
   });
 
-  it.each(["unlocked", "not_required", "cancelled"])("hides for %s", (reason) => {
+  it.each(["unlocked", "not_required", "cancelled", "locked_by_user"])("hides for %s", (reason) => {
     expect(apply(auth("locked", "start"), auth("locked", reason)).pin.mode).toBe("hidden");
   });
 
@@ -300,6 +300,7 @@ describe("PIN view", () => {
 
   it("can unlock only while locked", () => {
     expect(apply(auth("locked", "cancelled")).pin.canUnlock).toBe(true);
+    expect(apply(auth("unlocked", "unlocked"), auth("locked", "locked_by_user")).pin.canUnlock).toBe(true);
     expect(apply(auth("unlocked", "unlocked")).pin.canUnlock).toBe(false);
   });
 
@@ -311,6 +312,11 @@ describe("PIN view", () => {
 
   it("an unlock request does nothing while unlocked", () => {
     expect(apply(auth("unlocked", "unlocked"), { kind: "unlock_requested" }).pin.mode).toBe("hidden");
+  });
+
+  it("keeps the latest auth reason, none before the first auth event", () => {
+    expect(initialState().pin.reason).toBeNull();
+    expect(apply(auth("locked", "start"), auth("locked", "locked_by_user")).pin.reason).toBe("locked_by_user");
   });
 
   it("cancelling hides the prompt", () => {

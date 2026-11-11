@@ -3,6 +3,7 @@ import type {
   AudioDevicesEvent,
   AuditRow,
   AuthEvent,
+  AuthReason,
   CoreEvent,
   McpStatusEvent,
   NeedsConfirmationEvent,
@@ -91,6 +92,7 @@ export interface PinView {
   /** Epoch milliseconds when the PIN can be typed again. */
   retryAt: number;
   canUnlock: boolean;
+  reason: AuthReason | null;
 }
 
 export interface AudioDevicesView {
@@ -140,7 +142,7 @@ export function initialState(): UiState {
     audit: [],
     auditFilter: "all",
     confirmation: null,
-    pin: { mode: "hidden", message: "", retryAt: 0, canUnlock: false },
+    pin: { mode: "hidden", message: "", retryAt: 0, canUnlock: false, reason: null },
     thinking: false,
     audioDevices: {
       input: [],
@@ -305,6 +307,7 @@ function onAuth(state: UiState, event: AuthEvent, now: number): UiState {
       message: PIN_MESSAGES[event.reason] ?? "",
       retryAt: now + event.retry_in_s * 1000,
       canUnlock: event.state === "locked",
+      reason: event.reason,
     },
   };
 }

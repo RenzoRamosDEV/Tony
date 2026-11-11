@@ -9,7 +9,7 @@ interface Props {
   devices: AudioDevicesView;
   onCommand: (command: Command) => void;
   label?: string;
-  children?: ReactNode;
+  children?: ReactNode | ((close: () => void) => ReactNode);
 }
 
 interface DeviceSelectProps {
@@ -26,20 +26,22 @@ function DeviceSelect({ id, label, kind, options, selected, warning, onCommand }
   return (
     <label htmlFor={id}>
       {label}
-      <select
-        id={id}
-        value={selected ?? ""}
-        onChange={(event) => {
-          onCommand({ type: "set_audio_device", kind, device: event.target.value || null });
-        }}
-      >
-        <option value="">{SYSTEM_DEFAULT_LABEL}</option>
-        {options.map((option) => (
-          <option key={option.name} value={option.name}>
-            {option.name}
-          </option>
-        ))}
-      </select>
+      <span className="holo-frame select-frame">
+        <select
+          id={id}
+          value={selected ?? ""}
+          onChange={(event) => {
+            onCommand({ type: "set_audio_device", kind, device: event.target.value || null });
+          }}
+        >
+          <option value="">{SYSTEM_DEFAULT_LABEL}</option>
+          {options.map((option) => (
+            <option key={option.name} value={option.name}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+      </span>
       {warning !== null ? (
         <p className="warn" role="status">
           {warning}
@@ -51,6 +53,7 @@ function DeviceSelect({ id, label, kind, options, selected, warning, onCommand }
 
 export function AudioSettingsOverlay({ devices, onCommand, label = "Ajustes de audio", children }: Props) {
   const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
 
   if (!open) {
     return (
@@ -96,8 +99,8 @@ export function AudioSettingsOverlay({ devices, onCommand, label = "Ajustes de a
           warning={devices.outputWarning}
           onCommand={onCommand}
         />
-        {children}
-        <button type="button" className="secondary" onClick={() => setOpen(false)}>
+        {typeof children === "function" ? children(close) : children}
+        <button type="button" className="holo-frame holo" onClick={close}>
           Cerrar
         </button>
       </section>

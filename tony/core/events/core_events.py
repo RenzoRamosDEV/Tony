@@ -17,7 +17,15 @@ VoiceLevelSource = Literal["input", "output"]
 VoiceState = Literal["loading", "ready", "listening", "unavailable"]
 AuthState = Literal["locked", "unlocked"]
 AuthReason = Literal[
-    "start", "no_lock_file", "wrong_pin", "backoff", "idle", "cancelled", "unlocked", "not_required"
+    "start",
+    "no_lock_file",
+    "wrong_pin",
+    "backoff",
+    "idle",
+    "cancelled",
+    "locked_by_user",
+    "unlocked",
+    "not_required",
 ]
 
 

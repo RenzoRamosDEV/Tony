@@ -9,6 +9,7 @@ from tests.fakes.fake_chat import FakeChatEngine, Say, Wait
 from tests.fakes.fake_engine import CallTool, FakeModelEngine, Final, Hang
 from tests.fakes.processes import processes_mentioning
 from tony.core.guard.pin import PinStore
+from tony.core.guard.unlock_expiry import SESSION_FILE
 from tony.core.memory.preferences import PREFERENCES_FILE
 from tony.core.orchestrator.runtime import CoreRuntime
 
@@ -257,6 +258,29 @@ async def test_idle_locked_delegate_waits_for_unlock(tmp_path):
 
     assert harness.of("task_started")
     assert json.loads(chat.replies[0].text)["resumen"] == "hecho"
+
+
+async def test_lock_relocks_and_the_next_delegate_waits_for_the_pin(tmp_path):
+    home, _ = home_for(tmp_path, SHIPPED_POLICY_YAML)
+    PinStore(home).set(PIN)
+    chat = FakeChatEngine([CallTool("tony.delegate", {"objetivo": "x"}), Say("ok")])
+
+    async with Harness(home, chat) as harness:
+        harness.send(type="unlock", pin=PIN)
+        await harness.until(lambda: harness.of("auth")[-1]["reason"] == "unlocked")
+        assert (home / SESSION_FILE).is_file()
+        harness.send(type="lock")
+        await harness.until(lambda: harness.of("auth")[-1]["reason"] == "locked_by_user")
+        assert not (home / SESSION_FILE).exists()
+        harness.send(type="send_message", text="Lista")
+        await harness.until(lambda: harness.of("auth")[-1]["reason"] == "start")
+        await asyncio.sleep(0.05)
+        assert harness.of("task_started") == []
+        harness.send(type="unlock", pin=PIN)
+        await harness.wait_for("result", 2)
+
+    assert harness.of("auth")[-3]["state"] == "locked"
+    assert harness.of("task_started")
 
 
 async def test_idle_locked_delegate_with_null_pin_is_refused(tmp_path):

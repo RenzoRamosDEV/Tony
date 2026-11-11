@@ -277,3 +277,59 @@ def test_touch_while_locked_does_not_report_a_change():
 
     assert edith.touch() is None
     assert edith.status == AuthStatus("locked", "start", 0)
+
+
+def unlocked_with_expiry():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry()
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+    edith.attempt(PIN)
+    return edith, expiry
+
+
+def test_lock_relocks_an_unlocked_session_like_the_start_state():
+    edith, expiry = unlocked_with_expiry()
+
+    assert edith.lock() == AuthStatus("locked", "locked_by_user", 0)
+    assert edith.status == AuthStatus("locked", "start", 0)
+    assert not edith.unlocked and not edith.conversation_only
+    assert expiry.cleared
+
+
+def test_lock_after_a_restart_restored_unlock_clears_the_persisted_unlock():
+    clock, pins, expiry = Clock(), FakePins(valid_lock=True), FakeExpiry(valid=True)
+    edith = EdithSession(Auth(pin_required=True), pins, monotonic=clock, expiry=expiry)
+
+    edith.lock()
+
+    assert not edith.unlocked and expiry.cleared
+
+
+def test_correct_pin_unlocks_after_lock():
+    edith, _ = unlocked_with_expiry()
+    edith.lock()
+
+    assert edith.attempt(PIN) == AuthStatus("unlocked", "unlocked", 0)
+
+
+@pytest.mark.parametrize(
+    ("pin_required", "valid_lock", "unchanged"),
+    [
+        (False, False, AuthStatus("unlocked", "not_required", 0)),
+        (True, False, AuthStatus("locked", "no_lock_file", 0)),
+        (True, True, AuthStatus("locked", "start", 0)),
+    ],
+)
+def test_lock_changes_nothing_unless_unlocked_with_a_pin(pin_required, valid_lock, unchanged):
+    edith, *_ = session(pin_required, valid_lock)
+    conversation_only = edith.conversation_only
+
+    assert edith.lock() == unchanged
+    assert edith.status == unchanged and edith.conversation_only is conversation_only
+
+
+def test_lock_keeps_conversation_only_mode_after_cancel():
+    edith, *_ = session()
+    edith.cancel()
+
+    assert edith.lock() == AuthStatus("locked", "cancelled", 0)
+    assert edith.conversation_only

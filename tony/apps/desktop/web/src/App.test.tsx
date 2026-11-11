@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -111,7 +111,7 @@ describe("App", () => {
   it("renders the audio settings trigger and forwards commands through the bridge", async () => {
     const { bridge } = await mount();
 
-    fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Ajustes" }));
 
     expect(bridge.sent).toContainEqual({ type: "list_devices" });
   });
@@ -257,6 +257,34 @@ describe("App", () => {
     expect(screen.getByText(/no QWebChannel/)).toBeInTheDocument();
   });
 
+  describe("Edith session in Ajustes", () => {
+    const authEvent = (state: "locked" | "unlocked", reason: string): CoreEvent =>
+      ({ type: "auth", ts: TS, state, reason, retry_in_s: 0 }) as CoreEvent;
+    const settingsDialog = () => screen.getByRole("dialog", { name: "Ajustes" });
+
+    it("locks an unlocked session from the settings dialog", async () => {
+      const { bridge } = await mount();
+      bridge.emit(authEvent("unlocked", "unlocked"));
+      fireEvent.click(screen.getByRole("button", { name: "Ajustes" }));
+
+      fireEvent.click(within(settingsDialog()).getByRole("button", { name: "Bloquear" }));
+
+      expect(bridge.sent).toContainEqual({ type: "lock" });
+    });
+
+    it("closes the settings dialog and shows only the PIN prompt for a locked session", async () => {
+      const { bridge } = await mount();
+      bridge.emit(authEvent("locked", "locked_by_user"));
+      fireEvent.click(screen.getByRole("button", { name: "Ajustes" }));
+
+      fireEvent.click(within(settingsDialog()).getByRole("button", { name: "Introducir PIN" }));
+
+      expect(screen.queryByRole("dialog", { name: "Ajustes" })).not.toBeInTheDocument();
+      expect(screen.getAllByRole("dialog")).toHaveLength(1);
+      expect(screen.getByRole("dialog", { name: /PIN/ })).toBeInTheDocument();
+    });
+  });
+
   describe("theme", () => {
     beforeEach(() => {
       window.localStorage.clear();
@@ -268,7 +296,7 @@ describe("App", () => {
       document.documentElement.removeAttribute("data-theme");
     });
 
-    const openSettings = () => fireEvent.click(screen.getByRole("button", { name: "Ajustes de audio y apariencia" }));
+    const openSettings = () => fireEvent.click(screen.getByRole("button", { name: "Ajustes" }));
 
     it("starts on holo, with the settings button reaching the appearance options", async () => {
       await mount();

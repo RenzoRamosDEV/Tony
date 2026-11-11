@@ -64,4 +64,42 @@ describe("AudioSettingsOverlay", () => {
     fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
     expect(screen.getByRole("dialog")).toContainElement(screen.getByText("Sección extra"));
   });
+
+  it("styles Cerrar like the other HUD actions, not as the generic secondary pill", () => {
+    render(<AudioSettingsOverlay devices={emptyDevices} onCommand={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
+
+    const close = screen.getByRole("button", { name: "Cerrar" });
+
+    expect(close).toHaveClass("holo-frame", "holo");
+    expect(close).not.toHaveClass("secondary");
+  });
+
+  it.each([/micrófono/i, /altavoz/i])("wraps the %s select in the HUD frame", (name) => {
+    render(<AudioSettingsOverlay devices={emptyDevices} onCommand={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
+
+    const select = screen.getByLabelText(name);
+
+    expect(select.tagName).toBe("SELECT");
+    expect(select.parentElement).toHaveClass("holo-frame", "select-frame");
+  });
+
+  it("gives render-prop children a close callback that dismisses the dialog", () => {
+    render(
+      <AudioSettingsOverlay devices={emptyDevices} onCommand={vi.fn()}>
+        {(close) => (
+          <button type="button" onClick={close}>
+            Salir
+          </button>
+        )}
+      </AudioSettingsOverlay>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /ajustes de audio/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Salir" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ajustes de audio/i })).toBeInTheDocument();
+  });
 });
